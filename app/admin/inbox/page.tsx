@@ -36,13 +36,11 @@ function fmt(dt?: string) {
 
 function brandReplyHtml(html: string) {
   if (!html) return '';
-  // Keep the FriendPlace tagline on-brand in manual Inbox replies.
-  // This only styles the exact visible phrase and leaves the surrounding
-  // formatting (for example bold) intact.
-  return html.replace(
+  const branded = html.replace(
     /Because you belong too\./g,
-    '<span style="display:inline-block;background:#0A2540;color:#FFFFFF;padding:3px 8px;border-radius:6px;">Because you belong too.</span>',
+    '<span style="color:#FFFFFF;font-weight:700;">Because you belong too.</span>',
   );
+  return '<div style="background:#0A2540;color:#FFFFFF;padding:18px 20px;border-radius:12px;line-height:1.7;">' + branded + '</div>';
 }
 
 function syncSidebarUnreadBadge(count: number) {
@@ -880,7 +878,7 @@ const toChip: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#0F
 const ghostSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
 const replyToolbar: React.CSSProperties = { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 };
 const formatBtn: React.CSSProperties = { minWidth: 36, padding: '7px 10px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0A2540', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
-const replyEditorStyle: React.CSSProperties = { minHeight: 120, border: '1.5px solid #CBD5E1', borderRadius: 12, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, color: '#0F172A', background: '#FFFFFF', outline: 'none', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' };
+const replyEditorStyle: React.CSSProperties = { minHeight: 120, border: '1.5px solid #183B5B', borderRadius: 12, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, color: '#FFFFFF', background: '#0A2540', outline: 'none', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' };
 const attachBtn: React.CSSProperties = { display: 'inline-block', padding: '9px 14px', borderRadius: 10, border: '1.5px solid #0F766E', background: '#F0FDFA', color: '#0F766E', fontSize: 13, fontWeight: 800, cursor: 'pointer' };
 const attachChip: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#F8FAFC', fontSize: 13, color: '#334155' };
 const dangerSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #FCA5A5', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
