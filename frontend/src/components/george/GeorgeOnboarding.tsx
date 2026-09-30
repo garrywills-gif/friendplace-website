@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator, Platform, Alert,
+  Platform, Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -209,19 +209,6 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     } finally { setBusy(false); }
   }
 
-  async function sendSkip() {
-    if (!sessionId || busy) return;
-    setInput('');
-    setTurns(x => [...x, { role: 'user', content: "I\u2019d rather skip that" }]);
-    setBusy(true);
-    try {
-      const s = await georgeApi.onboardingTurn(sessionId, "I'd rather skip that");
-      setTurns(s.turns || []);
-      setStatus(s.status || 'in_progress');
-      setKnown(s.known || {});
-    } finally { setBusy(false); }
-  }
-
   async function approve(destination: 'moment' | 'lounge' | 'chat' = 'lounge') {
     if (!sessionId) return;
     setBusy(true);
@@ -284,7 +271,8 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
-        <Text style={styles.headerName} numberOfLines={1} adjustsFontSizeToFit ellipsizeMode="clip">{voiceLabel}</Text>
+        <Text style={styles.headerName} numberOfLines={1}>{voiceLabel}</Text>
+        <View style={{ flex: 1 }} />
         <Pressable
           onPress={confirmClearChat}
           disabled={busy || !sessionId}
@@ -451,9 +439,12 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
             ) : isTranscribing ? (
               <Text style={styles.recordingHint}>Transcribing…</Text>
             ) : null}
-            <Pressable onPress={sendSkip} disabled={busy} hitSlop={6}>
-              <Text style={styles.skipChip}>I&rsquo;d rather skip that</Text>
-            </Pressable>
+            {/* #4 (Garry, Sep 2026): the always-on "I'd rather skip that"
+                chip sat directly under the input and was too easy to hit by
+                accident. Removed — "Finish later" stays at the top of the
+                screen, and any per-question skip should be offered as one of
+                that question's own quick-reply buttons, not a permanent
+                control under the composer. */}
           </View>
         </View>
       )}
@@ -503,22 +494,26 @@ function mapConnectionValue(v: string): string {
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: '#FAFAFA' },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 16, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
   },
-  headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flex: 1, marginLeft: 6 },
+  // #3 (Garry, Sep 2026): the companion name must ALWAYS show in full on
+  // one line (George / Georgia) — never shrink or clip — while keeping the
+  // butterfly + Clear chat + Finish later. flexShrink:0 gives it its
+  // natural width; a flex:1 spacer pushes the pills to the right edge.
+  headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flexShrink: 0, marginLeft: 6 },
   clearChatBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingVertical: 6, paddingHorizontal: 8,
     borderRadius: 999, borderWidth: 1, borderColor: '#CCFBF1',
-    backgroundColor: '#F0FDFA', marginRight: 8,
+    backgroundColor: '#F0FDFA', marginRight: 6,
   },
   clearChatText: { fontSize: 12, color: '#0F766E', fontWeight: '700' },
   finishLaterBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingVertical: 6, paddingHorizontal: 8,
     borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
   },
@@ -606,7 +601,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center', paddingVertical: 6, fontSize: 12,
     color: '#0F766E', fontWeight: '700',
   },
-  skipChip: { alignSelf: 'center', paddingVertical: 8, fontSize: 12, color: '#94A3B8', textDecorationLine: 'underline' },
   actionsWrap: {
     paddingHorizontal: 16, paddingTop: 12, gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF',

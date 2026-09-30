@@ -6482,6 +6482,20 @@ async def list_tables(user_id: str | None = None):
         return (0 if d.get("pinned") else 1, "")
     docs.sort(key=_sort_key)
 
+    # Friends-only access control (Garry, Sep 2026 — "Xanda joined a
+    # friends-only table she wasn't invited to"). A `visibility == "friends"`
+    # table is visible ONLY to its creator and the explicitly-invited
+    # members; everyone else (including anonymous callers) must never see it
+    # in the café list, which is the first line of enforcement (join_table
+    # is the second). Public tables are unaffected.
+    def _can_see_table(d: dict) -> bool:
+        if (d.get("visibility") or "public") != "friends":
+            return True
+        if not user_id:
+            return False
+        return user_id == d.get("host_id") or user_id in (d.get("invited_ids") or [])
+    docs = [d for d in docs if _can_see_table(d)]
+
     if not user_id:
         return docs
 
@@ -6693,6 +6707,18 @@ async def join_table(table_id: str, user_id: str, me: dict = Depends(owner_or_ad
                     "code": "founder_only",
                     "message": "This table is reserved for Founding Members.",
                 },
+            )
+    # Friends-only access control (Garry, Sep 2026). A `visibility ==
+    # "friends"` table admits ONLY its creator and the explicitly-invited
+    # members. Every uninvited join attempt — regardless of entry path — is
+    # blocked here (the café list already hides the table; this is the
+    # authoritative server-side gate).
+    if (t.get("visibility") or "public") == "friends":
+        allowed = user_id == t.get("host_id") or user_id in (t.get("invited_ids") or [])
+        if not allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "invite_only", "message": "This table is invite only."},
             )
     if user_id in (t.get("seated") or []):
         return {"ok": True}

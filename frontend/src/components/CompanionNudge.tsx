@@ -15,7 +15,7 @@
  * push_notification fan-out), so it needs no polling of its own.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View, Platform } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
 import { useAudioPlayer } from "expo-audio";
@@ -252,22 +252,22 @@ export default function CompanionNudge() {
   };
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={hide}
+    /*
+     * Root-level absolute overlay — NOT wrapped in a React Native <Modal>.
+     * WHY (Garry, real-device round Sep 2026): iOS presents only ONE modal
+     * at a time. When the underlying screen already had a sheet/modal open
+     * (FP Café action sheet, a game screen, etc.) a second <Modal> for the
+     * nudge silently failed to present, so game/DM/table invites only
+     * surfaced AFTER navigating away (which dismissed the blocking modal).
+     * Rendering as a plain absolute/fixed View at the app root makes the
+     * nudge paint immediately over any regular screen with no navigation,
+     * refresh, or leave-and-return required. CompanionNudge is the last
+     * child in app/_layout so this View sits above the navigator content.
+     */
+    <Animated.View
+      pointerEvents="box-none"
+      style={[styles.wrap, { top: insets.top + 8, opacity: anim, transform: [{ translateY }] }]}
     >
-      {/* box-none lets taps outside the card fall through to whatever
-          screen (or other Modal) is underneath — the nudge is a passive
-          overlay, not a blocking sheet. Wrapping in a Modal is what lets
-          it float ABOVE native Modals (e.g. FP Café action sheets), so
-          the invite/message alert is visible over any active screen. */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.wrap, { top: insets.top + 8, opacity: anim, transform: [{ translateY }] }]}
-      >
         <View style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}>
           <View style={styles.row}>
             <GeorgeButterflyMark size={34} />
@@ -358,8 +358,7 @@ export default function CompanionNudge() {
             )
           )}
         </View>
-      </Animated.View>
-    </Modal>
+    </Animated.View>
   );
 }
 

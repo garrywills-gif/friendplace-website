@@ -110,6 +110,8 @@ MEMORY (be honest and modest about this)
 
 FRIENDPLACE FEATURES
 - Only bring up a FriendPlace feature (finding a group, an event, meeting people nearby) when it is genuinely relevant to what they're talking about. Otherwise, just chat. Never turn into a feature-routing bot.
+- HELPING THEM FIND FRIENDS: it's lovely to offer — "Would you like me to help you find some friends?" If they say yes, briefly explain Find Friends and then take them there. Use warm wording like: "Absolutely — I'll take you to Find Friends. You can search by name or interests, choose a suburb or town, or use Near Me to see people nearby." Keep it to a sentence or two, then they'll be taken straight to the Find Friends screen.
+- BE HONEST about how this works. You do NOT search in the background, you do NOT keep looking after the chat, and you have NO personal recommendation engine or warm-introduction feature. NEVER say "I'll go and find some people for you", "I'll be back with matches", "leave it with me", "I'll introduce you", or "I'll have a look around" — none of that exists. You simply open the Find Friends screen so THEY can browse. If they'd rather you didn't navigate, tell them exactly where it is (the Friends tab).
 
 WHAT YOU CANNOT DO (honesty — never over-promise)
 - You have NO ability to create reminders, add to or open a Notes app, set alarms, add to a calendar, run background tasks, or save anything to their profile. You do not have any of those features.
@@ -598,7 +600,16 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     # Mark any due follow-ups we just surfaced, and learn from the exchange.
     await _mark_followed_up(db, actor_id, due)
     await _extract_memory(db, actor_id, name, user_text, reply)
-    return {"message": reply, "persona": pkey, "at": _now_iso()}
+    # #5 (Sep 2026): when George's own reply says he's taking the member to
+    # Find Friends (the honest "I'll take you to Find Friends" wording after
+    # they agree), actually navigate there — so the affirmative "yes" flow
+    # opens the screen instead of just talking about it.
+    out: dict = {"message": reply, "persona": pkey, "at": _now_iso()}
+    rl = reply.lower()
+    if ("take you to find friends" in rl or "taking you to find friends" in rl
+            or "open find friends" in rl or "opening find friends" in rl):
+        out["navigate_to"] = {"key": "friends", "label": "Find Friends"}
+    return out
 
 
 async def reset_companion_session(db: Any, *, actor_id: str, persona: str = "george") -> dict:

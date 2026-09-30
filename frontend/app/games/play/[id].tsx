@@ -116,7 +116,17 @@ export default function PlayRoom() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={game ? LABELS[game] : "Play Together"} subtitle={other ? `with ${other.name}` : undefined} onBack={() => router.back()} />
+      {/* #2 (Garry, Sep 2026): during RANDOM matchmaking the session is
+          pre-seeded with a candidate opponent, but their name must NOT be
+          shown until they've actually accepted — otherwise the header reads
+          "with Ash" while the body still says "Waiting for a player…". Only
+          reveal the opponent once the game is no longer in the pending
+          "invited" state for a matchmaking session. */}
+      <Header
+        title={game ? LABELS[game] : "Play Together"}
+        subtitle={other && !(status === "invited" && session?.origin === "matchmaking") ? `with ${other.name}` : undefined}
+        onBack={() => router.back()}
+      />
       {err && (
         <View style={[styles.errBar, { backgroundColor: c.error }]}>
           <Text style={styles.errTxt}>{err}</Text>

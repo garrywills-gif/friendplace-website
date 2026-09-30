@@ -11,6 +11,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 
 type GameDef = { key: string; title: string; blurb: string; emoji: string; players: string; tint: string };
 
@@ -38,6 +39,9 @@ export default function PlayTogetherHub() {
   const [preFriend, setPreFriend] = useState<{ id: string; name: string } | null>(null);
   const [inviting, setInviting] = useState(false);
   const [matching, setMatching] = useState(false);
+  // #7 (Garry, Sep 2026): match the shared bottom-nav auto-hide on the
+  // Games menu — scroll down hides, up/pause/top shows.
+  const navScroll = useNavHideScroll();
 
   const PICK_FRIEND = "__pick_friend__";
   const activeFriend = useMemo(
@@ -102,7 +106,7 @@ export default function PlayTogetherHub() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Play Together" subtitle="Something easy to do with a friend" onBack={() => router.back()} />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }}>
+      <ScrollView {...navScroll} contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }}>
         {incoming.length > 0 && (
           <View style={{ gap: 8 }}>
             <Text style={[styles.sectionLabel, { color: c.muted }]}>INVITES FOR YOU</Text>
