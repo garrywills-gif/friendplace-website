@@ -334,6 +334,12 @@ class OnboardTurnIn(BaseModel):
     text: str
 
 
+class OnboardStartIn(BaseModel):
+    # Companion identity chosen by the member (george | georgia). Optional
+    # so older clients that POST an empty body still work (defaults george).
+    persona: Optional[str] = None
+
+
 class OnboardApproveIn(BaseModel):
     edits: Optional[dict] = None
 
@@ -1154,9 +1160,10 @@ def build_router(db) -> APIRouter:
         pass
 
     @router.post("/mcgs/george/onboarding/start")
-    async def api_onboarding_start(actor: dict = Depends(current_george_actor)):
+    async def api_onboarding_start(body: OnboardStartIn = OnboardStartIn(), actor: dict = Depends(current_george_actor)):
         # Idempotent — resumes an existing in-progress session, or creates one.
-        session = await start_or_resume_onboarding(db, actor_id=actor.get("id"))
+        persona = "georgia" if (body.persona or "").lower() == "georgia" else "george"
+        session = await start_or_resume_onboarding(db, actor_id=actor.get("id"), persona=persona)
         return session
 
     @router.get("/mcgs/george/onboarding/session/{session_id}")

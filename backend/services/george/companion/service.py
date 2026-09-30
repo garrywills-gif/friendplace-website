@@ -101,8 +101,10 @@ HOW YOU CONVERSE (this is the whole job)
 - One thought at a time. Do not stack multiple questions. Keep replies to roughly 1–4 short sentences unless the moment calls for more.
 - The conversation itself is the purpose. You do NOT need to complete a task, move them through a flow, or recommend a feature.
 
-MEMORY
-- You are given the member's remembered details below. Refer back to them naturally when relevant — it should feel like they were heard and remembered, not like they're starting from scratch.
+MEMORY (be honest and modest about this)
+- You have a light, informal memory: you can remember some useful things from your chats (like interests, names they mention, or something they said they'd do) and refer back to them naturally so they feel heard.
+- This memory is limited and imperfect — you do NOT keep a permanent record of everything, and you must never claim you do. NEVER say "I keep all of it", "I've got everything you've shared", "everything you tell me is being kept", "I'll make sure it's captured", or that something will "show up in your profile". None of that is true.
+- If they ask what you remember or whether you're saving something, be reassuring and accurate: e.g. "I hold onto a few useful bits from our chats so I can pick up where we left off, but I don't keep a full record of everything — and I can't make reminders or notes." Keep it warm, not clinical.
 - If something time-bound is due (e.g. an interview, an appointment, a trip), you may gently ask how it went — but only once, and only if it fits the flow.
 - Never invent shared history. Only reference things that are in the remembered details or visible in this conversation. If you get something wrong and they correct you, own it warmly and move on.
 
@@ -110,8 +112,9 @@ FRIENDPLACE FEATURES
 - Only bring up a FriendPlace feature (finding a group, an event, meeting people nearby) when it is genuinely relevant to what they're talking about. Otherwise, just chat. Never turn into a feature-routing bot.
 
 WHAT YOU CANNOT DO (honesty — never over-promise)
-- You cannot save, add to, or edit the phone's Notes app, reminders, calendar, or any external app. You have no scheduler and no background tasks. NEVER say you'll "add that to your notes", "make a note", "set a reminder", "add it to your calendar" or "follow up later" — you cannot do any of those.
-- If the member wants to jot something down or keep a note, be honest and helpful: e.g. "I can't add to your Notes directly yet, but I can open Notes for you and you can use the speech-to-text button to dictate it." Then, if they'd like, offer to open Notes for them.
+- You have NO ability to create reminders, add to or open a Notes app, set alarms, add to a calendar, run background tasks, or save anything to their profile. You do not have any of those features.
+- NEVER say you'll "add that to your notes", "make a note", "open Notes", "set a reminder", "add it to your calendar", "capture that for you", or "follow up later" — you cannot do any of those, and there is no Notes or reminders feature for you to use.
+- If the member wants to keep a note or set a reminder, be honest and kind: e.g. "I can remember some useful things from our chats, but I can't create reminders or add to Notes yet — you might like to jot that down somewhere handy so it's not lost." Never imply the app will store it for them.
 
 Reply with ONLY your next message to the member — plain text, no labels, no JSON, no quotes."""
 
@@ -173,6 +176,114 @@ async def _memory_doc(db: Any, actor_id: str) -> dict:
 
 def _persona_name(persona: Optional[str]) -> str:
     return "Georgia" if (persona or "").lower() == "georgia" else "George"
+
+
+# ── Navigation intent (Item 4, Sep 2026) ────────────────────────────
+# The companion can take the member to a screen ("take me to Find
+# Friends") or tell them exactly where to tap ("where is Find
+# Friends?"). Handled DETERMINISTICALLY before the LLM so a fuzzy model
+# reply can never loop on "could you say that once more?".
+#
+# `key` must be a valid GEORGE_NAV_MAP key on the client
+# (frontend/src/lib/george-nav-map.ts). `where` is the plain-language
+# location used for the "explain" answer and for destinations we can't
+# route to directly (e.g. My Friends).
+_NAV_DESTS: list[dict] = [
+    {"key": "friends",  "label": "Find Friends", "where": "the Friends tab at the bottom of the screen",
+     "syn": ["find friends", "find a friend", "find some friends", "meet people", "meet new people", "discover people", "make friends"]},
+    {"key": None,       "label": "My Friends", "where": "the Friends tab, then the \u201cMy Friends\u201d button",
+     "route": "friends", "syn": ["my friends", "my friend list", "friends list", "my mates"]},
+    {"key": "chats",    "label": "My Chats", "where": "the Chats tab at the bottom",
+     "syn": ["my chats", "chats", "messages", "my messages", "my conversations"]},
+    {"key": "lounge",   "label": "the FP Caf\u00e9", "where": "the Caf\u00e9 tab at the bottom",
+     "syn": ["fp cafe", "fp caf\u00e9", "the cafe", "the caf\u00e9", "coffee lounge", "lounge", "cafe"]},
+    {"key": "notices",  "label": "the Notice Board", "where": "the Notice Board tile on your Home screen",
+     "syn": ["notice board", "noticeboard", "notices", "the notices"]},
+    {"key": "games",    "label": "Games", "where": "the Games tile on your Home screen",
+     "syn": ["games", "play a game", "play games", "the games"]},
+    {"key": "moments",  "label": "Moments", "where": "the Moments tile on your Home screen",
+     "syn": ["moments", "share a moment", "a moment"]},
+    {"key": "groups",   "label": "Groups", "where": "the Groups tile on your Home screen",
+     "syn": ["groups", "community groups", "a group"]},
+    {"key": "events",   "label": "Events", "where": "the Events tile on your Home screen",
+     "syn": ["events", "what's on", "whats on"]},
+    {"key": "profile",  "label": "my Profile", "where": "the Profile tab at the bottom",
+     "syn": ["my profile", "profile", "my page"]},
+    {"key": "settings", "label": "Settings", "where": "the Settings option from your Profile tab",
+     "syn": ["settings", "my settings"]},
+    {"key": "notifications", "label": "Notifications", "where": "the bell icon at the top",
+     "syn": ["notifications", "my notifications", "alerts"]},
+    {"key": "help",     "label": "Help", "where": "the Help option from your Profile tab",
+     "syn": ["help", "support"]},
+    {"key": "home",     "label": "Home", "where": "the Home tab at the bottom",
+     "syn": ["home", "the home screen", "main screen"]},
+]
+
+# "Take me there" verbs → navigate; "where is / how do I find" → explain.
+_NAV_GO_RE = None
+_NAV_WHERE_RE = None
+
+
+def _nav_regexes():
+    global _NAV_GO_RE, _NAV_WHERE_RE
+    if _NAV_GO_RE is None:
+        import re
+        _NAV_GO_RE = re.compile(
+            r"\b(take me|go to|open|show me|bring me|head to|jump to|navigate|let'?s go|i want to|i'?d like to|can you open|can you take|help me find|looking for)\b",
+            re.I,
+        )
+        # A question-word phrasing ("where is…", "how do I get to…") means
+        # the member wants to be TOLD where it is, not taken there.
+        _NAV_WHERE_RE = re.compile(
+            r"\bwhere\b|\bhow (?:do|can) i\b|\bhow to\b",
+            re.I,
+        )
+    return _NAV_GO_RE, _NAV_WHERE_RE
+
+
+def _detect_nav_intent(text: str) -> Optional[dict]:
+    """Return {mode, dest} where mode ∈ {'navigate','explain'} when the
+    member is clearly asking to reach a known destination, else None."""
+    t = (text or "").strip().lower()
+    if not t or len(t) > 160:
+        return None
+    dest = None
+    dest_match_len = 0
+    for d in _NAV_DESTS:
+        hit = max((len(s) for s in d["syn"] if s in t), default=0)
+        if hit and hit > dest_match_len:
+            dest, dest_match_len = d, hit
+    if not dest:
+        return None
+    _, where_re = _nav_regexes()
+    # Question phrasing → explain where to tap; anything else that names a
+    # destination → navigate there. This keeps it deterministic (no LLM) so
+    # it can never fall into the "say that once more" loop.
+    if where_re.search(t):
+        return {"mode": "explain", "dest": dest}
+    return {"mode": "navigate", "dest": dest}
+
+
+def _nav_reply(name: str, intent: dict) -> dict:
+    dest = intent["dest"]
+    label = dest["label"]
+    if intent["mode"] == "explain":
+        return {
+            "message": f"You'll find {label} at {dest['where']}. Have a tap there and it'll open right up. Want me to take you now?",
+            "navigate_to": None,
+        }
+    # navigate
+    nav_key = dest.get("key") or dest.get("route")
+    if nav_key:
+        return {
+            "message": f"Of course — taking you to {label} now.",
+            "navigate_to": {"key": nav_key, "label": label},
+        }
+    # No direct route — fall back to a clear explanation.
+    return {
+        "message": f"{label} is at {dest['where']} — tap there and you'll see it.",
+        "navigate_to": None,
+    }
 
 
 def _persona_key(persona: Optional[str]) -> str:
@@ -445,12 +556,36 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     turns = list((doc or {}).get("turns") or [])
     turns.append({"role": "user", "content": user_text, "at": _now_iso()})
 
+    # Item 4: handle navigation intent deterministically BEFORE the LLM so
+    # "take me to Find Friends" always works and never loops on a fallback.
+    nav = _detect_nav_intent(user_text)
+    if nav:
+        nr = _nav_reply(name, nav)
+        reply = nr["message"]
+        turns.append({"role": "george", "content": reply, "at": _now_iso()})
+        await db[COLL_CHAT].update_one(
+            _chat_filter(actor_id, persona),
+            {"$set": {"actor_id": actor_id, "persona": pkey, "turns": turns[-200:],
+                      "updated_at": _now_iso(), "last_active_at": _now_iso()},
+             "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
+            upsert=True,
+        )
+        return {"message": reply, "persona": pkey, "at": _now_iso(),
+                "navigate_to": nr.get("navigate_to")}
+
     prompt, due = await _build_user_prompt(db, actor_id, turns[:-1], user_text)
     try:
         reply = (await _llm(_system_prompt(name), prompt, COMPANION_MODEL)).strip()
     except Exception as e:
         log.warning("companion turn LLM failed: %s", e)
-        reply = "Sorry — I lost my train of thought there for a second. What were you saying?"
+        # Item 4: never repeat the identical fallback — recover with a
+        # useful, varied alternative rather than asking them to repeat.
+        import random
+        reply = random.choice([
+            "Sorry, I got a bit tangled there. Let's keep going — what's on your mind?",
+            "I didn't quite catch that one. Tell me a little more, or ask me where something is in the app and I'll point you there.",
+            "My wires crossed for a second there! Carry on — I'm listening.",
+        ])
 
     turns.append({"role": "george", "content": reply, "at": _now_iso()})
     await db[COLL_CHAT].update_one(

@@ -245,9 +245,14 @@ export const georgeApi = {
     }>(`/mcgs/george/daily-welcome${qs}`);
   },
   // Onboarding
-  onboardingStart: () => _req<any>(
-    '/mcgs/george/onboarding/start', { method: 'POST', body: JSON.stringify({}) },
-  ),
+  onboardingStart: async () => {
+    // Send the member's saved companion choice so the onboarding host's
+    // name/identity matches the header, avatar, voice and placeholder.
+    const persona = (await getVoice().catch(() => DEFAULT_VOICE)) || DEFAULT_VOICE;
+    return _req<any>(
+      '/mcgs/george/onboarding/start', { method: 'POST', body: JSON.stringify({ persona }) },
+    );
+  },
   onboardingTurn: (sessionId: string, text: string) => _req<any>(
     `/mcgs/george/onboarding/session/${sessionId}/turn`,
     { method: 'POST', body: JSON.stringify({ text }) },
@@ -293,7 +298,7 @@ export const georgeApi = {
   companionGet: (persona: string) => _req<any>(
     `/mcgs/george/companion?persona=${encodeURIComponent(persona)}`,
   ),
-  companionTurn: (text: string, persona: string) => _req<{ message: string; persona: string; at: string }>(
+  companionTurn: (text: string, persona: string) => _req<{ message: string; persona: string; at: string; navigate_to?: { key: string; label: string } | null }>(
     '/mcgs/george/companion/turn',
     { method: 'POST', body: JSON.stringify({ text, persona }) },
   ),

@@ -36,6 +36,7 @@ import {
   ActivityIndicator,
   Platform,
   Image,
+  TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -49,6 +50,7 @@ import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import { useGeorgeVoice, VOICE_LABELS, hasChosenCompanion, type GeorgeVoice } from "@/src/lib/george-voice";
 import { needsProfileSetup } from "@/src/lib/profile";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
@@ -538,19 +540,26 @@ export default function OnboardingWizard() {
             width row below gives every device room for the longest
             possible label. */}
         <View style={styles.footerNavRow}>
-          {step > 0 ? (
-            <Pressable
-              testID="onb-back"
-              onPress={() => setStep((s) => Math.max(0, s - 1))}
-              hitSlop={10}
-              style={styles.backLink}
-            >
-              <Ionicons name="chevron-back" size={20} color={c.muted} />
-              <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
-            </Pressable>
-          ) : (
-            <View style={{ width: 60 }} />
-          )}
+          {/* Back is available on EVERY step — including the welcome — so
+              there's always a consistent way to step back. On the welcome
+              step (0) it returns to the profile-setup screen (the genuine
+              previous step); that screen reloads the details already
+              entered, and the chosen companion + any onboarding progress
+              are preserved (companion in storage, induction session on the
+              server). Item 5 (Garry, Sep 2026). */}
+          <Pressable
+            testID="onb-back"
+            onPress={() => (step > 0
+              ? setStep((s) => Math.max(0, s - 1))
+              : router.replace("/auth/complete-profile" as any))}
+            hitSlop={10}
+            style={styles.backLink}
+            accessibilityRole="button"
+            accessibilityLabel="Back to the previous step"
+          >
+            <Ionicons name="chevron-back" size={20} color={c.muted} />
+            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
+          </Pressable>
 
           {step === STEP_INTERESTS || step === STEP_GROUPS ? (
             <Pressable
@@ -880,6 +889,11 @@ function StepGeorgeLine({ text, c, scale }: { text: string; c: any; scale: numbe
 
 // ---------- Step 7 — Accessibility ----------
 function StepAccessibility({ scale, c }: { scale: number; c: any }) {
+  // Item 6 (Garry, Sep 2026): don't just TELL members about talk-to-text —
+  // show the real affordance right here so it's obvious. This is the exact
+  // same mic button used across the app; tapping it, speaking, and seeing
+  // the words appear demonstrates the feature far better than a bullet.
+  const [demo, setDemo] = useState("");
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
       <StepGeorgeLine c={c} scale={scale} text={"Let\u2019s make FriendPlace comfortable for you."} />
@@ -890,6 +904,35 @@ function StepAccessibility({ scale, c }: { scale: number; c: any }) {
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
         FriendPlace is designed to be easy to use — whatever your comfort level with technology.
       </Text>
+
+      {/* Live "try it" talk-to-text demo */}
+      <View style={[styles.tryVoiceCard, { backgroundColor: c.surfaceSecondary, borderColor: c.brand }]}>
+        <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>
+          🎤 Try speaking instead of typing
+        </Text>
+        <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
+          Tap the microphone and say anything — you&apos;ll see your words appear. This mic sits next to every text box in the app.
+        </Text>
+        <View style={styles.tryVoiceRow}>
+          <TextInput
+            testID="onb-voice-demo-input"
+            value={demo}
+            onChangeText={setDemo}
+            placeholder="Your words will appear here…"
+            placeholderTextColor={c.muted}
+            multiline
+            style={[styles.tryVoiceInput, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surface }]}
+          />
+          <VoiceInputButton
+            value={demo}
+            onChangeText={setDemo}
+            appendMode="append"
+            size={48}
+            testID="onb-voice-demo-mic"
+          />
+        </View>
+      </View>
+
       <View style={{ gap: 10, marginTop: 4 }}>
         {ACCESSIBILITY.map((a) => (
           <View
@@ -1173,6 +1216,30 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
   },
+  tryVoiceCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginTop: 6,
+    gap: 8,
+  },
+  tryVoiceRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    marginTop: 6,
+  },
+  tryVoiceInput: {
+    flex: 1,
+    minHeight: 48,
+    maxHeight: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+
   featureEmoji: {
     fontSize: 32,
     width: 42,

@@ -3218,6 +3218,11 @@ async def list_users(
     if not viewer_id:
         viewer_id = me.get("id")
     query: Dict = {"banned": {"$ne": True}, "profile_hidden": {"$ne": True}}
+    # Invisible members are excluded from Find Friends / discovery entirely
+    # (they still appear in existing friends' My Friends list and chats —
+    # those surfaces don't use this endpoint). `$ne: "invisible"` also
+    # matches docs with no `privacy` field, so normal members are unaffected.
+    query["privacy"] = {"$ne": "invisible"}
     if suburb:
         # SEC hardening: escape user-supplied filter values before passing to
         # Mongo `$regex`; otherwise a crafted input could inject regex

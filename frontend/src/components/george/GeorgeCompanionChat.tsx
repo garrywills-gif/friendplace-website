@@ -14,6 +14,9 @@ import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read
 import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 import { useComposerLock } from '@/src/lib/composer-lock';
+import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
+import { useGeorge } from '@/src/lib/george-context';
+import { useRouter } from 'expo-router';
 
 /**
  * George & Georgia — always-available free-form companion chat.
@@ -35,6 +38,8 @@ type Turn = { role: 'user' | 'george'; content: string };
 export function GeorgeCompanionChat({ onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { voice, hydrated } = useGeorgeVoice();
+  const { markGeorgeLedNavigation } = useGeorge();
+  const router = useRouter();
   const voiceLabel = VOICE_LABELS[voice]?.short || 'George';
   const { prefs } = useTheme();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -101,6 +106,21 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     try {
       const s = await georgeApi.companionTurn(t, voice);
       setTurns((x) => [...x, { role: 'george', content: s.message }]);
+      // Item 4: if George resolved a navigation intent, take the member
+      // there — resolve against the whitelist, flag the George-led nav so
+      // the destination plays its flutter-in, then close the chat.
+      if (s.navigate_to) {
+        const resolved = resolveGeorgeNavigate(s.navigate_to);
+        if (resolved) {
+          setTimeout(() => {
+            try {
+              markGeorgeLedNavigation(resolved.target.key as any);
+              onClose();
+              router.push(resolved.target.href as any);
+            } catch { /* non-fatal */ }
+          }, 650);
+        }
+      }
     } catch {
       setTurns((x) => [...x, { role: 'george', content: "That didn't quite reach me — could you say that once more?" }]);
     } finally { setBusy(false); }

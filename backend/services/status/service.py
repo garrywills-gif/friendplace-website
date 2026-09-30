@@ -327,6 +327,9 @@ async def list_looking(
 
     # Scope filter.
     id_filter: dict = {"id": {"$in": [x for x in candidate_ids if x not in hidden_by_block]}}
+    # Invisible members opt out of live discovery — never surface them in
+    # the "who's looking" banner even if they left a manual status set.
+    id_filter["privacy"] = {"$ne": "invisible"}
     if scope == "nearby":
         id_filter["nearby_opt_in"] = True
         if viewer and viewer.get("suburb"):
@@ -373,13 +376,28 @@ async def list_looking(
 
 async def status_for_users(db, ids: Iterable[str]) -> dict[str, str]:
     """Batch lookup used by list-view screens (Find Friends, DMs, groups, etc.)
-    Returns { user_id: effective_status }."""
+    Returns { user_id: effective_status }.
+
+    Invisible members (users.privacy == 'invisible') NEVER appear online to
+    others — their effective status is forced to 'offline' regardless of
+    heartbeat/manual/café state. This is what suppresses the green dot on
+    every list row and profile card without hiding them from surfaces they
+    deliberately joined (café/game rosters render from explicit membership,
+    not from this presence lookup)."""
     ids_list = list({x for x in ids if x})
     if not ids_list:
         return {}
     docs = await db[COLL].find({"user_id": {"$in": ids_list}}).to_list(len(ids_list))
     by_id = {d["user_id"]: d for d in docs}
-    return {uid: compute_effective_status(by_id.get(uid)) for uid in ids_list}
+    invisible: set[str] = set()
+    async for u in db.users.find(
+        {"id": {"$in": ids_list}, "privacy": "invisible"}, {"id": 1, "_id": 0}
+    ):
+        invisible.add(u["id"])
+    return {
+        uid: ("offline" if uid in invisible else compute_effective_status(by_id.get(uid)))
+        for uid in ids_list
+    }
 
 
 # ─── Auto-off triggers ──────────────────────────────────────────────

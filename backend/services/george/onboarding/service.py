@@ -189,7 +189,14 @@ async def _extract(user_text: str, known: dict) -> dict:
     return _clean_json(raw) or {}
 
 
-async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "", first_name: str = "") -> dict:
+async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "", first_name: str = "", persona: str = "george") -> dict:
+    # Companion identity comes from the member's saved choice (George or
+    # Georgia) — the SAME source that drives the header, avatar, voice and
+    # placeholder. The composer prompt is written for "George" so we swap
+    # the name when Georgia is the chosen companion; everything else in the
+    # prompt is persona-neutral.
+    name = "Georgia" if (persona or "").lower() == "georgia" else "George"
+    system = COMPOSER_SYSTEM.replace("George", name) if name != "George" else COMPOSER_SYSTEM
     # Only ever hand the composer a CONFIRMED name — a stated preferred
     # name, else the signup first name — never an inferred/filler value.
     safe_known = dict(known or {})
@@ -204,6 +211,7 @@ async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, k
         safe_known.pop("preferred_name", None)
     confirmed_name = stated_name or clean_name(first_name) or ""
     name_line = (
+        f"YOUR NAME (non-negotiable): You are {name}. Always refer to yourself as {name}.\n"
         f"CONFIRMED NAME (the ONLY name you may use to address them; if empty, use no name): {confirmed_name}\n"
     )
     prompt = (
@@ -214,10 +222,10 @@ async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, k
         f"CONVERSATION SO FAR (most recent last):\n" +
         "\n".join(f"{t['role']}: {t['content']}" for t in turns[-12:])
     )
-    raw = await _llm(COMPOSER_SYSTEM, prompt, "claude-sonnet-4-5-20250929", kb_block=kb_block)
+    raw = await _llm(system, prompt, "claude-sonnet-4-5-20250929", kb_block=kb_block)
     return _clean_json(raw) or {
         "state": "needs_reply",
-        "message": "Sorry \u2014 give me a moment. Could you say that once more?",
+        "message": f"Sorry \u2014 I didn\u2019t quite catch that. Could you tell me once more, or tap a button below and I\u2019ll point you the right way?",
     }
 
 
@@ -329,9 +337,20 @@ async def active_onboarding_session(db: Any, *, actor_id: str) -> Optional[dict]
     return active
 
 
-async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
+async def start_or_resume_onboarding(db: Any, *, actor_id: str, persona: str = "george") -> dict:
     existing = await active_onboarding_session(db, actor_id=actor_id)
     if existing:
+        # Keep the host identity aligned with the member's current choice —
+        # if they switched George↔Georgia since the session began, honour it.
+        if (existing.get("persona") or "george") != persona:
+            try:
+                await db[COLL_ONBOARDING].update_one(
+                    {"session_id": existing.get("session_id")},
+                    {"$set": {"persona": persona}},
+                )
+                existing["persona"] = persona
+            except Exception:
+                pass
         return existing
     session_id = str(uuid.uuid4())
     # Durable memory (item 5, Sep 2026): remembered facts are kept on the
@@ -353,7 +372,7 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
     skipped: list = []
     turns: list = []
     first_name = await _user_first_name(db, actor_id)
-    composed = await _compose(known, turns, skipped, is_first=True, first_name=first_name)
+    composed = await _compose(known, turns, skipped, is_first=True, first_name=first_name, persona=persona)
     turns.append({
         "role": "george",
         "content": composed.get("message") or "Let\u2019s start with something easy. What would you like me to call you?",
@@ -364,6 +383,7 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
         "id": session_id,
         "session_id": session_id,
         "actor_id": actor_id,
+        "persona": persona,
         "status": "drafted" if composed.get("state") == "ready_to_summarise" else "in_progress",
         "turns": turns,
         "known": known,
@@ -405,7 +425,8 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
     )
 
     composed = await _compose(known, turns, skipped, is_first=False, kb_block=_kb_block,
-                              first_name=await _user_first_name(db, session.get("actor_id")))
+                              first_name=await _user_first_name(db, session.get("actor_id")),
+                              persona=session.get("persona") or "george")
     # Conversation-first (Garry, Sep 2026): onboarding no longer force-
     # advances to a summary once N fields are gathered. Getting-to-know-you
     # questions are conversation starters, not a questionnaire — George
