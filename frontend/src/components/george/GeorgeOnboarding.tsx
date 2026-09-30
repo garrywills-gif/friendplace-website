@@ -16,6 +16,9 @@ import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read
 import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 import { useComposerLock } from '@/src/lib/composer-lock';
+import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
+import { useGeorge } from '@/src/lib/george-context';
+import { useRouter } from 'expo-router';
 
 /**
  * George's onboarding conversation surface — Slice B4 mobile MVP.
@@ -56,6 +59,8 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const insets = useSafeAreaInsets();
   const { voice } = useGeorgeVoice();
   const voiceLabel = VOICE_LABELS[voice]?.short || 'George';
+  const { markGeorgeLedNavigation } = useGeorge();
+  const router = useRouter();
   const { prefs } = useTheme();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -204,6 +209,21 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       setTurns(returnedTurns);
       setStatus(nextStatus);
       setKnown(s.known || {});
+      // #5 (Garry, real-device Sep 2026): if George is taking them to Find
+      // Friends, actually open it (Finish later so they can come back to
+      // the induction) instead of pretending to search in the background.
+      if (s.navigate_to === 'friends') {
+        const resolved = resolveGeorgeNavigate({ key: 'friends', label: 'Find Friends' });
+        if (resolved) {
+          setTimeout(() => {
+            try {
+              markGeorgeLedNavigation(resolved.target.key as any);
+              onFinishLater();
+              router.push(resolved.target.href as any);
+            } catch { /* non-fatal */ }
+          }, 900);
+        }
+      }
     } catch {
       setTurns(x => [...x, { role: 'george', content: "That didn't quite reach me \u2014 could you say that once more?" }]);
     } finally { setBusy(false); }
