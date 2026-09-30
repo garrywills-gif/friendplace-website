@@ -22,8 +22,6 @@ export function AskGeorgeBar() {
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const micPointerHandledRef = useRef(false);
-  const askPointerHandledRef = useRef(false);
   // Batch-3 continuity: know if there's a preserved conversation so we
   // can offer a "Continue" button when the sheet is closed.
   const { hasConversation, turns } = useGeorgeSession();
@@ -116,6 +114,14 @@ export function AskGeorgeBar() {
     }
   }
 
+  // iOS (installed Apple app / WKWebView) reliability: use a SINGLE
+  // onClick for the mic and Ask buttons — exactly like the in-sheet
+  // composer, which works cleanly on the Apple app. The previous
+  // onPointerDown+onClick pair with a ref-guard went out of sync on iOS
+  // because the mic button's label flips (🎙️ ⇄ ⏹) between renders, so
+  // Safari fired `click` inconsistently — the cause of "nothing happens",
+  // "takes 2-3 presses", and the Ask button getting stuck. onClick is a
+  // trusted user gesture on iOS, so getUserMedia() still prompts correctly.
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -123,36 +129,6 @@ export function AskGeorgeBar() {
       // React-state/closure in WKWebView (installed Mac web app).
       submit(inputRef.current?.value);
     }
-  }
-
-  // Installed macOS web apps can intermittently swallow a synthesized
-  // `click` after a pointer press in the title/header region. Handle the
-  // pointer press immediately, then suppress the matching click. Keyboard
-  // activation still comes through `onClick`, so accessibility remains.
-  function onMicPointerDown() {
-    micPointerHandledRef.current = true;
-    void toggleMic();
-  }
-
-  function onMicClick() {
-    if (micPointerHandledRef.current) {
-      micPointerHandledRef.current = false;
-      return;
-    }
-    void toggleMic();
-  }
-
-  function onAskPointerDown() {
-    askPointerHandledRef.current = true;
-    submit(inputRef.current?.value);
-  }
-
-  function onAskClick() {
-    if (askPointerHandledRef.current) {
-      askPointerHandledRef.current = false;
-      return;
-    }
-    submit(inputRef.current?.value);
   }
 
   const showRecordingUI = rec.recording || transcribing;
@@ -209,8 +185,7 @@ export function AskGeorgeBar() {
           {/* Microphone — tap-to-toggle */}
           <button
             type="button"
-            onPointerDown={onMicPointerDown}
-            onClick={onMicClick}
+            onClick={() => void toggleMic()}
             disabled={transcribing}
             title={rec.recording ? 'Stop recording' : 'Talk to George'}
             style={{
@@ -235,8 +210,7 @@ export function AskGeorgeBar() {
            */}
           <button
             type="button"
-            onPointerDown={onAskPointerDown}
-            onClick={onAskClick}
+            onClick={() => submit(inputRef.current?.value)}
             aria-disabled={!input.trim()}
             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
           >Ask</button>
