@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert, AppState } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
@@ -126,6 +127,7 @@ export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
+  const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
   const { show } = useToast();
   const [messages, setMessages] = useState<any[]>([]);
@@ -142,6 +144,12 @@ export default function DM() {
   const typingSentAtRef = useRef<number>(0);
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // iter213-b: explicit TextInput ref so a tap anywhere on the composer
+  // pill (not just the exact text area) focuses the input and brings up
+  // the keyboard. Previously only the TextInput's inner glyph area was
+  // tappable, which members with larger fingers were missing on real
+  // iPhones — tap-to-focus is now the whole white pill.
+  const inputRef = useRef<TextInput | null>(null);
   const listRef = useRef<FlatList>(null);
   // Self-DM (Notes to Myself) — when the other participant is the
   // caller. The Header renames itself and the "report user" button
@@ -557,7 +565,7 @@ export default function DM() {
             }}
           />
         </View>
-        <View style={[styles.composerRow, { backgroundColor: "#EAF2FB", borderColor: "#B6CFEA" }]}>
+        <View style={[styles.composerRow, { backgroundColor: "#EAF2FB", borderColor: "#B6CFEA", paddingBottom: 12 + Math.max(insets.bottom - 4, 0) }]}>
           {/* iter212: typing indicator — a soft "{name} is typing…" row
               only appears when the OTHER participant is typing. We never
               show our own typing. */}
@@ -573,34 +581,39 @@ export default function DM() {
               </View>
             </View>
           ) : null}
-          {/* iter213 (Garry, Oct 2026 — POLISH #4): outer composer area
-              now carries a soft blue wash (#EAF2FB) with a slightly
-              stronger top border so the input zone separates clearly
-              from the notebook paper above. Inner pill stays white so
-              the typing surface itself still looks like "where you
-              write". Minimum height bumped so the mic + text target is
-              easier to hit without hunting. */}
-          <View style={[styles.composerPill, { backgroundColor: "#FFFFFF", borderColor: "#B6CFEA" }]}>
+          {/* iter213 refinement (Garry, Oct 2026): composer was still
+              cramped on real device — mic+input shared one tight pill
+              and iPhone home-indicator was eating the bottom edge so
+              taps missed. Fix: input gets its own full-width white pill
+              that stretches edge-to-edge, mic sits beside it in a
+              separate round button, and the whole row pads for the
+              safe-area bottom inset. Tap target on the input is now
+              44pt tall so a single tap always opens the keyboard. */}
+          <View style={styles.composerBar}>
             <TextInput
+              ref={inputRef}
               testID="dm-input"
               value={text}
               onChangeText={handleChangeText}
               placeholder={isSelfDm ? "Write yourself a note…" : "Type a message…"}
               placeholderTextColor="#8AA7C7"
-              style={[styles.pillInput, { color: "#0F2A4D", fontSize: 15 * scale }]}
+              style={[styles.composerPill, { backgroundColor: "#FFFFFF", borderColor: "#B6CFEA", color: "#0F2A4D", fontSize: 16 * scale }]}
               multiline
+              textAlignVertical="center"
             />
-            <VoiceInputButton
-              testID="dm-mic"
-              sendTestID="dm-send"
-              value={text}
-              onChangeText={handleChangeText}
-              userId={user?.id}
-              onError={show}
-              size={42}
-              onSend={send}
-              voiceEnabled={prefs.voiceInputEnabled}
-            />
+            <View style={styles.micWrap}>
+              <VoiceInputButton
+                testID="dm-mic"
+                sendTestID="dm-send"
+                value={text}
+                onChangeText={handleChangeText}
+                userId={user?.id}
+                onError={show}
+                size={48}
+                onSend={send}
+                voiceEnabled={prefs.voiceInputEnabled}
+              />
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -625,17 +638,14 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     gap: 6,
     paddingHorizontal: 12,
-    // iter213 (Garry, Oct 2026 — POLISH #4): slightly taller composer
-    // area so the input zone is easier to spot even before the keyboard
-    // opens. The top border is painted with a light blue so the handoff
-    // between notebook paper and typing area is unmistakable.
+    // iter213-b (Garry, Oct 2026 — composer fit): more vertical room so
+    // the input + mic clear the iPhone home-indicator safely. Bottom
+    // padding is topped up at runtime with the safe-area inset so the
+    // composer never sits under the home bar.
     paddingTop: 12,
     paddingBottom: 12,
     borderTopWidth: 1.5,
   },
-  // iter212: typing indicator row — bordered pill above the composer so
-  // the "X is typing…" line is visually tied to the chat without
-  // crowding the input itself.
   typingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -647,22 +657,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: "80%",
   },
-  composerPill: {
-    flex: 1,
+  // iter213-b: composer BAR holds the full-width input pill + the
+  // standalone mic button side-by-side. The input pill now stretches
+  // across most of the row (flex: 1), so it reads as the obvious place
+  // to type. The mic lives in its own compact wrapper on the right.
+  composerBar: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 8,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    paddingLeft: 16,
-    paddingRight: 4,
-    paddingVertical: 6,
-    minHeight: 52,
+    gap: 10,
   },
-  pillInput: {
+  // iter213-b: the input pill IS the TextInput now (no wrapper
+  // Pressable). On iOS, wrapping a TextInput in Pressable can swallow
+  // the first tap and block the keyboard from appearing — making the
+  // input itself the pill means a single tap always focuses it
+  // natively. 54pt tall for a comfortable finger target.
+  composerPill: {
     flex: 1,
-    paddingVertical: 10,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    paddingHorizontal: 18,
+    paddingTop: Platform.OS === "ios" ? 15 : 10,
+    paddingBottom: Platform.OS === "ios" ? 15 : 10,
+    minHeight: 54,
     maxHeight: 120,
+  },
+  micWrap: {
+    alignSelf: "flex-end",
+    marginBottom: 2,
   },
   // Date separator (Today · Yesterday · long date) — a pill nested
   // between two hairlines so it sits calmly on the notebook paper.
