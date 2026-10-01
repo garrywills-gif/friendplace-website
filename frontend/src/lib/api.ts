@@ -242,6 +242,9 @@ export const api = {
   getUserSilent: (id: string) => req(`/users/${id}`, {}, { silent: true }),
   blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
   unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
+  // iter210 (Garry, Oct 2026 — FEATURE #14): list the user's currently
+  // blocked members for a Settings → Blocked members screen.
+  listBlocked: (uid: string) => req(`/users/${uid}/blocked`),
   reportUser: (uid: string, other: string, reason = "") =>
     req(`/users/${uid}/report/${other}?reason=${encodeURIComponent(reason)}`, { method: "POST" }),
 
@@ -519,6 +522,10 @@ export const api = {
   playGet: (sid: string) => req(`/play/${sid}`, {}, { silent: true }),
   playAccept: (sid: string) => req(`/play/${sid}/accept`, { method: "POST" }),
   playDecline: (sid: string) => req(`/play/${sid}/decline`, { method: "POST" }),
+  // iter210 (Garry, Oct 2026 — RED #8): Snooze gives the sender clear
+  // "X isn't ready to play right now" feedback so they're no longer
+  // left on an endless "Waiting for X to accept".
+  playSnooze: (sid: string) => req(`/play/${sid}/snooze`, { method: "POST" }),
   playCancel: (sid: string) => req(`/play/${sid}/cancel`, { method: "POST" }),
   playMove: (sid: string, body: { answers?: number[]; word?: string; give_up?: boolean }) =>
     req(`/play/${sid}/move`, { method: "POST", body: JSON.stringify(body) }),
@@ -720,6 +727,12 @@ export const api = {
     req("/greetings/send", { method: "POST", body: JSON.stringify(body) }),
   thankGreeting: (body: { from_id: string; to_id: string; notif_id?: string }) =>
     req("/greetings/thanks", { method: "POST", body: JSON.stringify(body) }),
+  // iter210 (Garry, Oct 2026 — RED #4): server-backed one-shot state for
+  // Welcome / Birthday wishes. Returns `{ welcome: string[], birthday:
+  // string[] }` — the recipient IDs the signed-in user has already greeted
+  // today. Hydrates Home + Notifications so sent buttons stay "sent ✓"
+  // after navigating away and back / app restart.
+  greetingsSentToday: (uid: string) => req(`/greetings/sent-today/${uid}`),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   myOutboundActiveFlutters: (uid: string): Promise<{ active: Array<{ flutter_id: string; to_id: string; created_at: string }> }> =>
     req(`/flutters/${uid}/outbound-active`),

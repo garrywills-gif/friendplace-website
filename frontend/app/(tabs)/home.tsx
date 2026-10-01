@@ -348,6 +348,19 @@ export default function Home() {
       setInvitedCount(Number(s?.count) || 0);
     } catch {}
     try { setFounderStatus(await api.founderStatus()); } catch {}
+    // iter210 (Garry, Oct 2026 — RED #4 + #5): hydrate the `greeted` map
+    // from the server so one-shot Welcome / Birthday buttons stay in
+    // their "sent ✓" state across navigation, refresh and app restart.
+    // The community rows for members we've already greeted today are
+    // ALSO filtered out of /community/today server-side so Home shows
+    // only pending actions.
+    try {
+      const r: any = await api.greetingsSentToday(user.id);
+      const map: Record<string, boolean> = {};
+      ((r?.welcome as string[]) || []).forEach((id) => { if (id) map[id] = true; });
+      ((r?.birthday as string[]) || []).forEach((id) => { if (id) map[id] = true; });
+      setGreeted(map);
+    } catch {}
     // Moment of the Week — silent fetch. Absence returns `moment: null`,
     // in which case the banner just doesn't render (no error state).
     try {
@@ -1197,8 +1210,15 @@ export default function Home() {
         {community && (community.birthdays?.length || community.new_members?.length || community.anniversaries?.length || community.milestones?.last_reached) ? (
           <View style={[styles.communityCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="community-card">
             <Text style={[styles.communityHead, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY TODAY</Text>
-            {community.birthdays?.slice(0, 3).map((u: any) => (
-              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => sendGreeting(u.id, "birthday", "Birthday wishes sent 🎂")} style={styles.commRow}>
+            {(community.birthdays || []).filter((u: any) => !greeted[u.id]).slice(0, 3).map((u: any) => (
+              <Pressable
+                key={`b-${u.id}`}
+                testID={`bday-${u.id}`}
+                onPress={() => sendGreeting(u.id, "birthday", "Birthday wishes sent 🎂")}
+                pressRetentionOffset={0}
+                delayLongPress={1000}
+                style={styles.commRow}
+              >
                 <Text style={styles.commEmoji}>🎂</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   {greeted[u.id] ? `Birthday wishes sent to ${u.first_name} 🎂` : `Send ${u.first_name} birthday wishes 🎂`}
@@ -1215,11 +1235,15 @@ export default function Home() {
                 <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>
             ))}
-            {community.new_members?.length > 0 && (
+            {(() => {
+              const pending = (community.new_members || []).filter((u: any) => !greeted[u.id]);
+              return pending.length > 0 && (
               <Pressable
                 testID="new-members-row"
+                pressRetentionOffset={0}
+                delayLongPress={1000}
                 onPress={() => {
-                  const newOnes = community.new_members as any[];
+                  const newOnes = pending as any[];
                   // Single new member → send a lightweight welcome wave
                   // (a flutter, NOT a chat). Multiple → open the focused
                   // "new this week" list so each can be welcomed there.
@@ -1234,15 +1258,14 @@ export default function Home() {
               >
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
-                  {community.new_members.length === 1
-                    ? (greeted[community.new_members[0].id]
-                        ? `Welcome sent to ${community.new_members[0].first_name || community.new_members[0].username || "them"} 👋`
-                        : `👋 Welcome ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} to FriendPlace`)
-                    : `👋 Welcome ${community.new_members.length} new neighbours to FriendPlace`}
+                  {pending.length === 1
+                    ? `👋 Welcome ${pending[0].first_name || "a new neighbour"} to FriendPlace`
+                    : `👋 Welcome ${pending.length} new neighbours to FriendPlace`}
                 </Text>
-                <Ionicons name={(community.new_members.length === 1 && greeted[community.new_members[0].id]) ? "checkmark-circle" : "chevron-forward"} size={18} color={(community.new_members.length === 1 && greeted[community.new_members[0].id]) ? c.brand : c.muted} />
+                <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>
-            )}
+              );
+            })()}
             {community.milestones?.last_reached && (
               <View style={styles.commRow}>
                 <Text style={styles.commEmoji}>🏆</Text>

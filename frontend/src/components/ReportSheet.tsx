@@ -56,10 +56,27 @@ export default function ReportSheet({ visible, onClose, target_type, target_id, 
       });
       setAutoRestricted(!!r.auto_restricted);
       setStage("thanks");
-      onAfterReport?.({ auto_restricted: !!r.auto_restricted });
+      // iter210 (Garry, Oct 2026 — RED #13): the parent used to be
+      // notified SYNCHRONOUSLY which could trigger a conflicting state
+      // change (e.g. refetching the list) before the "Thanks" screen
+      // was rendered, leaving the modal in a stuck state. Defer the
+      // parent callback to a microtask so the thanks UI mounts first.
+      setTimeout(() => { try { onAfterReport?.({ auto_restricted: !!r.auto_restricted }); } catch { /* noop */ } }, 50);
     } catch {
       show("Could not submit report. Please try again.");
     } finally { setSubmitting(false); }
+  };
+
+  // iter210 — "Done" after thanks: reset stage locally, then close.
+  // Avoids a race where the parent sets `visible=false` before our
+  // own state fully updates, which could leave the sheet half-mounted
+  // on iOS and feel like the screen froze.
+  const closeAfterThanks = () => {
+    setStage("choose");
+    setReason("");
+    setNotes("");
+    setAutoRestricted(false);
+    setTimeout(() => { try { onClose(); } catch { /* noop */ } }, 30);
   };
 
   const blockUser = async () => {
@@ -70,8 +87,8 @@ export default function ReportSheet({ visible, onClose, target_type, target_id, 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={stage === "thanks" ? closeAfterThanks : onClose}>
+      <Pressable style={styles.backdrop} onPress={stage === "thanks" ? closeAfterThanks : onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
           {stage === "choose" ? (
             <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 30, gap: 12 }}>
@@ -125,7 +142,7 @@ export default function ReportSheet({ visible, onClose, target_type, target_id, 
                     <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Block this user</Text>
                   </Pressable>
                 )}
-                <Pressable onPress={onClose} style={[styles.btn, { backgroundColor: c.brand, borderColor: c.brand }]}>
+                <Pressable onPress={closeAfterThanks} testID="report-done" style={[styles.btn, { backgroundColor: c.brand, borderColor: c.brand }]}>
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Done</Text>
                 </Pressable>
               </View>

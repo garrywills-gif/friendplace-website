@@ -595,6 +595,39 @@ def _safe_user(u: dict) -> dict:
 # password hash — is stripped so we never leak PII or auth material to
 # another user (SEC-002). Only the authenticated owner sees their own
 # private fields via /api/users/{id} where user_id == token subject.
+# iter210 (Garry, Oct 2026): member-facing text must NEVER show auth-style
+# identifiers, generated handles, email-derived usernames, or internal IDs.
+# This helper returns a human-friendly display name for a user document,
+# falling back to the stable "A new member" string if we can't trust the
+# stored first_name. We treat a name as "unsafe to show" when it:
+#   • contains digits (handles like fvh56ftsnw usually do),
+#   • has no vowels at all (hashes / random strings),
+#   • is longer than 20 chars,
+#   • contains an "@" (email leak),
+#   • is empty or only whitespace.
+# We NEVER fall back to username — usernames are often auto-generated or
+# derived from the email local-part and should not leak into member UI.
+import re as _display_name_re  # local alias to avoid shadowing at import site
+
+def _safe_display_name(u: Dict[str, Any], fallback: str = "A new member") -> str:
+    """Return a human-friendly display name for a user doc. Never leaks
+    raw usernames / auth IDs — falls back to `fallback` when the stored
+    first_name doesn't look like a human-entered name."""
+    name = str(u.get("first_name") or "").strip()
+    if not name:
+        return fallback
+    if "@" in name:
+        return fallback
+    if len(name) > 20:
+        return fallback
+    if any(ch.isdigit() for ch in name):
+        return fallback
+    if not any(ch in "aeiouyAEIOUY" for ch in name):
+        return fallback
+    # At least one letter, no obvious random-handle shape — safe to use.
+    return name
+
+
 _PEER_VISIBLE_FIELDS = {
     "id", "first_name", "username", "avatar", "bio", "suburb",
     "suburb_postcode", "suburb_state", "suburb_hidden", "interests", "points", "badges",
@@ -3559,7 +3592,7 @@ async def list_notifications(user_id: str, unread_only: bool = False):
 # Notification types the root companion overlay nudges for — mirrors the
 # frontend NUDGE_TYPES set. Includes DMs (which the bell excludes) because
 # the overlay needs them.
-NUDGE_NOTIF_TYPES = ("dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite")
+NUDGE_NOTIF_TYPES = ("dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite", "welcome", "birthday_wish")
 
 
 @api.get("/notifications/{user_id}/live-nudges")
@@ -4289,6 +4322,41 @@ async def community_today(user_id: Optional[str] = None):
     reached = [m for m in COMMUNITY_MILESTONES if total_users >= m["users"]]
     next_milestone = next((m for m in COMMUNITY_MILESTONES if total_users < m["users"]), None)
 
+    # iter210 (Garry, Oct 2026 — RED #5): once a member has waved welcome or
+    # sent birthday wishes to someone, that row must disappear from Home —
+    # the Home card shows PENDING actions only. We look up today's sent
+    # greetings for this viewer and strip the matching recipients below.
+    sent_today: set = set()
+    sent_bday_today: set = set()
+    if user_id:
+        start_of_day = datetime.combine(today.date(), datetime.min.time(), tzinfo=timezone.utc).isoformat()
+        async for n in db.notifications.find(
+            {
+                "type": {"$in": ["welcome", "birthday_wish"]},
+                "payload.from_id": user_id,
+                "created_at": {"$gte": start_of_day},
+            },
+            {"_id": 0, "user_id": 1, "type": 1},
+        ):
+            if n.get("type") == "birthday_wish":
+                sent_bday_today.add(n.get("user_id"))
+            else:
+                sent_today.add(n.get("user_id"))
+
+    birthdays_all = [u for u in birthdays_all if u.get("id") not in sent_bday_today]
+    new_members = [u for u in new_members if u.get("id") not in sent_today]
+
+    # iter210 (Garry, Oct 2026 — RED #2): never return raw auth-style
+    # usernames to the client in community cards. Overwrite first_name
+    # with the sanitised display name; empty username field so the
+    # client can't fall back to the handle either.
+    def _clean(u: Dict) -> Dict:
+        safe = _safe_display_name(u, fallback="A new member")
+        return {**u, "first_name": safe, "username": ""}
+    birthdays_all = [_clean(u) for u in birthdays_all]
+    new_members = [_clean(u) for u in new_members]
+    anniversaries = [{**_clean(u), "years": u.get("years")} for u in anniversaries]
+
     return {
         "date": today.date().isoformat(),
         "birthdays": birthdays_all,
@@ -4302,15 +4370,47 @@ async def community_today(user_id: Optional[str] = None):
     }
 
 
+@api.get("/greetings/sent-today/{user_id}")
+async def greetings_sent_today(user_id: str, me: dict = Depends(owner_or_admin)):
+    """iter210 — Home + Notifications hydrate from this so the one-shot
+    Welcome / Birthday / Thanks buttons stay in their "sent ✓" state after
+    navigating away and back (server-backed persistence)."""
+    today = datetime.now(timezone.utc)
+    start_of_day = datetime.combine(today.date(), datetime.min.time(), tzinfo=timezone.utc).isoformat()
+    welcomes: List[str] = []
+    birthdays: List[str] = []
+    async for n in db.notifications.find(
+        {
+            "type": {"$in": ["welcome", "birthday_wish"]},
+            "payload.from_id": user_id,
+            "created_at": {"$gte": start_of_day},
+        },
+        {"_id": 0, "user_id": 1, "type": 1},
+    ):
+        if n.get("type") == "birthday_wish":
+            birthdays.append(n.get("user_id"))
+        else:
+            welcomes.append(n.get("user_id"))
+    return {"welcome": welcomes, "birthday": birthdays}
+
+
+
 async def _broadcast_new_member(user: Dict):
     """Send a 'welcome new member' notification to all active users so they can wave hello."""
     if user.get("is_demo"):
         return
     recipients = await db.users.find({"id": {"$ne": user["id"]}, "banned": {"$ne": True}}, {"_id": 0, "id": 1}).to_list(2000)
+    # iter210 (Garry, Oct 2026 — RED): a member whose first_name wasn't filled
+    # on signup was showing up in notifications as their raw auth-style
+    # username ("fvh56ftsnw"). Member-facing UI must only show the human
+    # display name; when we can't trust it, fall back to "A new member".
+    display = _safe_display_name(user, fallback="A new member")
+    suburb = (user.get("suburb") or "").strip() if not user.get("suburb_hidden") else ""
+    body_tail = f" from {suburb}" if suburb else ""
     note_template = {
         "type": "new_member",
         "title": "Say hello to a new member",
-        "body": f"{user.get('first_name') or user.get('username','?')} just joined FriendPlace from {user.get('suburb') or 'nearby'}. Send a wave!",
+        "body": f"{display} just joined FriendPlace{body_tail}. Send a wave!",
         "ref_user_id": user["id"],
     }
     for r in recipients:
@@ -4633,10 +4733,16 @@ async def set_user_location(user_id: str, body: SetLocationBody, me: dict = Depe
     matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
     chosen = matches[0] if matches else None
     update: Dict = {"location_visibility": "suburb"}
-    # Public visibility flag travels alongside the suburb so "Hide my suburb"
-    # is purely a display toggle and never blocks setting a real suburb.
-    if body.hidden is not None:
-        update["suburb_hidden"] = bool(body.hidden)
+    # iter210 (Garry, Oct 2026 — RED #12): toggling "Hide my suburb" OFF used
+    # to leave the stored `suburb_hidden` flag at True, so the suburb stayed
+    # invisible on member cards and public profiles even though the UI
+    # showed it as un-hidden. Default to clearing the flag on every
+    # non-prefer_not_to_say save unless the caller explicitly asks for it
+    # to stay hidden via `body.hidden=true`.
+    if body.hidden is True:
+        update["suburb_hidden"] = True
+    else:
+        update["suburb_hidden"] = False
     if chosen:
         update["suburb"] = chosen["name"]
         update["suburb_postcode"] = chosen["postcode"]
@@ -9394,6 +9500,36 @@ async def unblock_user(user_id: str, other_id: str, me: dict = Depends(owner_or_
     return {"ok": True}
 
 
+# iter210 (Garry, Oct 2026 — FEATURE #14): members had no way to review
+# who they'd blocked. This surfaces the current blocklist with just the
+# fields the UI needs (name + avatar) so a Settings → Blocked members
+# screen can show the list with an "Unblock" button beside each row.
+@api.get("/users/{user_id}/blocked")
+async def list_blocked_users(user_id: str, me: dict = Depends(owner_or_admin)):
+    me_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "blocked": 1})
+    ids = list((me_doc or {}).get("blocked") or [])
+    if not ids:
+        return {"blocked": []}
+    cur = db.users.find(
+        {"id": {"$in": ids}},
+        {"_id": 0, "id": 1, "first_name": 1, "avatar": 1, "suburb": 1, "suburb_hidden": 1},
+    )
+    out: List[Dict[str, Any]] = []
+    async for u in cur:
+        out.append({
+            "id": u.get("id"),
+            "first_name": _safe_display_name(u, fallback="A member"),
+            "avatar": u.get("avatar") or "",
+            "suburb": "" if u.get("suburb_hidden") else (u.get("suburb") or ""),
+        })
+    # Preserve the order from the member's blocked array so most-recently-
+    # added appears last (same order the array is appended in).
+    order = {uid: i for i, uid in enumerate(ids)}
+    out.sort(key=lambda r: order.get(r["id"], 1_000_000))
+    return {"blocked": out}
+
+
+
 # ============================ Safety & Moderation ============================
 REPORT_REASONS = ["Spam", "Harassment / Bullying", "Inappropriate Content", "Fake Profile", "Scam / Suspicious Behaviour", "Other"]
 SUPPORT_CATEGORIES = ["Bug / Technical issue", "Account help", "Suggestion / Feedback", "Other"]
@@ -11264,7 +11400,7 @@ async def send_greeting(body: GreetingSendBody):
     if body.from_id != body.to_id and body.from_id in (receiver.get("blocked") or []):
         raise HTTPException(403, "Cannot greet this user")
 
-    name = sender.get("first_name") or sender.get("username") or "Someone"
+    name = _safe_display_name(sender, fallback="A member")
     payload = {"from_id": body.from_id, "from_name": name, "from_avatar": sender.get("avatar") or "🙂"}
     if body.kind == "birthday":
         n_type = "birthday_wish"
@@ -11393,10 +11529,16 @@ async def send_flutter(body: FlutterSendBody):
     )
     await db.flutters.insert_one(f.dict())
     await award_points(body.from_id, 2)
+    # iter210 (Garry, Oct 2026 — RED #11): the title used to be
+    # "{avatar} {name} is looking to chat" which (a) embedded the raw
+    # avatar string in a title and (b) confused Flutter with the
+    # separate "Looking for a chat" event type. The correct wording is
+    # explicit — a Flutter is its own thing.
+    display_from = _safe_display_name({"first_name": f.from_name}, fallback="A friend")
     await push_notification(
         body.to_id,
         "flutter",
-        f"{f.from_avatar} {f.from_name} is looking to chat",
+        f"{display_from} sent you a Flutter 🦋",
         f.message or "",
         {"from_id": body.from_id, "flutter_id": f.id},
     )

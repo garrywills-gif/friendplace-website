@@ -4,9 +4,12 @@
  *
  * Why (Garry, Sep 2026): the jump to Find Friends used to fire so fast the
  * member couldn't read George's final message. This paints a calm overlay
- * with the butterfly, an "Opening {label}…" line and a ~1.2 s fuse bar, THEN
+ * with the butterfly, an "Opening {label}…" line and a ~5.5s fuse bar, THEN
  * calls `onDone()` to perform the actual route change. Give the member a
- * beat to register where they're being taken.
+ * generous beat (iter210 — Garry, Oct 2026: the previous 1.2s was still
+ * too quick to read; held at 5-6s now) to register where they're being
+ * taken, with a clear visible progress bar so they know something is
+ * happening.
  *
  * Usage:
  *   const [navTo, setNavTo] = useState<{label; run: () => void} | null>(null);
@@ -17,7 +20,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { GeorgeButterflyMark } from '@/src/components/george/GeorgeButterflyMark';
 import { useTheme } from '@/src/lib/theme';
 
-const DURATION_MS = 1200;
+const DURATION_MS = 5500;
 
 export default function GeorgeNavFuse({
   label,

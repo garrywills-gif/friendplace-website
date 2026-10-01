@@ -252,6 +252,20 @@ export default function Settings() {
         <Text style={{ color: c.muted, fontSize: 15 * scale, lineHeight: 22 }}>
           You can report or block any user from their profile page. Reports go to our moderator dashboard so we can keep FriendPlace a warm and welcoming space for everyone. 🦋
         </Text>
+        {/* iter210 (Garry, Oct 2026 — FEATURE #14): review + unblock. */}
+        {user ? (
+          <Pressable
+            testID="settings-blocked-members"
+            onPress={() => router.push("/settings/blocked" as any)}
+            style={[styles.linkRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginTop: 10 }]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+              <Ionicons name="shield-outline" size={20} color={c.brand} />
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 17 * scale }}>Blocked members</Text>
+            </View>
+            <Text style={{ color: c.muted, fontSize: 18 * scale }}>›</Text>
+          </Pressable>
+        ) : null}
 
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Legal</Text>
         <Pressable

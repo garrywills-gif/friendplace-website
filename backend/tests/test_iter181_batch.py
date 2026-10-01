@@ -17,7 +17,7 @@ from pymongo import MongoClient
 
 # NOTE: conftest.py sets EXPO_PUBLIC_BACKEND_URL to a stale preview host.
 # For this iteration we hardcode the current preview URL (per review request).
-BASE_URL = "https://outreach-campaigns.preview.emergentagent.com".rstrip("/")
+BASE_URL = "https://live-nudges-deploy.preview.emergentagent.com".rstrip("/")
 API = f"{BASE_URL}/api"
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")

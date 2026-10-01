@@ -28,9 +28,12 @@ import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 
 // Notification types we nudge for: private messages, Flutters, Play
-// Together invites, and friend requests — all things a member wants to
-// see right away, over any screen.
-const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite"]);
+// Together invites, friend requests, and lightweight community greetings
+// (welcome / birthday_wish) — all things a member wants to see right away,
+// over any screen. iter210 adds welcome + birthday_wish so a sent Welcome
+// or Birthday Wish surfaces as an immediate app-wide popup (not just the
+// bell/inbox).
+const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite", "welcome", "birthday_wish"]);
 
 // Routes where the companion stays quiet (mirrors GeorgeGlobalHost).
 const HIDDEN_PREFIXES = ["/auth", "/onboarding", "/waitlist"];
@@ -131,6 +134,12 @@ export default function CompanionNudge() {
     if (type === "table_invite") {
       return payload.table_id ? `/table/${payload.table_id}` : "/lounge";
     }
+    // iter210: welcome / birthday_wish → sender's profile (same as the
+    // Notifications row routes to) so recipients can wave back directly.
+    if (type === "welcome" || type === "birthday_wish") {
+      const fromId = payload.from_id;
+      return fromId ? `/user/${fromId}` : "/notifications";
+    }
     // dm / dm_request → open the exact conversation when we have it.
     const convId = payload.dm_id || payload.conv_id;
     const fromId = payload.from_id;
@@ -170,6 +179,8 @@ export default function CompanionNudge() {
         : n.type === "game_invite" ? "New game invite"
         : n.type === "friend_request" ? "New friend request"
         : n.type === "table_invite" ? "Table invite"
+        : n.type === "welcome" ? "Someone welcomed you 👋"
+        : n.type === "birthday_wish" ? "You got birthday wishes 🎂"
         : "New message"
       ),
       body: cleanText(n.body || ""),
@@ -247,6 +258,8 @@ export default function CompanionNudge() {
               : n.type === "game_invite" ? "New game invite"
               : n.type === "friend_request" ? "New friend request"
               : n.type === "table_invite" ? "Table invite"
+              : n.type === "welcome" ? "Someone welcomed you 👋"
+              : n.type === "birthday_wish" ? "You got birthday wishes 🎂"
               : "New message"
             ),
             body: cleanText(n.body || ""),
@@ -334,6 +347,19 @@ export default function CompanionNudge() {
     const tableId = nudge?.payload?.table_id;
     if (tableId && user?.id) {
       api.declineTable(String(tableId), user.id).catch(() => {});
+    }
+    hide();
+  };
+
+  // iter210 (Garry, Oct 2026 — RED #8): Snooze on a game invite now
+  // actually tells the sender the recipient isn't ready, instead of
+  // leaving them on an endless "Waiting for X to accept". Fire-and-forget
+  // so the UI dismisses instantly regardless of network. Same principle
+  // for Decline — handled server-side by /play/{sid}/decline.
+  const snoozeGameInvite = () => {
+    const sid = nudge?.payload?.session_id;
+    if (sid) {
+      api.playSnooze(String(sid)).catch(() => {});
     }
     hide();
   };
@@ -435,7 +461,7 @@ export default function CompanionNudge() {
                 </Pressable>
                 <Pressable
                   testID="companion-nudge-snooze"
-                  onPress={isTableInvite ? dismissTableInvite : hide}
+                  onPress={isTableInvite ? dismissTableInvite : isGameInvite ? snoozeGameInvite : hide}
                   accessibilityLabel={secondaryLabel}
                   style={[styles.btnSnooze, { borderColor: tint.border }]}
                 >

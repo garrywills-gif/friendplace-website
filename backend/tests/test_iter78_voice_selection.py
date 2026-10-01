@@ -13,7 +13,7 @@ import requests
 BASE_URL = (
     os.environ.get("EXPO_BACKEND_URL")
     or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://iphone-retest-batch.preview.emergentagent.com"
+    or "https://live-nudges-deploy.preview.emergentagent.com"
 ).rstrip("/")
 
 MEMBER_EMAIL = "member@friendplace.com.au"

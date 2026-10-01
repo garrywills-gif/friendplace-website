@@ -101,6 +101,24 @@ export default function MyFriends() {
          floating butterfly is ALREADY visible — so the header inline
          one is a duplicate. Explicitly opt out here. */}
       <Header title="My Friends" showGeorge={false} />
+      {/* iter210 (Garry, Oct 2026 — POLISH #9): a prominent teal "Find
+          Friends" shortcut near the top of My Friends so members can
+          discover new people without hopping tabs first. Doesn't change
+          any existing per-row Message / Remove actions. */}
+      <Pressable
+        testID="my-friends-find-friends"
+        onPress={() => router.push("/friends" as any)}
+        style={({ pressed }) => [
+          styles.findFriendsBtn,
+          { backgroundColor: pressed ? "#0E8075" : "#14B8A6" },
+        ]}
+      >
+        <Ionicons name="people" size={20} color="#FFF" />
+        <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale, marginLeft: 8 }}>
+          Find Friends
+        </Text>
+        <Ionicons name="chevron-forward" size={18} color="#FFF" style={{ marginLeft: 6 }} />
+      </Pressable>
       {loading && friends.length === 0 ? (
         <View style={{ paddingTop: 60, alignItems: "center" }}>
           <ActivityIndicator color={c.brand} />
@@ -195,5 +213,22 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 18, paddingHorizontal: 20, paddingVertical: 12,
     borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 8,
+  },
+  findFriendsBtn: {
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+    shadowColor: "#0D7A70",
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
 });

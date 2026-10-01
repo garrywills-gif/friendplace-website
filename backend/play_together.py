@@ -120,10 +120,11 @@ WORD_CHAIN_DICT: Dict[str, set] = {
         "tongs","tray","whisk",
     },
     "Sports": {
-        "archery","athletics","badminton","baseball","basketball","boxing","cricket","curling","cycling","darts",
-        "diving","fencing","football","golf","gymnastics","hockey","judo","karate","netball","rowing",
-        "rugby","running","sailing","skating","skiing","soccer","softball","squash","surfing","swimming",
-        "tennis","volleyball","wrestling",
+        "archery","athletics","badminton","baseball","basketball","bmx","bowling","boxing","canoeing","cricket","curling","cycling","darts",
+        "diving","equestrian","fencing","football","golf","gymnastics","handball","hockey","hurling","judo","karate","kayaking",
+        "lacrosse","motocross","netball","polo","rowing","rugby","running","sailing","shooting","skating","skiing","snooker",
+        "snowboarding","soccer","softball","squash","surfing","swimming","tennis","triathlon","volleyball","walking","waterpolo",
+        "weightlifting","wrestling",
     },
     "Boys' names": {
         "aaron","adam","alan","albert","alex","andrew","anthony","arthur","ben","benjamin",
@@ -199,18 +200,26 @@ async def _word_chain_category_fits(category: str, word: str) -> bool:
     """AI category-fit check for curated Word Chain categories.
 
     Called ONLY when the word passed the deterministic rules but isn't in
-    the curated bank. Returns True if the word sensibly fits the category
-    (so synonyms like "dirt" for "Something in the garden" are accepted),
-    False if the AI clearly says it doesn't fit.
+    the curated bank. Returns True if the AI clearly confirms the word
+    fits the category — synonyms like "dirt" for "Something in the
+    garden" are accepted that way.
 
-    Graceful by design: if the key is missing, the model errors, or the
-    call times out, we return True (accept) so a game turn is never broken
-    by an AI hiccup.
+    iter210 (Garry, Oct 2026 — RED #1): previously we accepted the word
+    on any AI uncertainty (missing key / timeout / exception). That let
+    obvious nonsense like "povkey" or "yenta" slip into Sports because
+    the LLM call timed out at 2s and we silently said "sure, accept".
+    New behaviour:
+      • Clear YES → accept.
+      • Clear NO → reject.
+      • Anything else (missing key, timeout, model error, blank
+        response) → REJECT, because the deterministic check already
+        failed and we can't verify the fit. Members get a gentle "try
+        another" prompt and can pick a different word.
     """
     try:
         api_key = os.getenv("EMERGENT_LLM_KEY")
         if not api_key:
-            return True
+            return False
         from emergentintegrations.llm.chat import LlmChat, UserMessage  # noqa: E402
         chat = LlmChat(
             api_key=api_key,
@@ -220,19 +229,20 @@ async def _word_chain_category_fits(category: str, word: str) -> bool:
                 "WORD, decide if the word plausibly belongs to that category in everyday "
                 "Australian English. Be fair, not pedantic: accept clear synonyms and "
                 "closely related items (for example 'dirt' fits 'Something in the garden'). "
-                "Answer NO only when the word clearly does not belong. Reply with only YES or NO."
+                "If the WORD is not a real English word, or if it clearly does not belong "
+                "to the CATEGORY, answer NO. Reply with only YES or NO."
             ),
         ).with_model("gemini", "gemini-3-flash-preview")
         msg = UserMessage(text=f"CATEGORY: {category}\nWORD: {word}")
-        # Tight cap so a turn (especially the first, when the LLM client is
-        # cold) never feels laggy — on timeout we gracefully accept below.
-        resp = await asyncio.wait_for(chat.send_message(msg), timeout=2.0)
+        # Give the AI a reasonable window (first call can be cold).
+        resp = await asyncio.wait_for(chat.send_message(msg), timeout=3.5)
         answer = str(resp or "").strip().upper()
-        # Accept unless the model clearly says NO.
-        return not answer.startswith("NO")
+        # Strict: only accept on an explicit YES. Anything else (NO,
+        # blank, "I think so", etc.) is treated as a rejection.
+        return answer.startswith("YES")
     except Exception as e:
-        logging.warning("word_chain AI fit check failed (accepting): %s", e)
-        return True
+        logging.warning("word_chain AI fit check failed (rejecting): %s", e)
+        return False
 
 
 class InviteBody(BaseModel):
@@ -538,6 +548,32 @@ def register(api, ctx: Dict[str, Any]) -> None:
                           f"{sess['players'][1]['name']} can't play right now")
             # iter181 item 1: remember this decline so matchmaking won't pair
             # these two members again for 24h. Keyed on the sorted pair.
+            pair = sorted([sess["host_id"], sess["guest_id"]])
+            await db.play_declines.update_one(
+                {"pair": ":".join(pair)},
+                {"$set": {"pair": ":".join(pair), "members": pair, "declined_at": now_iso()}},
+                upsert=True,
+            )
+        return _public(sess, me["id"])
+
+    @api.post("/play/{session_id}/snooze")
+    async def play_snooze(session_id: str, me: dict = Depends(current_user)):
+        """iter210 (Garry, Oct 2026 — RED #8): recipient taps Snooze on a game
+        invite popup. The sender was previously left on 'Waiting for X to
+        accept' with no feedback. Now we close the invite and send the host a
+        clear 'X isn't ready to play right now' notification so they can move
+        on. Same semantics as Decline (session becomes 'declined'), but the
+        host-facing wording is specifically about the recipient being
+        unavailable rather than refusing to play."""
+        sess = await _load(session_id, me["id"])
+        if sess["guest_id"] != me["id"]:
+            raise HTTPException(403, "Only the invited friend can snooze")
+        if sess["status"] == "invited":
+            sess["status"] = "declined"
+            sess["updated_at"] = now_iso()
+            await db.play_sessions.replace_one({"id": session_id}, sess)
+            await _notify(sess, sess["host_id"], "game_end",
+                          f"{sess['players'][1]['name']} isn't ready to play right now")
             pair = sorted([sess["host_id"], sess["guest_id"]])
             await db.play_declines.update_one(
                 {"pair": ":".join(pair)},

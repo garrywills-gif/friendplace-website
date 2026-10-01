@@ -15,7 +15,7 @@ import requests
 
 BASE_URL = os.environ.get(
     "EXPO_PUBLIC_BACKEND_URL",
-    "https://iphone-retest-batch.preview.emergentagent.com",
+    "https://live-nudges-deploy.preview.emergentagent.com",
 ).rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

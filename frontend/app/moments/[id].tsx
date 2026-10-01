@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -77,6 +77,17 @@ export default function MomentDetail() {
   // "Don't make it pop. Make the butterfly flutter once. Tiny.
   //  Elegant. Almost unnoticed."
   const [flutterKey, setFlutterKey] = useState(0);
+  // iter210 (Garry, Oct 2026 — RED #15): the composer is always
+  // rendered at the bottom but members reported "there's no composer"
+  // — the "Be the first to leave a warm word" line sits inside the
+  // ScrollView and the composer below the keyboard felt invisible.
+  // We now make that empty-state line itself a Pressable that focuses
+  // the composer input so there's a very clear path from "nothing yet"
+  // to typing a comment.
+  const commentInputRef = useRef<TextInput>(null);
+  const focusComposer = useCallback(() => {
+    try { commentInputRef.current?.focus(); } catch { /* noop */ }
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -401,9 +412,31 @@ export default function MomentDetail() {
 
           {/* Comments */}
           {(moment.comments || []).length === 0 ? (
-            <Text style={{ color: c.muted, fontSize: 14 * scale, textAlign: "center", paddingVertical: 16 }}>
-              Be the first to leave a warm word.
-            </Text>
+            <Pressable
+              testID="moment-empty-comments-cta"
+              onPress={focusComposer}
+              accessibilityRole="button"
+              accessibilityLabel="Leave the first comment on this moment"
+              style={({ pressed }) => [{
+                borderWidth: 1.5,
+                borderStyle: "dashed",
+                borderColor: c.border,
+                borderRadius: 14,
+                paddingVertical: 18,
+                paddingHorizontal: 16,
+                alignItems: "center",
+                gap: 6,
+                opacity: pressed ? 0.7 : 1,
+              }]}
+            >
+              <Ionicons name="chatbubble-outline" size={22} color={c.muted} />
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, textAlign: "center" }}>
+                Be the first to leave a warm word
+              </Text>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, textAlign: "center" }}>
+                Tap here to type a comment, or use the mic below.
+              </Text>
+            </Pressable>
           ) : (
             <View style={{ gap: 10 }}>
               {(moment.comments || []).map((cm) => {
@@ -459,6 +492,7 @@ export default function MomentDetail() {
             VoiceInputButton (whisper-1). */}
         <View style={[styles.composer, { backgroundColor: c.surface, borderTopColor: c.border, paddingBottom: Math.max(insets.bottom, 8) }]}>
           <TextInput
+            ref={commentInputRef}
             testID="moment-comment-input"
             value={comment}
             onChangeText={setComment}
