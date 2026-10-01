@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert, AppState } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
@@ -134,49 +134,143 @@ export default function DM() {
 
   useEffect(() => {
     if (!id || !user) return;
+    let cancelled = false;
+    // iter211 (Garry, Oct 2026 — RED #1): recipient's open chat was
+    // sometimes not updating live when a reply arrived. Root cause: the
+    // one-off WebSocket could silently drop while the chat sat idle (iOS
+    // ingress idle-timeout / background), so Lisa's reply never fanned
+    // out to George's open screen. Fix is a resilient pair:
+    //   • WS reconnect loop on close/error with jittered backoff
+    //   • AppState → active forces a reconnect + reload
+    //   • 6s message-reconciliation poll ONLY runs if the WS has been
+    //     closed, so a healthy socket does zero extra network traffic
+    //   • Messages dedup by id so a late poll never doubles up a message
+    //     the WS already delivered.
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+    let wsAlive = false;
+    let backoffMs = 1000;
+
+    const seenIds = new Set<string>();
+    const mergeMessages = (incoming: any[]) => {
+      if (!Array.isArray(incoming) || !incoming.length) return;
+      setMessages((cur) => {
+        const map = new Map<string, any>();
+        for (const m of cur) if (m?.id) { map.set(m.id, m); seenIds.add(m.id); }
+        let added = 0;
+        for (const m of incoming) {
+          if (!m?.id || map.has(m.id)) continue;
+          map.set(m.id, m);
+          seenIds.add(m.id);
+          added += 1;
+        }
+        if (!added) return cur;
+        const next = Array.from(map.values());
+        next.sort((a: any, b: any) => String(a?.created_at || "").localeCompare(String(b?.created_at || "")));
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+        return next;
+      });
+    };
+    const appendOne = (m: any) => {
+      if (!m) return;
+      if (m.id && seenIds.has(m.id)) return;
+      if (m.id) seenIds.add(m.id);
+      setMessages((cur) => {
+        if (m.id && cur.some((x) => x?.id === m.id)) return cur;
+        return [...cur, m];
+      });
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    };
+
     (async () => {
       const msgs = await api.dmMessages(id);
+      if (cancelled) return;
       setMessages(msgs);
-      // Batch B (Garry, 10 Aug 2026 #2) — DM header must ALWAYS show the
-      // other member's name. When the caller passed us an explicit
-      // `other_id` we use that; otherwise we derive it from the first
-      // message whose author isn't us. Falling back this way means push-
-      // notification deep links and legacy links that only carry the
-      // conversation id still land on a fully-labelled header.
+      for (const m of msgs || []) if (m?.id) seenIds.add(m.id);
       let peerId: string | undefined = other_id;
       if (!peerId && Array.isArray(msgs)) {
         const peerMsg = msgs.find((m: any) => m && m.user_id && m.user_id !== user.id);
         if (peerMsg) peerId = peerMsg.user_id;
       }
-      if (peerId) try { setOther(await api.getUser(peerId)); } catch {}
-      // Mark this conversation as read the moment we open it so the tab
-      // badge + list unread count drop to zero. Best-effort — a network
-      // hiccup here shouldn't block the chat itself from loading.
+      if (peerId) try { if (!cancelled) setOther(await api.getUser(peerId)); } catch {}
       try { await api.dmMarkRead(id); } catch {}
     })();
-    const ws = new WebSocket(wsUrl(`/ws/dm/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
-    wsRef.current = ws;
-    ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === "message") {
-        setMessages((m) => [...m, data.message]);
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-        // Auto-read incoming messages from the OTHER person if the user
-        // enabled it. TestFlight round-5 (Garry, Feb 2026 #15): plays via
-        // George's cloud voice instead of Apple's OS default so incoming
-        // DMs sound the same as every other read-aloud in the app.
-        if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
-          void speakGeorgeAuto(String(data.message.text));
-        }
-        // Since we're actively viewing this thread, keep it marked as read
-        // so a fresh incoming message doesn't leave a "1" badge behind.
-        if (data.message?.user_id !== user.id) {
-          api.dmMarkRead(id).catch(() => {});
-        }
-      }
+
+    const reconcile = async () => {
+      if (cancelled) return;
+      try {
+        const fresh: any = await api.dmMessages(id);
+        if (!cancelled) mergeMessages(Array.isArray(fresh) ? fresh : []);
+      } catch { /* silent — WS is primary */ }
     };
-    return () => { ws.close(); stopGeorgeAuto(); };
-  }, [id, user?.id, prefs.autoReadNewMessages]);
+
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        ws = new WebSocket(wsUrl(`/ws/dm/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
+      } catch {
+        reconnectTimer = setTimeout(connect, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 20000);
+        return;
+      }
+      wsRef.current = ws;
+      ws.onopen = () => {
+        wsAlive = true;
+        backoffMs = 1000;
+        // Full reconcile on open — picks up anything missed while
+        // disconnected (the exact scenario in the bug report).
+        reconcile();
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data?.type === "message" && data.message) {
+            appendOne(data.message);
+            if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
+              void speakGeorgeAuto(String(data.message.text));
+            }
+            if (data.message?.user_id !== user.id) {
+              api.dmMarkRead(id).catch(() => {});
+            }
+          }
+        } catch { /* ignore malformed */ }
+      };
+      ws.onclose = () => {
+        wsAlive = false;
+        if (cancelled) return;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 20000);
+      };
+      ws.onerror = () => { /* onclose handles the reconnect */ };
+    };
+    connect();
+
+    // Reconciliation poll — ONLY fetches when the WS is NOT alive, so a
+    // healthy socket keeps the network footprint identical to before.
+    reconcileTimer = setInterval(() => {
+      if (!wsAlive) reconcile();
+    }, 6000);
+
+    const appSub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        // Force a reconnect + reconcile the moment the user comes back
+        // to the app so idle-dropped sockets don't leave the thread stale.
+        try { ws?.close(); } catch { /* noop */ }
+        reconcile();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (reconcileTimer) clearInterval(reconcileTimer);
+      try { appSub.remove(); } catch { /* noop */ }
+      try { ws?.close(); } catch { /* noop */ }
+      stopGeorgeAuto();
+    };
+  }, [id, user?.id, prefs.autoReadNewMessages, token, other_id]);
 
   const send = () => {
     if (!text.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;

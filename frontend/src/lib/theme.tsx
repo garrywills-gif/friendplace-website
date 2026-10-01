@@ -23,6 +23,12 @@ export type ThemePrefs = {
   autoReadNewMessages: boolean;
   /** Show the mic (voice-to-text) icon in message compose boxes. */
   voiceInputEnabled: boolean;
+  /** iter211 (Garry, Oct 2026 — POLISH #6): master toggle for app-
+   *  generated alert / chime sounds (DM nudge chime, flutter blip, game
+   *  invite ping, café invite). When OFF the audio simply doesn't play.
+   *  Does NOT mute deliberate voice/TTS playback the member tapped (SpeakButton,
+   *  autoReadNewMessages) — those are handled by their own prefs. */
+  friendPlaceSounds: boolean;
 };
 
 const DEFAULT: ThemePrefs = {
@@ -36,6 +42,7 @@ const DEFAULT: ThemePrefs = {
   // real <VoiceInputButton> are wired in. Users who prefer typing can
   // switch it off from Settings → Accessibility.
   voiceInputEnabled: true,
+  friendPlaceSounds: true,
 };
 
 type Ctx = {

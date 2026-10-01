@@ -28,7 +28,7 @@ const FALLBACK_REASONS = [
 
 export default function ReportSheet({ visible, onClose, target_type, target_id, target_user_id, target_user_name, onAfterReport }: Props) {
   const { c, scale } = useTheme();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const { show, confirm } = useToast();
   const [reasons, setReasons] = useState<string[]>(FALLBACK_REASONS);
   const [reason, setReason] = useState<string>("");
@@ -83,7 +83,7 @@ export default function ReportSheet({ visible, onClose, target_type, target_id, 
     if (!user || !target_user_id) return;
     const ok = await confirm({ title: `Block ${target_user_name || "this user"}?`, message: "You won't see their posts and they can't message you.", confirmLabel: "Block", destructive: true });
     if (!ok) return;
-    try { await api.blockUser(user.id, target_user_id); show("User blocked"); onClose(); } catch { show("Could not block"); }
+    try { await api.blockUser(user.id, target_user_id); show("User blocked"); try { await refresh?.(); } catch {} onClose(); } catch { show("Could not block"); }
   };
 
   return (

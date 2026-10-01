@@ -438,6 +438,18 @@ export default function Profile() {
       <View style={{ height: 16 }} />
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
       <View style={{ height: 8 }} />
+      {/* iter211 (Garry, Oct 2026 — POLISH #5): Blocked members is a
+          social-relationship control so it lives primarily under My
+          Profile. The Settings entry still exists (handy for people who
+          already know where it was) but Profile is now the obvious
+          location. */}
+      <Button
+        label="Blocked members"
+        variant="ghost"
+        onPress={() => router.push("/settings/blocked" as any)}
+        testID="profile-blocked-members"
+      />
+      <View style={{ height: 8 }} />
       {/* Founders Wall entry — behaviour differs by member state:
           - Founder: warm crest celebration + link to the Wall.
           - Non-founder with slots left: prominent "Become a Founding

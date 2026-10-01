@@ -220,6 +220,23 @@ export default function Settings() {
           />
         </View>
 
+        {/* iter211 (Garry, Oct 2026 — POLISH #6): master switch for the
+            app's own chime / blip sounds (DM nudge, Flutter, game invite,
+            café invite, live popups). TTS / read-aloud is NOT muted here
+            — those have their own toggles above. */}
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>FriendPlace sounds</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Chimes for new messages, Flutters, game and Café invites, and live popups. Turn off for a silent experience. Voice playback is separate.</Text>
+          </View>
+          <Switch
+            testID="toggle-friendplace-sounds"
+            value={prefs.friendPlaceSounds !== false}
+            onValueChange={(v) => { setPref("friendPlaceSounds", v); show(`FriendPlace sounds ${v ? "on" : "off"}`); }}
+            trackColor={{ true: c.brand, false: c.border }}
+          />
+        </View>
+
         <GeorgeVoiceCard />
 
         {/* Favourite thoughts — carried over from the old dedicated

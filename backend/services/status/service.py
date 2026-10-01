@@ -217,12 +217,13 @@ async def sign_off(db, user_id: str) -> None:
     any manual status. Also drops café presence so a user who signs
     out while seated doesn't linger in the café roster.
 
-    Bug fix (Garry, 25 Jun 2026): admin signed out at 10:09pm and
-    still showed 🟢 online on other members' devices at 10:14pm — the
-    5-minute offline decay was too slow, and observers who cached
-    admin's status just before he logged out held onto "online" until
-    the next batch refresh at t+30s. This endpoint gives every
-    observer a definitive "offline" answer immediately.
+    iter211 (Garry, Oct 2026 — RED #2): the legacy `users.last_seen_at`
+    column (read by _status_from and used for the green dot on My Chats,
+    My Friends, Find Friends, Café, Games) was NOT being backdated here,
+    so a signed-out member still showed 🟢 for up to 2 minutes. We now
+    backdate both the modern `member_status.last_seen_at` AND the legacy
+    `users.last_seen_at` so every observer sees "Offline" immediately on
+    their next status fetch.
     """
     from datetime import timedelta as _td
     stale = _utc_now() - _td(minutes=10)
@@ -243,6 +244,25 @@ async def sign_off(db, user_id: str) -> None:
         },
         upsert=True,
     )
+    # Mirror to the legacy collection so _status_from / My Chats / My
+    # Friends / Find Friends / Café / Games all read the same answer.
+    # iter211 refinement: ALSO set `status: 'offline'` on the users doc so
+    # the legacy _status_from short-circuits to Offline (⚫) immediately.
+    # Without this, back-dating by 10 min still returns 'Active today' (🟢)
+    # from _status_from, which looks identical to a live member on the
+    # green-dot readers. Setting the explicit 'offline' chosen status is
+    # the clear "they signed out" signal.
+    try:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "last_seen_at": stale.isoformat(),
+                "status": "offline",
+                "status_updated_at": now.isoformat(),
+            }},
+        )
+    except Exception:
+        pass
 
 
 async def set_in_cafe(db, user_id: str, table_id: Optional[str]) -> None:

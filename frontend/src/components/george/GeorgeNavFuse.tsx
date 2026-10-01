@@ -2,25 +2,31 @@
  * GeorgeNavFuse — a brief "Opening …" transition shown when George/Georgia
  * navigates the member to a destination.
  *
- * Why (Garry, Sep 2026): the jump to Find Friends used to fire so fast the
- * member couldn't read George's final message. This paints a calm overlay
- * with the butterfly, an "Opening {label}…" line and a ~5.5s fuse bar, THEN
- * calls `onDone()` to perform the actual route change. Give the member a
- * generous beat (iter210 — Garry, Oct 2026: the previous 1.2s was still
- * too quick to read; held at 5-6s now) to register where they're being
- * taken, with a clear visible progress bar so they know something is
- * happening.
+ * iter211 (Garry, Oct 2026 — RED/POLISH #7): earlier revisions used a
+ * centered modal overlay with a dim backdrop. On real iPhones the dim
+ * made the final companion message hard to read, and the quick timing
+ * still felt rushed. New behaviour:
+ *   • Hold for ~8s so there's plenty of time to read the message AND the
+ *     "Opening [destination]…" line before the screen changes.
+ *   • NO full-screen dim — the chat behind stays fully legible.
+ *   • Small non-blocking banner anchored to the bottom of the screen with
+ *     the butterfly, label, and a visible progress fuse bar.
+ *   • `pointerEvents="none"` on the overlay so taps still reach the chat
+ *     underneath (gentle handoff, not a modal takeover).
  *
  * Usage:
  *   const [navTo, setNavTo] = useState<{label; run: () => void} | null>(null);
  *   {navTo && <GeorgeNavFuse label={navTo.label} onDone={navTo.run} />}
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View, Platform } from 'react-native';
 import { GeorgeButterflyMark } from '@/src/components/george/GeorgeButterflyMark';
 import { useTheme } from '@/src/lib/theme';
 
-const DURATION_MS = 5500;
+// iter211: 8 seconds. Long enough to comfortably finish reading George's
+// final message AND the "Opening X…" line without the handoff feeling
+// stuck. Shorter was flagged as "still too quick to read" on real device.
+const DURATION_MS = 8000;
 
 export default function GeorgeNavFuse({
   label,
@@ -31,9 +37,17 @@ export default function GeorgeNavFuse({
 }) {
   const { c, scale } = useTheme();
   const progress = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
   const doneRef = useRef(false);
 
   useEffect(() => {
+    // Fade/slide the banner in from the bottom edge so the appearance is
+    // felt as a gentle "something is about to happen", not a popup.
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 260, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, friction: 9, tension: 70 }),
+    ]).start();
     Animated.timing(progress, {
       toValue: 1,
       duration: DURATION_MS,
@@ -52,16 +66,29 @@ export default function GeorgeNavFuse({
   const width = progress.interpolate({ inputRange: [0, 1], outputRange: ['4%', '100%'] });
 
   return (
-    <View pointerEvents="auto" style={styles.overlay}>
-      <View style={[styles.card, { backgroundColor: c.card }]}>
-        <GeorgeButterflyMark size={44} />
-        <Text style={[styles.title, { color: c.text, fontSize: 17 * scale }]}>
-          Opening {label}…
-        </Text>
-        <View style={[styles.track, { backgroundColor: c.border }]}>
-          <Animated.View style={[styles.fill, { width, backgroundColor: c.primary }]} />
+    // pointerEvents="none" lets taps fall through to the chat behind so
+    // this really is a non-blocking handoff. The underlying screen stays
+    // fully readable and interactive right up to the moment of navigation.
+    <View pointerEvents="none" style={styles.overlay}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.card,
+          { backgroundColor: c.card, borderColor: c.border, opacity, transform: [{ translateY }] },
+        ]}
+      >
+        <View style={styles.row}>
+          <GeorgeButterflyMark size={34} />
+          <View style={{ flex: 1, marginLeft: 10, minWidth: 0 }}>
+            <Text numberOfLines={1} style={[styles.title, { color: c.text, fontSize: 15 * scale }]}>
+              Opening {label}…
+            </Text>
+            <View style={[styles.track, { backgroundColor: c.border }]}>
+              <Animated.View style={[styles.fill, { width, backgroundColor: c.primary }]} />
+            </View>
+          </View>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -69,25 +96,31 @@ export default function GeorgeNavFuse({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
+    // iter211: NO dim backdrop. We only occupy the bottom slice of the
+    // screen; everything above remains fully visible.
+    backgroundColor: 'transparent',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(10,37,87,0.35)',
+    paddingHorizontal: 16,
+    paddingBottom: 32,
     zIndex: 10000,
+    ...Platform.select({ web: { position: 'fixed' as any }, default: {} }),
   },
   card: {
-    width: 260,
-    borderRadius: 20,
-    paddingVertical: 24,
-    paddingHorizontal: 22,
-    alignItems: 'center',
-    gap: 14,
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     shadowColor: '#0D2A57',
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  title: { fontWeight: '800', textAlign: 'center' },
-  track: { width: '100%', height: 8, borderRadius: 999, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  title: { fontWeight: '800' },
+  track: { width: '100%', height: 6, borderRadius: 999, overflow: 'hidden', marginTop: 8 },
   fill: { height: '100%', borderRadius: 999 },
 });

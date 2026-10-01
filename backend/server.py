@@ -3440,7 +3440,33 @@ async def _check_invite_milestones(referrer_id: str) -> None:
 
 @api.post("/users/{user_id}/block/{other_id}")
 async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
-    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
+    # iter211 (Garry, Oct 2026 — RED #4): previously block only $addToSet'd
+    # the id into blocked[], leaving an existing friendship — and the
+    # friend's green dot / Friends tile — untouched. Users were reporting
+    # that a blocked member still showed up as an online friend.
+    # Full block now also:
+    #   • pulls the blocked user from BOTH sides' friends arrays, and
+    #   • cancels any pending friend_requests in either direction so a
+    #     stale request can't quietly re-friend the pair later.
+    # Caller UI should refresh user context after this returns so the
+    # cached auth user.friends drops the id too.
+    if user_id == other_id:
+        raise HTTPException(400, "Cannot block yourself")
+    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}, "$pull": {"friends": other_id}})
+    await db.users.update_one({"id": other_id}, {"$pull": {"friends": user_id}})
+    try:
+        await db.friend_requests.update_many(
+            {
+                "status": "pending",
+                "$or": [
+                    {"from_id": user_id, "to_id": other_id},
+                    {"from_id": other_id, "to_id": user_id},
+                ],
+            },
+            {"$set": {"status": "cancelled"}},
+        )
+    except Exception:
+        logger.exception("block_user: friend_requests cancel failed")
     return {"ok": True}
 
 
@@ -9488,9 +9514,27 @@ async def report_notice(notice_id: str, user_id: str, body: dict, me: dict = Dep
 
 @api.post("/users/{user_id}/block/{other_id}")
 async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
+    # iter211 duplicate kept in sync with the primary block_user (full
+    # unfriend + cancel-pending-requests). FastAPI resolves routes in
+    # declaration order so this LATER definition takes precedence; keep
+    # both implementations identical so refactors can't quietly diverge.
     if user_id == other_id:
         raise HTTPException(400, "Cannot block yourself")
-    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
+    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}, "$pull": {"friends": other_id}})
+    await db.users.update_one({"id": other_id}, {"$pull": {"friends": user_id}})
+    try:
+        await db.friend_requests.update_many(
+            {
+                "status": "pending",
+                "$or": [
+                    {"from_id": user_id, "to_id": other_id},
+                    {"from_id": other_id, "to_id": user_id},
+                ],
+            },
+            {"$set": {"status": "cancelled"}},
+        )
+    except Exception:
+        logger.exception("block_user (dup): friend_requests cancel failed")
     return {"ok": True}
 
 
@@ -12610,98 +12654,101 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                                 {"dm_id": conv_id, "user_id": other_id}
                             )
                             if other_msg_count >= 1:
-                                # Batch B iter161 (Garry, Aug 2026 — regression fix):
-                                # the previous `already_friends` check read ONLY the
-                                # sender's friends list, so a stale one-way link
-                                # (A had B, but B never had A — possible after an
-                                # earlier unfriend where the reciprocal $pull failed
-                                # or a manual DB edit) caused the whole auto-friend
-                                # block to short-circuit when B replied, leaving the
-                                # link permanently one-way.
-                                #
-                                # Read BOTH sides, always $addToSet on both sides
-                                # (idempotent), and only suppress the notification
-                                # when the pair was already fully bidirectional
-                                # (which is a genuine no-op case) OR the pair was
-                                # already one-way (silent repair — no need to
-                                # ping a member about a friendship they thought
-                                # they already had).
+                                # iter211 (Garry, Oct 2026 — RED #3): skip
+                                # auto-friend when either side has blocked
+                                # the other, or when either account is
+                                # banned/restricted. Previously we would
+                                # still auto-friend across a block, which
+                                # kept the "unwanted" link alive.
                                 me_doc = await db.users.find_one(
-                                    {"id": user_id}, {"_id": 0, "friends": 1}
+                                    {"id": user_id},
+                                    {"_id": 0, "friends": 1, "blocked": 1, "banned": 1, "restricted": 1},
                                 ) or {}
                                 other_doc = await db.users.find_one(
-                                    {"id": other_id}, {"_id": 0, "friends": 1}
+                                    {"id": other_id},
+                                    {"_id": 0, "friends": 1, "blocked": 1, "banned": 1, "restricted": 1},
                                 ) or {}
+                                me_blocked_them = other_id in (me_doc.get("blocked") or [])
+                                they_blocked_me = user_id in (other_doc.get("blocked") or [])
+                                either_banned = bool(me_doc.get("banned") or other_doc.get("banned"))
+                                either_restricted = bool(me_doc.get("restricted") or other_doc.get("restricted"))
+                                skip_auto_friend = me_blocked_them or they_blocked_me or either_banned or either_restricted
                                 me_had_other = other_id in (me_doc.get("friends") or [])
                                 other_had_me = user_id in (other_doc.get("friends") or [])
                                 was_fully_friends = me_had_other and other_had_me
                                 if not was_fully_friends:
-                                    # Ensure both sides have the link, regardless
-                                    # of prior state. `$addToSet` is idempotent, so
-                                    # this is a no-op on the side that already had it.
-                                    await db.users.update_one(
-                                        {"id": user_id},
-                                        {"$addToSet": {"friends": other_id}},
-                                    )
-                                    await db.users.update_one(
-                                        {"id": other_id},
-                                        {"$addToSet": {"friends": user_id}},
-                                    )
-                                    # Auto-resolve any pending friend request
-                                    # in either direction so the inbox
-                                    # doesn't dangle a stale "pending" row.
-                                    await db.friend_requests.update_many(
-                                        {
-                                            "status": "pending",
-                                            "$or": [
-                                                {"from_id": user_id, "to_id": other_id},
-                                                {"from_id": other_id, "to_id": user_id},
-                                            ],
-                                        },
-                                        {"$set": {"status": "accepted"}},
-                                    )
-                                    # Warm "you are now friends" notification
-                                    # to both parties so the social moment
-                                    # is visible outside of this DM.
-                                    #
-                                    # iter161 refinement: ONLY fire the "you
-                                    # are now friends" notification when the
-                                    # pair was genuinely fresh (neither had
-                                    # the other). If we just silently repaired
-                                    # a one-way link, don't ping the member
-                                    # about a friendship they already thought
-                                    # they had — that would be confusing.
-                                    truly_fresh = (not me_had_other) and (not other_had_me)
-                                    if truly_fresh:
-                                        me_prof = await db.users.find_one(
+                                    if skip_auto_friend:
+                                        # iter211: blocked/banned/restricted
+                                        # — do not create or repair the
+                                        # link. Caller silently moves on.
+                                        pass
+                                    else:
+                                        # Ensure both sides have the link, regardless
+                                        # of prior state. `$addToSet` is idempotent, so
+                                        # this is a no-op on the side that already had it.
+                                        await db.users.update_one(
                                             {"id": user_id},
-                                            {"_id": 0, "first_name": 1, "avatar": 1},
-                                        ) or {}
-                                        other_prof = await db.users.find_one(
+                                            {"$addToSet": {"friends": other_id}},
+                                        )
+                                        await db.users.update_one(
                                             {"id": other_id},
-                                            {"_id": 0, "first_name": 1, "avatar": 1},
-                                        ) or {}
-                                        me_name = me_prof.get("first_name") or "Someone"
-                                        me_av = me_prof.get("avatar") or "🦋"
-                                        other_name = other_prof.get("first_name") or "Someone"
-                                        other_av = other_prof.get("avatar") or "🦋"
-                                        try:
-                                            await push_notification(
-                                                user_id,
-                                                "friend_accepted",
-                                                f"{_glyph_or_blank(other_av)} You and {other_name} are now friends 🦋".strip(),
-                                                "You've been chatting, so we've added each other.",
-                                                {"friend_id": other_id},
-                                            )
-                                            await push_notification(
-                                                other_id,
-                                                "friend_accepted",
-                                                f"{_glyph_or_blank(me_av)} You and {me_name} are now friends 🦋".strip(),
-                                                "You've been chatting, so we've added each other.",
-                                                {"friend_id": user_id},
-                                            )
-                                        except Exception:
-                                            logger.exception("auto-friend notification failed")
+                                            {"$addToSet": {"friends": user_id}},
+                                        )
+                                        # Auto-resolve any pending friend request
+                                        # in either direction so the inbox
+                                        # doesn't dangle a stale "pending" row.
+                                        await db.friend_requests.update_many(
+                                            {
+                                                "status": "pending",
+                                                "$or": [
+                                                    {"from_id": user_id, "to_id": other_id},
+                                                    {"from_id": other_id, "to_id": user_id},
+                                                ],
+                                            },
+                                            {"$set": {"status": "accepted"}},
+                                        )
+                                        # Warm "you are now friends" notification
+                                        # to both parties so the social moment
+                                        # is visible outside of this DM.
+                                        #
+                                        # iter161 refinement: ONLY fire the "you
+                                        # are now friends" notification when the
+                                        # pair was genuinely fresh (neither had
+                                        # the other). If we just silently repaired
+                                        # a one-way link, don't ping the member
+                                        # about a friendship they already thought
+                                        # they had — that would be confusing.
+                                        truly_fresh = (not me_had_other) and (not other_had_me)
+                                        if truly_fresh:
+                                            me_prof = await db.users.find_one(
+                                                {"id": user_id},
+                                                {"_id": 0, "first_name": 1, "avatar": 1},
+                                            ) or {}
+                                            other_prof = await db.users.find_one(
+                                                {"id": other_id},
+                                                {"_id": 0, "first_name": 1, "avatar": 1},
+                                            ) or {}
+                                            me_name = me_prof.get("first_name") or "Someone"
+                                            me_av = me_prof.get("avatar") or "🦋"
+                                            other_name = other_prof.get("first_name") or "Someone"
+                                            other_av = other_prof.get("avatar") or "🦋"
+                                            try:
+                                                await push_notification(
+                                                    user_id,
+                                                    "friend_accepted",
+                                                    f"{_glyph_or_blank(other_av)} You and {other_name} are now friends 🦋".strip(),
+                                                    "You've been chatting, so we've added each other.",
+                                                    {"friend_id": other_id},
+                                                )
+                                                await push_notification(
+                                                    other_id,
+                                                    "friend_accepted",
+                                                    f"{_glyph_or_blank(me_av)} You and {me_name} are now friends 🦋".strip(),
+                                                    "You've been chatting, so we've added each other.",
+                                                    {"friend_id": user_id},
+                                                )
+                                            except Exception:
+                                                logger.exception("auto-friend notification failed")
                     except Exception:
                         logger.exception("auto-friend after two-way DM failed")
 
@@ -12832,7 +12879,18 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
     async def _touch_presence():
         try:
             iso = now_iso()
-            await db.users.update_one({"id": user_id}, {"$set": {"last_seen_at": iso}})
+            # iter211: clear a stale 'offline' status set by sign_off so a
+            # returning member doesn't stay stuck on ⚫ once their inbox
+            # socket reconnects. Any OTHER chosen status (looking_to_chat,
+            # busy, happy_to_connect, etc.) is preserved by the filter.
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"last_seen_at": iso}},
+            )
+            await db.users.update_one(
+                {"id": user_id, "status": "offline"},
+                {"$unset": {"status": "", "status_updated_at": ""}},
+            )
         except Exception:
             pass
         try:

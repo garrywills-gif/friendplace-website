@@ -65,7 +65,7 @@ type Nudge = {
 };
 
 export default function CompanionNudge() {
-  const { c, scale } = useTheme();
+  const { c, scale, prefs } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname() || "";
@@ -284,7 +284,12 @@ export default function CompanionNudge() {
     if (!nudge) return;
     anim.setValue(0);
     Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 80 }).start();
-    try { chime.seekTo(0); chime.play(); } catch { /* noop */ }
+    // iter211 (Garry, Oct 2026 — POLISH #6): only chime when the member
+    // has FriendPlace sounds on. Deliberate TTS playback is untouched
+    // (that uses its own control path).
+    if (prefs.friendPlaceSounds !== false) {
+      try { chime.seekTo(0); chime.play(); } catch { /* noop */ }
+    }
     if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
     // Action nudges (game invite / friend request) must NOT auto-dismiss —
     // they stay until the member chooses Play now / Snooze / dismiss (or
