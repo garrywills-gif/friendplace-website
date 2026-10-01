@@ -3438,8 +3438,22 @@ async def _check_invite_milestones(referrer_id: str) -> None:
         logger.warning("invite milestone check failed: %s", e)
 
 
+class BlockRequest(BaseModel):
+    """iter212 (Garry, Oct 2026 — Next Action #3): optional private note
+    the blocker can attach when blocking someone, so if they later open
+    their Blocked list they can remember why. Lives on `block_notes` as
+    a sub-document keyed by the blocker's id so the note is PRIVATE —
+    the blocked member never sees it."""
+    note: Optional[str] = None
+
+
 @api.post("/users/{user_id}/block/{other_id}")
-async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
+async def block_user(
+    user_id: str,
+    other_id: str,
+    body: Optional[BlockRequest] = None,
+    me: dict = Depends(owner_or_admin),
+):
     # iter211 (Garry, Oct 2026 — RED #4): previously block only $addToSet'd
     # the id into blocked[], leaving an existing friendship — and the
     # friend's green dot / Friends tile — untouched. Users were reporting
@@ -3452,7 +3466,24 @@ async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_ad
     # cached auth user.friends drops the id too.
     if user_id == other_id:
         raise HTTPException(400, "Cannot block yourself")
-    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}, "$pull": {"friends": other_id}})
+    note = ((body.note if body else None) or "").strip()
+    # Cap the note to keep the user doc tidy and prevent abuse.
+    if len(note) > 500:
+        note = note[:500]
+    update: Dict[str, Any] = {
+        "$addToSet": {"blocked": other_id},
+        "$pull": {"friends": other_id},
+    }
+    # iter212: store note under `block_notes.{other_id}` so each blocked
+    # pair gets its own private note; blocking the same person again
+    # overwrites the previous note (member can edit by re-blocking).
+    if note:
+        update["$set"] = {f"block_notes.{other_id}": {"note": note, "at": now_iso()}}
+    else:
+        # Clearing the note is a reasonable intention if the field was
+        # left blank — makes the write idempotent across edits.
+        update["$unset"] = {f"block_notes.{other_id}": ""}
+    await db.users.update_one({"id": user_id}, update)
     await db.users.update_one({"id": other_id}, {"$pull": {"friends": user_id}})
     try:
         await db.friend_requests.update_many(
@@ -9513,14 +9544,31 @@ async def report_notice(notice_id: str, user_id: str, body: dict, me: dict = Dep
 
 
 @api.post("/users/{user_id}/block/{other_id}")
-async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
+async def block_user(
+    user_id: str,
+    other_id: str,
+    body: Optional[BlockRequest] = None,
+    me: dict = Depends(owner_or_admin),
+):
     # iter211 duplicate kept in sync with the primary block_user (full
-    # unfriend + cancel-pending-requests). FastAPI resolves routes in
-    # declaration order so this LATER definition takes precedence; keep
-    # both implementations identical so refactors can't quietly diverge.
+    # unfriend + cancel-pending-requests + iter212 private note). FastAPI
+    # resolves routes in declaration order so this LATER definition takes
+    # precedence; keep both implementations identical so refactors can't
+    # quietly diverge.
     if user_id == other_id:
         raise HTTPException(400, "Cannot block yourself")
-    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}, "$pull": {"friends": other_id}})
+    note = ((body.note if body else None) or "").strip()
+    if len(note) > 500:
+        note = note[:500]
+    update: Dict[str, Any] = {
+        "$addToSet": {"blocked": other_id},
+        "$pull": {"friends": other_id},
+    }
+    if note:
+        update["$set"] = {f"block_notes.{other_id}": {"note": note, "at": now_iso()}}
+    else:
+        update["$unset"] = {f"block_notes.{other_id}": ""}
+    await db.users.update_one({"id": user_id}, update)
     await db.users.update_one({"id": other_id}, {"$pull": {"friends": user_id}})
     try:
         await db.friend_requests.update_many(
@@ -9540,7 +9588,12 @@ async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_ad
 
 @api.post("/users/{user_id}/unblock/{other_id}")
 async def unblock_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
-    await db.users.update_one({"id": user_id}, {"$pull": {"blocked": other_id}})
+    # iter212: also clear the private block note so re-blocking later
+    # starts fresh.
+    await db.users.update_one(
+        {"id": user_id},
+        {"$pull": {"blocked": other_id}, "$unset": {f"block_notes.{other_id}": ""}},
+    )
     return {"ok": True}
 
 
@@ -9548,23 +9601,30 @@ async def unblock_user(user_id: str, other_id: str, me: dict = Depends(owner_or_
 # who they'd blocked. This surfaces the current blocklist with just the
 # fields the UI needs (name + avatar) so a Settings → Blocked members
 # screen can show the list with an "Unblock" button beside each row.
+# iter212 extends the payload with the member's private `note` (if they
+# attached one when blocking) so they can remember why.
 @api.get("/users/{user_id}/blocked")
 async def list_blocked_users(user_id: str, me: dict = Depends(owner_or_admin)):
-    me_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "blocked": 1})
+    me_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "blocked": 1, "block_notes": 1})
     ids = list((me_doc or {}).get("blocked") or [])
     if not ids:
         return {"blocked": []}
+    notes_map = (me_doc or {}).get("block_notes") or {}
     cur = db.users.find(
         {"id": {"$in": ids}},
         {"_id": 0, "id": 1, "first_name": 1, "avatar": 1, "suburb": 1, "suburb_hidden": 1},
     )
     out: List[Dict[str, Any]] = []
     async for u in cur:
+        note_entry = notes_map.get(u.get("id")) or {}
         out.append({
             "id": u.get("id"),
             "first_name": _safe_display_name(u, fallback="A member"),
             "avatar": u.get("avatar") or "",
             "suburb": "" if u.get("suburb_hidden") else (u.get("suburb") or ""),
+            # Private note the blocker attached. Never leaked to the blocked member.
+            "note": (note_entry.get("note") or "") if isinstance(note_entry, dict) else "",
+            "note_at": (note_entry.get("at") or "") if isinstance(note_entry, dict) else "",
         })
     # Preserve the order from the member's blocked array so most-recently-
     # added appears last (same order the array is appended in).
@@ -12573,6 +12633,20 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
+            # iter212 (Garry, Oct 2026 — DM typing dots): clients can emit
+            # a lightweight `{"type":"typing","is_typing":true|false}` ping
+            # (debounced to ~2s client-side) so the other participant can
+            # show a "X is typing…" line. We do NOT persist typing; just
+            # fan it out to the room so OTHER sockets receive it. The
+            # sender filters out their own typing event using `user_id`.
+            if payload.get("type") == "typing":
+                is_typing = bool(payload.get("is_typing", True))
+                await hub.broadcast(room, {
+                    "type": "typing",
+                    "user_id": user_id,
+                    "is_typing": is_typing,
+                })
+                continue
             text = (payload.get("text") or "").strip()
             if not text:
                 continue

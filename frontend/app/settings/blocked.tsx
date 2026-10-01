@@ -17,7 +17,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
  * public), with an Unblock button beside each row. We confirm before
  * unblocking so a stray tap can't quietly undo a block.
  */
-type BlockedUser = { id: string; first_name: string; avatar: string; suburb: string };
+type BlockedUser = { id: string; first_name: string; avatar: string; suburb: string; note?: string; note_at?: string };
 
 export default function BlockedMembers() {
   const { c, scale } = useTheme();
@@ -115,8 +115,9 @@ export default function BlockedMembers() {
           )}
           renderItem={({ item }) => {
             const busy = unblockingId === item.id;
+            const note = (item.note || "").trim();
             return (
-              <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border, alignItems: "flex-start" }]}>
                 <AvatarBubble value={item.avatar} size={44} textSize={28} />
                 <View style={{ flex: 1, marginLeft: 12, minWidth: 0 }}>
                   <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>
@@ -126,6 +127,18 @@ export default function BlockedMembers() {
                     <Text numberOfLines={1} style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
                       {item.suburb}
                     </Text>
+                  ) : null}
+                  {/* iter212 (Next Action #3): private note the member
+                      attached when they blocked. Only visible here. */}
+                  {note ? (
+                    <View style={{ marginTop: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+                      <Text style={{ color: c.muted, fontWeight: "700", fontSize: 11 * scale, letterSpacing: 0.5 }} testID={`block-note-label-${item.id}`}>
+                        PRIVATE NOTE
+                      </Text>
+                      <Text style={{ color: c.onSurface, fontSize: 13 * scale, marginTop: 2, lineHeight: 18 }} testID={`block-note-${item.id}`}>
+                        {note}
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
                 <Pressable

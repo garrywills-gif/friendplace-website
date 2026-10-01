@@ -93,6 +93,20 @@ type SepRow = { key: string; type: "sep"; label: string };
 type MsgRow = { key: string; type: "msg"; data: any };
 type Row = SepRow | MsgRow;
 
+// iter213 (Garry, Oct 2026 — POLISH #3): mirror of the backend
+// `_safe_display_name` heuristic for client-side labelling (e.g. the
+// typing indicator). Returns the given name if it looks human-entered,
+// otherwise "Someone" so we never leak a raw auth-style handle.
+function _safeTypingName(raw: string | undefined | null): string {
+  const name = String(raw || "").trim();
+  if (!name) return "Someone";
+  if (name.length > 20) return "Someone";
+  if (name.includes("@")) return "Someone";
+  if (/\d/.test(name)) return "Someone";
+  if (!/[aeiouy]/i.test(name)) return "Someone";
+  return name;
+}
+
 function _build_rows(messages: any[]): Row[] {
   const out: Row[] = [];
   let lastDay = "";
@@ -118,6 +132,15 @@ export default function DM() {
   const [other, setOther] = useState<any>(null);
   const [text, setText] = useState("");
   const [reportTarget, setReportTarget] = useState<null | { type: "user" } | { type: "message"; id: string }>(null);
+  // iter212 (Garry, Oct 2026 — Next Action #1): typing dots. We fan a
+  // lightweight {type:'typing', is_typing:boolean} event through the
+  // DM WebSocket. Sent at most every 2s while the composer is active,
+  // auto-cleared 3s after the last keystroke. Server does NOT persist
+  // it — pure room broadcast — so there's no DB impact.
+  const [otherTyping, setOtherTyping] = useState(false);
+  const otherTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingSentAtRef = useRef<number>(0);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
   // Self-DM (Notes to Myself) — when the other participant is the
@@ -132,24 +155,64 @@ export default function DM() {
   // dm-notify-context already prevents any prompt for this conv.
   useComposerLock(text.length > 0);
 
+  // iter212: debounced typing emitter — fires `is_typing:true` at most
+  // every 2s while the composer has content, and schedules a
+  // `is_typing:false` 3s after the last keystroke.
+  const emitTyping = useCallback((is_typing: boolean) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) return;
+    try { ws.send(JSON.stringify({ type: "typing", is_typing })); } catch { /* noop */ }
+  }, []);
+  const handleChangeText = useCallback((v: string) => {
+    setText(v);
+    const nowMs = Date.now();
+    const hasChars = v.trim().length > 0;
+    if (hasChars) {
+      if (nowMs - typingSentAtRef.current > 2000) {
+        typingSentAtRef.current = nowMs;
+        emitTyping(true);
+      }
+      if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = setTimeout(() => {
+        typingSentAtRef.current = 0;
+        emitTyping(false);
+      }, 3000);
+    } else {
+      // Composer emptied — tell peer immediately, don't let the "typing" ghost linger.
+      if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+      typingSentAtRef.current = 0;
+      emitTyping(false);
+    }
+  }, [emitTyping]);
+
   useEffect(() => {
     if (!id || !user) return;
     let cancelled = false;
-    // iter211 (Garry, Oct 2026 — RED #1): recipient's open chat was
-    // sometimes not updating live when a reply arrived. Root cause: the
-    // one-off WebSocket could silently drop while the chat sat idle (iOS
-    // ingress idle-timeout / background), so Lisa's reply never fanned
-    // out to George's open screen. Fix is a resilient pair:
-    //   • WS reconnect loop on close/error with jittered backoff
-    //   • AppState → active forces a reconnect + reload
-    //   • 6s message-reconciliation poll ONLY runs if the WS has been
-    //     closed, so a healthy socket does zero extra network traffic
-    //   • Messages dedup by id so a late poll never doubles up a message
-    //     the WS already delivered.
+    // iter213 (Garry, Oct 2026 — RED #1): recipient's open chat could
+    // still lag one message behind even with the iter211 reconnect+poll
+    // because iOS sometimes keeps the WebSocket in `readyState=OPEN`
+    // while silently dropping incoming frames (NAT idle, cellular→wifi
+    // handover). The old `only poll when !wsAlive` logic trusted a
+    // socket that was lying about being connected. New belt-AND-braces:
+    //   • Reconnect loop on WS close/error (unchanged from iter211)
+    //   • AppState→active → reconnect + reconcile (unchanged)
+    //   • Reconcile poll runs EVERY 2.5s unconditionally while the chat
+    //     is open — a healthy socket just finds nothing new to merge
+    //     (id-dedup keeps it idempotent), a stale socket catches the
+    //     missing message within ~2.5s. Battery impact on an active
+    //     chat screen is negligible (one tiny GET), and this is only
+    //     active while the DM screen itself is mounted.
+    //   • WS "freshness" heartbeat: if we haven't received ANY frame
+    //     for 20s AND the socket still claims OPEN, we force-close it
+    //     to trigger the reconnect path. This catches zombie sockets.
+    //   • Dedup by id (shared seenIds set) so a late poll never doubles
+    //     up a message the WS already delivered.
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+    let freshnessTimer: ReturnType<typeof setInterval> | null = null;
     let wsAlive = false;
+    let lastFrameAt = Date.now();
     let backoffMs = 1000;
 
     const seenIds = new Set<string>();
@@ -217,6 +280,7 @@ export default function DM() {
       wsRef.current = ws;
       ws.onopen = () => {
         wsAlive = true;
+        lastFrameAt = Date.now();
         backoffMs = 1000;
         // Full reconcile on open — picks up anything missed while
         // disconnected (the exact scenario in the bug report).
@@ -224,8 +288,41 @@ export default function DM() {
       };
       ws.onmessage = (ev) => {
         try {
+          // iter213: any frame — message, typing, or anything else —
+          // proves the socket is actually delivering. Bump the freshness
+          // timestamp so the stale-socket watchdog stays satisfied.
+          lastFrameAt = Date.now();
           const data = JSON.parse(ev.data);
+          if (data?.type === "typing") {
+            // iter212: ignore our own echo, otherwise reflect the
+            // peer's typing state. We also auto-clear after 4s in
+            // case we miss the "stopped typing" event (dropped WS,
+            // app backgrounded, etc.).
+            if (data.user_id && data.user_id !== user.id) {
+              setOtherTyping(!!data.is_typing);
+              if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+              if (data.is_typing) {
+                otherTypingTimerRef.current = setTimeout(() => setOtherTyping(false), 4000);
+              }
+              // iter213 (Garry, Oct 2026 — POLISH #3): if we don't yet
+              // know who the peer is (e.g. a brand-new thread with no
+              // messages), fetch their profile now so the indicator can
+              // say "Fiona is typing…" rather than the "Someone"
+              // fallback. Guarded by `!other` so we don't refetch on
+              // every keystroke.
+              if (!other && data.user_id) {
+                api.getUser(data.user_id).then((p) => setOther(p)).catch(() => {});
+              }
+            }
+            return;
+          }
           if (data?.type === "message" && data.message) {
+            // Clear peer typing indicator the moment their message
+            // actually arrives — no "typing…" ghost after send.
+            if (data.message.user_id && data.message.user_id !== user.id) {
+              setOtherTyping(false);
+              if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+            }
             appendOne(data.message);
             if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
               void speakGeorgeAuto(String(data.message.text));
@@ -247,11 +344,28 @@ export default function DM() {
     };
     connect();
 
-    // Reconciliation poll — ONLY fetches when the WS is NOT alive, so a
-    // healthy socket keeps the network footprint identical to before.
+    // iter213: reconciliation poll runs ALWAYS (every 2.5s) while the
+    // DM screen is open — this is the belt that pairs with the WS
+    // braces. A healthy socket will have delivered already so the fetch
+    // merges nothing new (dedup handles it); a stale socket catches the
+    // missing message within ~2.5s and the user is never "one message
+    // behind" again.
     reconcileTimer = setInterval(() => {
-      if (!wsAlive) reconcile();
-    }, 6000);
+      reconcile();
+    }, 2500);
+
+    // iter213: WS freshness watchdog. If the socket claims OPEN but
+    // hasn't delivered any frame for 20s, assume it's a zombie and
+    // force-close it so the reconnect path takes over. The reconcile
+    // poll above has already been keeping the thread in sync, so this
+    // is a cleanup action rather than a user-visible repair.
+    freshnessTimer = setInterval(() => {
+      const ws = wsRef.current;
+      if (!ws) return;
+      if (ws.readyState !== 1) return;
+      if (Date.now() - lastFrameAt < 20000) return;
+      try { ws.close(); } catch { /* noop */ }
+    }, 5000);
 
     const appSub = AppState.addEventListener("change", (next) => {
       if (next === "active") {
@@ -266,6 +380,9 @@ export default function DM() {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
+      if (freshnessTimer) clearInterval(freshnessTimer);
+      if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+      if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
       try { appSub.remove(); } catch { /* noop */ }
       try { ws?.close(); } catch { /* noop */ }
       stopGeorgeAuto();
@@ -276,6 +393,12 @@ export default function DM() {
     if (!text.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ text: text.trim() }));
     setText("");
+    // iter212: tell peer we stopped typing the moment we send so their
+    // "X is typing…" indicator clears immediately (otherwise it stays
+    // up for ~3s until the client-side debounce timer fires).
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingSentAtRef.current = 0;
+    emitTyping(false);
   };
 
   // Clear notes — Notes to Myself only. Backend enforces the self-DM
@@ -394,11 +517,18 @@ export default function DM() {
               const m = item.data;
               const mine = m.user_id === user?.id;
               const stamp = _fmtStamp(m.created_at || "");
+              // iter213 (Garry, Oct 2026 — POLISH #4): incoming (not-mine)
+              // bubbles were nearly invisible on the pale notebook paper
+              // because `c.surfaceSecondary` is often very close to the
+              // page colour. Give incoming bubbles a soft blue tint and a
+              // slightly stronger border so they lift off the page.
+              const bubbleBg = mine ? c.brand : "#EAF2FB";
+              const bubbleBorder = mine ? c.brand : "#B6CFEA";
               return (
                 <View style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
                   <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 4 }}>
-                    <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
-                      <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{m.text}</Text>
+                    <View style={[{ padding: 12, borderRadius: 18, backgroundColor: bubbleBg, borderWidth: 1, borderColor: bubbleBorder, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
+                      <Text style={{ color: mine ? "#FFF" : "#0F2A4D", fontSize: 16 * scale }}>{m.text}</Text>
                     </View>
                     {!mine && !isSelfDm && (
                       <Pressable testID={`dm-report-msg-${m.id}`} onLongPress={() => setReportTarget({ type: "message", id: m.id })} hitSlop={6} style={{ padding: 4 }}>
@@ -427,25 +557,44 @@ export default function DM() {
             }}
           />
         </View>
-        <View style={[styles.composerRow, { backgroundColor: c.surface, borderColor: c.border }]}>
-          {/* Round-8 polish (#4d): DM composer restructured to match
-              George Event Creation exactly — input + mic sit inside a
-              rounded pill for one visual language across the app. */}
-          <View style={[styles.composerPill, { backgroundColor: c.surfaceSecondary }]}>
+        <View style={[styles.composerRow, { backgroundColor: "#EAF2FB", borderColor: "#B6CFEA" }]}>
+          {/* iter212: typing indicator — a soft "{name} is typing…" row
+              only appears when the OTHER participant is typing. We never
+              show our own typing. */}
+          {otherTyping && !isSelfDm ? (
+            <View style={styles.typingRow} testID="dm-typing-indicator">
+              <View style={[styles.typingPill, { backgroundColor: "#FFFFFF", borderColor: "#B6CFEA" }]}>
+                <Text style={{ color: "#4A6B8F", fontSize: 13 * scale, fontWeight: "700" }}>
+                  {/* iter213 (Garry, Oct 2026 — POLISH #3): use the
+                      member's FriendPlace display name, never raw auth
+                      identities. */}
+                  {_safeTypingName(other?.first_name)} is typing…
+                </Text>
+              </View>
+            </View>
+          ) : null}
+          {/* iter213 (Garry, Oct 2026 — POLISH #4): outer composer area
+              now carries a soft blue wash (#EAF2FB) with a slightly
+              stronger top border so the input zone separates clearly
+              from the notebook paper above. Inner pill stays white so
+              the typing surface itself still looks like "where you
+              write". Minimum height bumped so the mic + text target is
+              easier to hit without hunting. */}
+          <View style={[styles.composerPill, { backgroundColor: "#FFFFFF", borderColor: "#B6CFEA" }]}>
             <TextInput
               testID="dm-input"
               value={text}
-              onChangeText={setText}
+              onChangeText={handleChangeText}
               placeholder={isSelfDm ? "Write yourself a note…" : "Type a message…"}
-              placeholderTextColor={c.muted}
-              style={[styles.pillInput, { color: c.onSurface, fontSize: 15 * scale }]}
+              placeholderTextColor="#8AA7C7"
+              style={[styles.pillInput, { color: "#0F2A4D", fontSize: 15 * scale }]}
               multiline
             />
             <VoiceInputButton
               testID="dm-mic"
               sendTestID="dm-send"
               value={text}
-              onChangeText={setText}
+              onChangeText={handleChangeText}
               userId={user?.id}
               onError={show}
               size={42}
@@ -473,27 +622,46 @@ const styles = StyleSheet.create({
   // Round-8 polish (#4d): DM composer 1:1 with George. Outer row has
   // paddings + top border; inner pill hosts input + mic.
   composerRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
+    flexDirection: "column",
+    gap: 6,
     paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
-    borderTopWidth: 1,
+    // iter213 (Garry, Oct 2026 — POLISH #4): slightly taller composer
+    // area so the input zone is easier to spot even before the keyboard
+    // opens. The top border is painted with a light blue so the handoff
+    // between notebook paper and typing area is unmistakable.
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1.5,
+  },
+  // iter212: typing indicator row — bordered pill above the composer so
+  // the "X is typing…" line is visually tied to the chat without
+  // crowding the input itself.
+  typingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  typingPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: "80%",
   },
   composerPill: {
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 8,
-    borderRadius: 20,
-    paddingLeft: 14,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    paddingLeft: 16,
     paddingRight: 4,
-    paddingVertical: 4,
+    paddingVertical: 6,
+    minHeight: 52,
   },
   pillInput: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     maxHeight: 120,
   },
   // Date separator (Today · Yesterday · long date) — a pill nested

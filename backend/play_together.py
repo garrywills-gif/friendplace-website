@@ -77,7 +77,16 @@ THIS_OR_THAT_BANK: List[Dict[str, str]] = [
 ]
 
 WORD_CHAIN_CATEGORIES: List[str] = [
-    "Animals", "Foods", "Countries", "Movies", "Aussie towns",
+    # iter213 (Garry, Oct 2026 — RED #2): "Aussie towns" and "Movies"
+    # were previously in this list but have NO curated word bank (they're
+    # too open-ended to enumerate reliably), so the per-turn validator
+    # fell through to "accept" and let nonsense like "Grad", "Dumb", "Bob"
+    # pass as Aussie towns. Rule for this list: a category only ships if
+    # it has either a curated WORD_CHAIN_DICT bank OR a validator we trust
+    # with high confidence. Both of those categories fail that bar, so
+    # they're removed. We'd rather have 10 reliable categories than 12
+    # that accept rubbish.
+    "Animals", "Foods", "Countries",
     "Fruit & veg", "Things in a kitchen", "Sports", "Boys' names",
     "Girls' names", "Something in the garden", "Musical instruments",
 ]
@@ -659,11 +668,14 @@ def register(api, ctx: Dict[str, Any]) -> None:
         if reject:
             raise HTTPException(400, reject)
         # Category-fit: accept curated-bank words instantly; otherwise ask the
-        # AI judge (with graceful fallback to accept). Open-ended categories
-        # (no curated bank) are always accepted.
+        # AI judge (strict — rejects on timeout/error). iter213: there are
+        # no open-ended categories anymore, so every category has a bank
+        # and WILL run through the AI backstop when the word isn't curated.
+        # If a future category somehow ships without a bank we still refuse
+        # to blindly accept — AI judge runs with the raw category name.
         cat = content.get("category", "")
         valid = WORD_CHAIN_DICT.get(cat)
-        if valid is not None and word.lower() not in valid:
+        if valid is None or word.lower() not in valid:
             if not await _word_chain_category_fits(cat, word):
                 raise HTTPException(400, f"Hmm, “{word}” doesn't look like it fits {cat}. Try another!")
         content["chain"].append({"player_id": me["id"], "word": word})

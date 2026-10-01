@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer } from "expo-audio";
 import { playAudioUri, type PlaybackController } from "@/src/lib/george-playback";
 import { useTheme } from "@/src/lib/theme";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
@@ -50,6 +51,12 @@ export default function Settings() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // iter212 (Next Action #2): preview the exact alert chime used by the
+  // in-app pop-ups so members hear what they're about to silence. Same
+  // file CompanionNudge uses — single source of truth.
+  const previewChime = useAudioPlayer(require("@/assets/sounds/nudge.wav"));
+  useEffect(() => { try { previewChime.volume = 0.6; } catch { /* noop */ } }, [previewChime]);
 
   // Favourite thoughts — surfaces items members have hearted from
   // "Today's Thought". Kept from the old standalone Accessibility page
@@ -223,18 +230,44 @@ export default function Settings() {
         {/* iter211 (Garry, Oct 2026 — POLISH #6): master switch for the
             app's own chime / blip sounds (DM nudge, Flutter, game invite,
             café invite, live popups). TTS / read-aloud is NOT muted here
-            — those have their own toggles above. */}
-        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>FriendPlace sounds</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Chimes for new messages, Flutters, game and Café invites, and live popups. Turn off for a silent experience. Voice playback is separate.</Text>
+            — those have their own toggles above.
+            iter212 (Next Action #2): Play sample button so members hear
+            exactly what they're silencing before flipping the switch. */}
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border, flexDirection: "column", alignItems: "stretch" }]}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>FriendPlace sounds</Text>
+              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Chimes that play with alert pop-ups (new messages, Flutters, game and Café invites, live popups). Turn off for a silent experience. Voice playback is separate.</Text>
+            </View>
+            <Switch
+              testID="toggle-friendplace-sounds"
+              value={prefs.friendPlaceSounds !== false}
+              onValueChange={(v) => { setPref("friendPlaceSounds", v); show(`FriendPlace sounds ${v ? "on" : "off"}`); }}
+              trackColor={{ true: c.brand, false: c.border }}
+            />
           </View>
-          <Switch
-            testID="toggle-friendplace-sounds"
-            value={prefs.friendPlaceSounds !== false}
-            onValueChange={(v) => { setPref("friendPlaceSounds", v); show(`FriendPlace sounds ${v ? "on" : "off"}`); }}
-            trackColor={{ true: c.brand, false: c.border }}
-          />
+          <Pressable
+            testID="friendplace-sounds-preview"
+            onPress={() => {
+              try { previewChime.seekTo(0); previewChime.play(); } catch { /* noop */ }
+            }}
+            style={({ pressed }) => [{
+              marginTop: 10,
+              alignSelf: "flex-start",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 999,
+              borderWidth: 1.5,
+              borderColor: c.border,
+              backgroundColor: pressed ? c.surfaceTertiary : "transparent",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }]}
+          >
+            <Ionicons name="volume-high-outline" size={16} color={c.brand} />
+            <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Play sample</Text>
+          </Pressable>
         </View>
 
         <GeorgeVoiceCard />

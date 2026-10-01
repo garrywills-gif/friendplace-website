@@ -11,6 +11,7 @@ import { emitFlutter } from "@/src/lib/flutter-fx";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import ReportSheet from "@/src/components/ReportSheet";
+import BlockReasonSheet from "@/src/components/BlockReasonSheet";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
@@ -25,6 +26,7 @@ export default function UserView() {
   const [u, setU] = useState<any>(null);
   const [reporting, setReporting] = useState(false);
   const [unblocking, setUnblocking] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
 
   useEffect(() => { if (id) api.getUser(id).then(setU).catch(() => {}); }, [id]);
 
@@ -79,13 +81,10 @@ export default function UserView() {
   };
   const block = async () => {
     if (!user) return;
-    const ok = await confirm({ title: `Block ${u.first_name}?`, message: "You won't see their posts and they can't message you.", confirmLabel: "Block", destructive: true });
-    if (!ok) return;
-    try {
-      await api.blockUser(user.id, u.id);
-      show(`${u.first_name} blocked`);
-      await refresh();
-    } catch { show("Couldn't block — please try again"); }
+    // iter212 (Next Action #3): collect an optional private note instead
+    // of a plain yes/no confirm, so members can jot "why" and remember
+    // later. Note is stored privately on the blocker's doc only.
+    setBlockOpen(true);
   };
   const unblock = async () => {
     if (!user || unblocking) return;
@@ -207,6 +206,20 @@ export default function UserView() {
       {reporting && (
         <ReportSheet visible={reporting} onClose={() => setReporting(false)} target_type="user" target_user_id={u.id} target_user_name={u.first_name} />
       )}
+      <BlockReasonSheet
+        visible={blockOpen}
+        memberName={u.first_name}
+        onCancel={() => setBlockOpen(false)}
+        onConfirm={async (note) => {
+          if (!user) return;
+          setBlockOpen(false);
+          try {
+            await api.blockUser(user.id, u.id, note);
+            show(`${u.first_name} blocked`);
+            await refresh();
+          } catch { show("Couldn't block — please try again"); }
+        }}
+      />
     </View>
   );
 }

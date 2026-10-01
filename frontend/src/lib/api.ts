@@ -240,7 +240,11 @@ export const api = {
   // useFocusEffect refreshers so tapping a tab doesn't logout+bounce the
   // user back to Home on a transient auth blip. See api.req() docstring.
   getUserSilent: (id: string) => req(`/users/${id}`, {}, { silent: true }),
-  blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
+  blockUser: (uid: string, other: string, note?: string) =>
+    req(`/users/${uid}/block/${other}`, {
+      method: "POST",
+      body: JSON.stringify({ note: note || "" }),
+    }),
   unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
   // iter210 (Garry, Oct 2026 — FEATURE #14): list the user's currently
   // blocked members for a Settings → Blocked members screen.
