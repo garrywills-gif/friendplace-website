@@ -94,13 +94,24 @@ export default function CompanionNudge() {
     const now = Date.now();
     const m = seenMsg.current;
     // prune old keys so the map never grows unbounded
-    for (const [k, t] of m) if (now - t > 15000) m.delete(k);
-    if (m.has(key) && now - (m.get(key) as number) < 8000) return true;
+    for (const [k, t] of m) if (now - t > 180000) m.delete(k);
+    // Window must exceed the reconciliation poll interval so the SAME message
+    // can't be shown once by the socket and again by the poll. Keys are
+    // per-message (conv:msgId), so distinct/consecutive messages are never
+    // suppressed by this.
+    if (m.has(key) && now - (m.get(key) as number) < 120000) return true;
     m.set(key, now);
     return false;
   }, []);
   const anim = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Every notification id we've already surfaced (via socket OR poll) so the
+  // reconciliation poll never double-shows an event the socket already
+  // delivered, and never re-nudges after the member dismissed it.
+  const shownIds = useRef<Set<string>>(new Set());
+  // Mirror of `nudge` for the poll closure — so we never clobber a visible
+  // (possibly persistent) nudge with a polled one.
+  const nudgeRef = useRef<Nudge | null>(null);
 
   const hide = useCallback(() => {
     if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
@@ -130,6 +141,8 @@ export default function CompanionNudge() {
   useInboxEvent("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || !NUDGE_TYPES.has(n.type)) return;
+    // Already surfaced (poll beat the socket, or vice-versa) → skip.
+    if (n.id && shownIds.current.has(n.id)) return;
     // Stay quiet on auth/onboarding/welcome. Game invites & friend requests
     // must surface on EVERY screen (including Home "/") so they're never
     // missed. Passive chat/flutter nudges stay quiet on the bare index route.
@@ -148,6 +161,7 @@ export default function CompanionNudge() {
       const msgId = n?.payload?.msg_id || n?.id || "";
       if (conv && seenRecently(`${conv}:${msgId}`)) return;
     }
+    if (n.id) shownIds.current.add(n.id);
     setNudge({
       key: n.id || String(Date.now()),
       ntype: n.type,
@@ -189,6 +203,68 @@ export default function CompanionNudge() {
       route: `/dm/${conv}${fromId ? `?other_id=${fromId}` : ""}`,
     });
   });
+
+  // ── Reconciliation poll fallback (Garry, Sep 2026 — "notifications must
+  // pop up no matter where they are; it did work and stopped") ──────────
+  // The per-user socket is the PRIMARY live channel, but on real devices it
+  // can silently drop while idle on Home (ingress idle-timeout / OS
+  // backgrounding), so a game invite or chat-request can miss its live push.
+  // Every few seconds we fetch recent unread actionable notifications and
+  // surface any the socket never delivered — guaranteeing a popup within
+  // seconds on ANY screen without a refresh or navigation. `shownIds`
+  // dedups against the socket so nothing double-shows.
+  useEffect(() => {
+    if (!user?.id) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      // Never clobber a nudge that's already on screen (esp. persistent
+      // game/friend/table invites waiting on a choice).
+      if (nudgeRef.current) return;
+      if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
+      try {
+        const rows: any[] = await api.liveNudges(user.id, 90);
+        if (stopped || nudgeRef.current || !Array.isArray(rows)) return;
+        // Oldest → newest so the most recent unseen ends up showing.
+        for (const n of rows.slice().reverse()) {
+          if (!n?.id || shownIds.current.has(n.id) || !NUDGE_TYPES.has(n.type)) continue;
+          if (n.type === "flutter" && pathname === "/") { shownIds.current.add(n.id); continue; }
+          const route = routeFor(n);
+          if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) {
+            shownIds.current.add(n.id); continue;
+          }
+          if (n.type === "dm" || n.type === "dm_request") {
+            const conv = n?.payload?.dm_id || n?.payload?.conv_id || "";
+            const msgId = n?.payload?.msg_id || n?.id || "";
+            if (conv && seenRecently(`${conv}:${msgId}`)) { shownIds.current.add(n.id); continue; }
+          }
+          shownIds.current.add(n.id);
+          setNudge({
+            key: n.id,
+            ntype: n.type,
+            title: cleanText(n.title || "") || (
+              n.type === "flutter" ? "New Flutter"
+              : n.type === "game_invite" ? "New game invite"
+              : n.type === "friend_request" ? "New friend request"
+              : n.type === "table_invite" ? "Table invite"
+              : "New message"
+            ),
+            body: cleanText(n.body || ""),
+            route,
+            payload: n.payload || {},
+          });
+          break; // one nudge per tick
+        }
+      } catch { /* silent — socket is primary, poll is best-effort */ }
+    };
+    const id = setInterval(tick, 9000);
+    // Prime quickly on mount/return so a just-missed event surfaces fast.
+    const warm = setTimeout(tick, 1500);
+    return () => { stopped = true; clearInterval(id); clearTimeout(warm); };
+  }, [user?.id, pathname, seenRecently]);
+
+  // Keep the poll's view of "is a nudge visible" fresh.
+  useEffect(() => { nudgeRef.current = nudge; }, [nudge]);
 
   // Animate in + arm auto-hide whenever a new nudge is set.
   useEffect(() => {

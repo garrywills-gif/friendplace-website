@@ -3556,6 +3556,43 @@ async def list_notifications(user_id: str, unread_only: bool = False):
     return docs
 
 
+# Notification types the root companion overlay nudges for — mirrors the
+# frontend NUDGE_TYPES set. Includes DMs (which the bell excludes) because
+# the overlay needs them.
+NUDGE_NOTIF_TYPES = ("dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite")
+
+
+@api.get("/notifications/{user_id}/live-nudges")
+async def live_nudges(user_id: str, since_secs: int = 90):
+    """Reconciliation fallback for the global popup overlay (Garry, Sep 2026
+    — "notifications must pop up no matter where they are; it did work and
+    stopped").
+
+    The per-user WebSocket is the PRIMARY live channel, but on real devices it
+    can drop while idle on Home (ingress idle-timeout, backgrounding) so a
+    game invite / chat-request can miss its live push. CompanionNudge polls
+    this every few seconds and surfaces any actionable notification created in
+    the last `since_secs` that it hasn't already shown — so a popup always
+    appears within seconds even if the socket missed the event.
+
+    Returns recent, UNREAD, non-ephemeral notifications of the nudge types,
+    newest first. `since_secs` is clamped to a sane window so we never
+    re-nudge stale items on app open.
+    """
+    since_secs = max(10, min(int(since_secs or 90), 300))
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=since_secs)).isoformat()
+    docs = await db.notifications.find(
+        {
+            "user_id": user_id,
+            "type": {"$in": list(NUDGE_NOTIF_TYPES)},
+            "read": {"$ne": True},
+            "created_at": {"$gte": cutoff},
+        },
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(20)
+    return docs
+
+
 @api.get("/notifications/{user_id}/count")
 async def notifications_count(user_id: str):
     # Bell badge = all OTHER unread notifications, excluding chats/DMs so the

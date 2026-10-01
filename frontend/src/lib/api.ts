@@ -264,6 +264,11 @@ export const api = {
   // notifications
   notifications: (uid: string, unreadOnly = false) => req(`/notifications/${uid}${unreadOnly ? "?unread_only=true" : ""}`),
   notificationCount: (uid: string) => req(`/notifications/${uid}/count`),
+  // Reconciliation fallback for the global popup overlay — recent unread
+  // actionable notifications (incl. DMs) so a popup still appears within
+  // seconds if the live socket missed the event. Silent on failure.
+  liveNudges: (uid: string, sinceSecs = 90) =>
+    req(`/notifications/${uid}/live-nudges?since_secs=${sinceSecs}`, {}, { silent: true }),
   readNotification: (id: string) => req(`/notifications/${id}/read`, { method: "POST" }),
   readAllNotifications: (uid: string) => req(`/notifications/${uid}/read-all`, { method: "POST" }),
   // Batch B iter156 (Garry, Aug 2026 — P1 #5): individual delete +
