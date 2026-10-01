@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 import { useComposerLock } from '@/src/lib/composer-lock';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
+import GeorgeNavFuse from '@/src/components/george/GeorgeNavFuse';
 import { useGeorge } from '@/src/lib/george-context';
 import { useRouter } from 'expo-router';
 
@@ -45,6 +46,7 @@ export function GeorgeCompanionChat({ onClose }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
+  const [navFuse, setNavFuse] = useState<{ label: string; run: () => void } | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
   const voiceIn = useGeorgeVoiceInput(setInput);
@@ -112,13 +114,18 @@ export function GeorgeCompanionChat({ onClose }: Props) {
       if (s.navigate_to) {
         const resolved = resolveGeorgeNavigate(s.navigate_to);
         if (resolved) {
-          setTimeout(() => {
-            try {
-              markGeorgeLedNavigation(resolved.target.key as any);
-              onClose();
-              router.push(resolved.target.href as any);
-            } catch { /* non-fatal */ }
-          }, 650);
+          // Show a brief "Opening {label}…" fuse so the member can read
+          // George's final message before the screen changes (Garry, Sep 2026).
+          setNavFuse({
+            label: resolved.label,
+            run: () => {
+              try {
+                markGeorgeLedNavigation(resolved.target.key as any);
+                onClose();
+                router.push(resolved.target.href as any);
+              } catch { /* non-fatal */ }
+            },
+          });
         }
       }
     } catch {
@@ -155,6 +162,7 @@ export function GeorgeCompanionChat({ onClose }: Props) {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={[styles.wrap, { paddingTop: insets.top + 20 }]}>
+      {navFuse && <GeorgeNavFuse label={navFuse.label} onDone={navFuse.run} />}
       <View style={styles.header}>
         <View style={styles.identity}>
           <GeorgeButterflyMark size={30} />

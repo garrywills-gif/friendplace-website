@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
+import GeorgeNavFuse from '@/src/components/george/GeorgeNavFuse';
 import { TypingDots } from './TypingDots';
 import { georgeApi } from '@/src/lib/george-api';
 import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
@@ -73,6 +74,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const [known, setKnown] = useState<Record<string, Field>>({});
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
+  const [navFuse, setNavFuse] = useState<{ label: string; run: () => void } | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
   // B4 voice input — push-to-talk mic that transcribes into the composer.
@@ -209,19 +211,27 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       setTurns(returnedTurns);
       setStatus(nextStatus);
       setKnown(s.known || {});
-      // #5 (Garry, real-device Sep 2026): if George is taking them to Find
-      // Friends, actually open it (Finish later so they can come back to
-      // the induction) instead of pretending to search in the background.
-      if (s.navigate_to === 'friends') {
-        const resolved = resolveGeorgeNavigate({ key: 'friends', label: 'Find Friends' });
+      // #5 (Garry, real-device Sep 2026): if George is taking them somewhere
+      // (Find Friends or any major area via rule 12), actually open it with a
+      // brief "Opening …" fuse so they can read George's line first. Finish
+      // later so they can return to the induction afterwards.
+      if (s.navigate_to) {
+        const resolved = resolveGeorgeNavigate(
+          typeof s.navigate_to === 'string'
+            ? { key: s.navigate_to, label: null }
+            : s.navigate_to,
+        );
         if (resolved) {
-          setTimeout(() => {
-            try {
-              markGeorgeLedNavigation(resolved.target.key as any);
-              onFinishLater();
-              router.push(resolved.target.href as any);
-            } catch { /* non-fatal */ }
-          }, 900);
+          setNavFuse({
+            label: resolved.label,
+            run: () => {
+              try {
+                markGeorgeLedNavigation(resolved.target.key as any);
+                onFinishLater();
+                router.push(resolved.target.href as any);
+              } catch { /* non-fatal */ }
+            },
+          });
         }
       }
     } catch {
@@ -289,6 +299,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       behavior="padding"
       style={[styles.wrap, { paddingTop: insets.top + 20 }]}
     >
+      {navFuse && <GeorgeNavFuse label={navFuse.label} onDone={navFuse.run} />}
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName} numberOfLines={1}>{voiceLabel}</Text>

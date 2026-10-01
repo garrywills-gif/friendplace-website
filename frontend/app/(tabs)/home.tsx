@@ -77,11 +77,12 @@ export default function Home() {
   const [thanked, setThanked] = useState<Record<string, boolean>>({});
   const dismissGreetingCard = (n: any) => setGreetings((xs) => xs.filter((x) => x.id !== n.id));
   const greetingSayThanks = async (n: any) => {
-    if (!user?.id || thanked[n.id]) return;
+    if (!user?.id || thanked[n.id] || n?.responded) return;
     setThanked((t) => ({ ...t, [n.id]: true })); // one-tap: lock immediately
     try {
-      await api.thankGreeting({ from_id: user.id, to_id: n.payload.from_id });
+      await api.thankGreeting({ from_id: user.id, to_id: n.payload.from_id, notif_id: n.id });
       if (!n.read) await api.readNotification(n.id).catch(() => {});
+      setGreetings((xs) => xs.map((x) => (x.id === n.id ? { ...x, responded: { action: "thanks" } } : x)));
       show("Thanks sent ✓");
     } catch { setThanked((t) => ({ ...t, [n.id]: false })); show("Couldn't send just now — please try again."); }
   };
@@ -1171,10 +1172,11 @@ export default function Home() {
               <Pressable
                 testID={`home-greeting-thanks-${n.id}`}
                 onPress={() => greetingSayThanks(n)}
-                disabled={thanked[n.id]}
-                style={[styles.greetBtn, { backgroundColor: thanked[n.id] ? c.surface : c.brand, borderColor: thanked[n.id] ? c.border : c.brand }]}
+                disabled={thanked[n.id] || n?.responded?.action === "thanks"}
+                pressRetentionOffset={0}
+                style={[styles.greetBtn, { backgroundColor: (thanked[n.id] || n?.responded?.action === "thanks") ? c.surface : c.brand, borderColor: (thanked[n.id] || n?.responded?.action === "thanks") ? c.border : c.brand }]}
               >
-                <Text style={{ color: thanked[n.id] ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{thanked[n.id] ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
+                <Text style={{ color: (thanked[n.id] || n?.responded?.action === "thanks") ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{(thanked[n.id] || n?.responded?.action === "thanks") ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
               </Pressable>
               <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: c.surface, borderColor: c.border }]}>
                 <Ionicons name="chatbubble-outline" size={15} color={c.brand} />

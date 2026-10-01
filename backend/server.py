@@ -6985,6 +6985,37 @@ async def join_group(group_id: str, user_id: str, me: dict = Depends(current_use
     return {"ok": True}
 
 
+@api.post("/groups/{group_id}/leave/{user_id}")
+async def leave_group(group_id: str, user_id: str, me: dict = Depends(current_user)):
+    """Leave a group. SEC-002: a member can only remove themselves (admins
+    may act for others). The member's existing posts and comments REMAIN —
+    leaving simply stops new posting/commenting and drops the membership.
+    Rejoining later follows the normal join flow (and any approval/founder
+    gate that applies)."""
+    if me.get("id") != user_id and not me.get("is_admin"):
+        raise HTTPException(403, "You can only leave groups as yourself.")
+    await db.groups.update_one({"id": group_id}, {"$pull": {"members": user_id}})
+    return {"ok": True}
+
+
+async def _require_group_member(group_id: str, user_id: str, is_admin: bool = False):
+    """Gate posting/commenting behind membership. Admins bypass. Raises a
+    friendly 403 with code `not_a_member` so the client can prompt to join."""
+    if is_admin:
+        return
+    g = await db.groups.find_one({"id": group_id}, {"_id": 0, "members": 1, "name": 1})
+    if not g:
+        raise HTTPException(404, "Group not found.")
+    if user_id not in (g.get("members") or []):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "not_a_member",
+                "message": f"Join {g.get('name', 'this group')} to post or comment.",
+            },
+        )
+
+
 @api.get("/groups/{group_id}/posts")
 async def group_posts(group_id: str):
     docs = await db.group_posts.find({"group_id": group_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -6994,6 +7025,8 @@ async def group_posts(group_id: str):
 
 @api.post("/groups/{group_id}/posts")
 async def create_group_post(group_id: str, body: GroupPost, me: dict = Depends(current_user)):
+    # Membership gate (Garry, Sep 2026): must join before posting.
+    await _require_group_member(group_id, me["id"], bool(me.get("is_admin")))
     data = body.dict()
     data["group_id"] = group_id
     # SEC-002: author identity comes from the JWT, not the client payload.
@@ -7012,6 +7045,11 @@ async def like_group_post(post_id: str, user_id: str, me: dict = Depends(owner_o
 
 @api.post("/groups/posts/{post_id}/comment")
 async def comment_group_post(post_id: str, body: dict, me: dict = Depends(current_user)):
+    # Membership gate (Garry, Sep 2026): must join before commenting.
+    post = await db.group_posts.find_one({"id": post_id}, {"_id": 0, "group_id": 1})
+    if not post:
+        raise HTTPException(404, "Post not found.")
+    await _require_group_member(post.get("group_id"), me["id"], bool(me.get("is_admin")))
     # SEC-002: commenter identity comes from the JWT, not the client payload.
     comment = {"id": nid(), "user_id": me["id"], "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
     await db.group_posts.update_one({"id": post_id}, {"$push": {"comments": comment}})
@@ -11134,11 +11172,37 @@ class GreetingSendBody(BaseModel):
     from_id: str
     to_id: str
     kind: str = "welcome"  # "welcome" | "birthday"
+    # Optional id of the notification the member is responding to (e.g. the
+    # new-member card they tapped "Say Hi" on). When given we stamp a
+    # server-backed `responded` marker on it so the one-shot button stays
+    # "sent" after navigating away and back, and duplicate sends are blocked.
+    notif_id: Optional[str] = None
 
 
 class GreetingThanksBody(BaseModel):
     from_id: str
     to_id: str
+    notif_id: Optional[str] = None
+
+
+async def _mark_notif_responded(notif_id: Optional[str], owner_id: str, action: str) -> None:
+    """Stamp a `responded` marker on the caller's own notification so the
+    one-shot action renders as already-sent on reload (server-backed state)."""
+    if not notif_id:
+        return
+    await db.notifications.update_one(
+        {"id": notif_id, "user_id": owner_id},
+        {"$set": {"responded": {"action": action, "at": now_iso()}, "read": True}},
+    )
+
+
+async def _notif_already_responded(notif_id: Optional[str], owner_id: str) -> bool:
+    if not notif_id:
+        return False
+    doc = await db.notifications.find_one(
+        {"id": notif_id, "user_id": owner_id}, {"_id": 0, "responded": 1}
+    )
+    return bool(doc and doc.get("responded"))
 
 
 @api.post("/greetings/send")
@@ -11174,6 +11238,12 @@ async def send_greeting(body: GreetingSendBody):
         title = f"👋 {name} welcomed you to FriendPlace"
         text = "Tap to say thanks or start a chat."
 
+    # Server-backed one-shot guard (Garry, Sep 2026): if this member has
+    # already responded to this exact notification, treat as a no-op success
+    # so the button stays "sent" and a stray second tap never re-sends.
+    if await _notif_already_responded(body.notif_id, body.from_id):
+        return {"ok": True, "type": n_type, "already": True}
+
     # De-dupe: one unread greeting of this kind per sender→recipient pair so
     # repeated taps don't spam the recipient.
     if body.from_id != body.to_id:
@@ -11182,9 +11252,11 @@ async def send_greeting(body: GreetingSendBody):
             {"_id": 0, "id": 1},
         )
         if dup:
+            await _mark_notif_responded(body.notif_id, body.from_id, "wave")
             raise HTTPException(status_code=409, detail={"error": "greeting_already_sent", "message": "You've already sent them this — give them a moment to see it."})
 
     await push_notification(body.to_id, n_type, title, text, payload)
+    await _mark_notif_responded(body.notif_id, body.from_id, "wave")
     return {"ok": True, "type": n_type}
 
 
@@ -11193,6 +11265,10 @@ async def thank_greeting(body: GreetingThanksBody):
     """"Say thanks" reply to a welcome/birthday greeting — again its own
     lightweight notification, not a Flutter or chat."""
     rate_limit(f"greeting-thanks:{body.from_id}", max_calls=60, window_seconds=3600)
+    # Server-backed one-shot guard — block repeat "Say thanks" after the
+    # member navigates away and back (Garry, Sep 2026).
+    if await _notif_already_responded(body.notif_id, body.from_id):
+        return {"ok": True, "already": True}
     sender = await db.users.find_one({"id": body.from_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1})
     if not sender:
         raise HTTPException(404, "Sender not found")
@@ -11204,6 +11280,7 @@ async def thank_greeting(body: GreetingThanksBody):
         "",
         {"from_id": body.from_id, "from_name": name, "from_avatar": sender.get("avatar") or "🙂"},
     )
+    await _mark_notif_responded(body.notif_id, body.from_id, "thanks")
     return {"ok": True}
 
 
@@ -11804,14 +11881,38 @@ async def start_dm(body: dict, me: dict = Depends(current_user)):
 class ConnectionHub:
     def __init__(self):
         self.rooms: Dict[str, Set[WebSocket]] = {}
+        # ws → user_id. Lets us answer "which *users* are currently in
+        # this room?" accurately, instead of guessing from raw socket
+        # counts. A single user may hold more than one socket (reconnect
+        # overlap, two devices), so socket-count heuristics were unsafe
+        # for DM push-suppression (iter-realtime fix, Sep 2026).
+        self.sock_user: Dict[WebSocket, str] = {}
 
-    async def connect(self, room: str, ws: WebSocket):
+    async def connect(self, room: str, ws: WebSocket, user_id: Optional[str] = None):
         await ws.accept()
         self.rooms.setdefault(room, set()).add(ws)
+        if user_id:
+            self.sock_user[ws] = user_id
+
+    def bind_user(self, ws: WebSocket, user_id: str):
+        """Associate a socket with its authenticated user. Called after
+        the per-socket auth check passes (auth happens *after* accept)."""
+        if user_id:
+            self.sock_user[ws] = user_id
 
     def disconnect(self, room: str, ws: WebSocket):
         if room in self.rooms:
             self.rooms[room].discard(ws)
+        self.sock_user.pop(ws, None)
+
+    def users_in_room(self, room: str) -> Set[str]:
+        """The set of *user ids* with at least one live socket in `room`."""
+        out: Set[str] = set()
+        for ws in self.rooms.get(room, set()):
+            uid = self.sock_user.get(ws)
+            if uid:
+                out.add(uid)
+        return out
 
     async def broadcast(self, room: str, message: dict):
         dead = []
@@ -12241,6 +12342,9 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
             pass
         hub.disconnect(room, websocket)
         return
+    # Auth + participant checks passed — bind this socket to its user so
+    # `users_in_room` can tell exactly who is looking at the thread.
+    hub.bind_user(websocket, user_id)
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     try:
         while True:
@@ -12456,30 +12560,25 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         )
                         await _broadcast_to_user(other_id, dm_update_payload)
 
-                    # If the recipient is ALREADY inside this DM room
-                    # they saw the message via the dm:{conv_id} broadcast
-                    # a moment ago — no need for a redundant push /
-                    # notifications row. iter154 fix for Garry's spec:
-                    # "no duplicate push while the user is already
-                    # inside that conversation".
-                    dm_room = hub.rooms.get(f"dm:{conv_id}", set())
-                    # Best-effort presence check: any socket in the
-                    # room means someone else is looking. We don't
-                    # track socket→user mapping directly, so we skip
-                    # the notification when > 1 socket is present
-                    # (sender + recipient). If only the sender's
-                    # socket is here, the recipient is elsewhere.
-                    others_present_in_room = len(dm_room) > 1
+                    # If the recipient is ALREADY inside this DM room we
+                    # know it precisely now that every dm socket is bound
+                    # to its user (iter-realtime fix). Previously we
+                    # guessed from `len(dm_room) > 1`, which mis-fired when
+                    # the sender held a stale/duplicate socket: the push +
+                    # Notifications row were silently suppressed even though
+                    # the recipient had already left the thread — the exact
+                    # "badge updates but no popup / message never appears
+                    # live" class of bug Garry kept hitting.
+                    present_users = hub.users_in_room(f"dm:{conv_id}")
                     for other_id in others:
-                        if others_present_in_room:
-                            # In-conversation: the DM broadcast already
-                            # delivered the message. Skip push + notifications
-                            # insert so the recipient's Chats list doesn't
-                            # get a spurious unread bump right after they
-                            # already saw the message.
+                        if other_id in present_users:
+                            # In-conversation: the dm:{conv_id} broadcast
+                            # already delivered the message live. Skip the
+                            # push + Notifications insert so the recipient's
+                            # Chats list doesn't get a spurious unread bump.
                             logger.debug(
-                                "dm push suppressed for %s — recipient is in room %s",
-                                other_id, dm_room,
+                                "dm push suppressed for %s — user present in room %s",
+                                other_id, conv_id,
                             )
                             continue
                         await push_notification(
@@ -12487,7 +12586,7 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                             n_type,
                             title,
                             text[:180],
-                            {"dm_id": conv_id, "from_id": user_id},
+                            {"dm_id": conv_id, "from_id": user_id, "msg_id": out.get("id")},
                         )
             except Exception as e:
                 logger.warning("dm notification failed: %s", e)
@@ -12537,6 +12636,9 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
         return
     room_size = len(hub.rooms.get(room, set()))
     logger.info("ws_user CONNECT peer=%s room=%s room_size_now=%d", peer, room, room_size)
+    # Bind the socket to its user so `users_in_room` is accurate for the
+    # per-user room too (presence diagnostics / future routing).
+    hub.bind_user(websocket, user_id)
     # iter154-fix: the WS itself is authoritative proof-of-presence.
     # Update `last_seen_at` on connect + on every subsequent ping so
     # a user with an active socket ALWAYS shows online. We mirror to

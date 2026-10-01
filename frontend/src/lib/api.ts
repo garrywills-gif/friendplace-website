@@ -130,6 +130,7 @@ function _friendlyErrorMessage(status: number, body: string): string {
       const j = JSON.parse(trimmed);
       const detail =
         (typeof j?.detail === "string" && j.detail) ||
+        (j?.detail && typeof j.detail === "object" && typeof j.detail.message === "string" && j.detail.message) ||
         (typeof j?.message === "string" && j.message) ||
         (typeof j?.error === "string" && j.error) ||
         "";
@@ -562,6 +563,7 @@ export const api = {
     }),
   createGroup: (b: any) => req("/groups", { method: "POST", body: JSON.stringify(b) }),
   joinGroup: (gid: string, uid: string) => req(`/groups/${gid}/join/${uid}`, { method: "POST" }),
+  leaveGroup: (gid: string, uid: string) => req(`/groups/${gid}/leave/${uid}`, { method: "POST" }),
   groupPosts: (gid: string) => req(`/groups/${gid}/posts`),
   createGroupPost: (gid: string, b: any) => req(`/groups/${gid}/posts`, { method: "POST", body: JSON.stringify(b) }),
   likeGroupPost: (pid: string, uid: string) => req(`/groups/posts/${pid}/like/${uid}`, { method: "POST" }),
@@ -709,9 +711,9 @@ export const api = {
     req("/flutters/send", { method: "POST", body: JSON.stringify(body) }),
   // Lightweight community greetings — distinct from flutters. kind:
   // "welcome" (new-member) or "birthday". Their own notification types.
-  greet: (body: { from_id: string; to_id: string; kind: "welcome" | "birthday" }) =>
+  greet: (body: { from_id: string; to_id: string; kind: "welcome" | "birthday"; notif_id?: string }) =>
     req("/greetings/send", { method: "POST", body: JSON.stringify(body) }),
-  thankGreeting: (body: { from_id: string; to_id: string }) =>
+  thankGreeting: (body: { from_id: string; to_id: string; notif_id?: string }) =>
     req("/greetings/thanks", { method: "POST", body: JSON.stringify(body) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   myOutboundActiveFlutters: (uid: string): Promise<{ active: Array<{ flutter_id: string; to_id: string; created_at: string }> }> =>

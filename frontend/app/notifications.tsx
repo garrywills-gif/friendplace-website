@@ -183,16 +183,21 @@ export default function Notifications() {
   const [wavedIds, setWavedIds] = useState<Record<string, boolean>>({});
   const sayHiWave = async (n: any) => {
     const targetId: string | undefined = n?.ref_user_id || n?.payload?.from_id;
-    if (!user || !targetId || wavedIds[n.id]) return;
+    if (!user || !targetId || wavedIds[n.id] || n?.responded) return;
     setWavedIds((w) => ({ ...w, [n.id]: true })); // one-tap lock
     try {
-      await api.greet({ from_id: user.id, to_id: targetId, kind: "welcome" });
+      await api.greet({ from_id: user.id, to_id: targetId, kind: "welcome", notif_id: n.id });
       if (!n.read) await api.readNotification(n.id);
-      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      // Server-backed sent state — stamp `responded` on the item so the
+      // button stays "Wave sent ✓" after navigating away and back.
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true, responded: { action: "wave" } } : x)));
       show("Wave sent ✓");
     } catch (e: any) {
       const raw = String(e?.message || "");
-      if (/already/i.test(raw)) { show("Already sent — they'll see it soon 👋"); }
+      if (/already/i.test(raw)) {
+        setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, responded: { action: "wave" } } : x)));
+        show("Already sent — they'll see it soon 👋");
+      }
       else { setWavedIds((w) => ({ ...w, [n.id]: false })); show("Couldn't send just now — please try again."); }
     }
   };
@@ -201,12 +206,12 @@ export default function Notifications() {
   const [thankedIds, setThankedIds] = useState<Record<string, boolean>>({});
   const greetingThanks = async (n: any) => {
     const targetId: string | undefined = n?.payload?.from_id;
-    if (!user || !targetId || thankedIds[n.id]) return;
+    if (!user || !targetId || thankedIds[n.id] || n?.responded) return;
     setThankedIds((t) => ({ ...t, [n.id]: true })); // one-tap lock
     try {
-      await api.thankGreeting({ from_id: user.id, to_id: targetId });
+      await api.thankGreeting({ from_id: user.id, to_id: targetId, notif_id: n.id });
       if (!n.read) await api.readNotification(n.id);
-      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true, responded: { action: "thanks" } } : x)));
       show("Thanks sent ✓");
     } catch { setThankedIds((t) => ({ ...t, [n.id]: false })); show("Couldn't send just now — please try again."); }
   };
@@ -298,6 +303,10 @@ export default function Notifications() {
           // Flutter. They get Say thanks · Start chat · Later, and must never
           // render inside the flutter row above.
           const isGreeting = (item.type === "welcome" || item.type === "birthday_wish") && !!item?.payload?.from_id;
+          // Server-backed one-shot state: once responded, the button stays
+          // "sent" even after navigating away and back (Garry, Sep 2026).
+          const waved = !!wavedIds[item.id] || item?.responded?.action === "wave";
+          const thanked = !!thankedIds[item.id] || item?.responded?.action === "thanks";
           return (
             <View>
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
@@ -336,7 +345,7 @@ export default function Notifications() {
                         Flutter back
                       </Text>
                     </Pressable>
-                  ) : wavedIds[item.id] ? (
+                  ) : waved ? (
                     <View
                       testID={`newmember-waved-${item.id}`}
                       style={[styles.dmActionBtn, { backgroundColor: c.surfaceTertiary, borderColor: c.border, flex: 1 }]}
@@ -350,6 +359,7 @@ export default function Notifications() {
                     <Pressable
                       testID={`newmember-say-hi-${item.id}`}
                       onPress={() => sayHiWave(item)}
+                      pressRetentionOffset={0}
                       style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
                     >
                       <Text style={{ fontSize: 15 }}>👋</Text>
@@ -377,10 +387,11 @@ export default function Notifications() {
                   <Pressable
                     testID={`greeting-thanks-${item.id}`}
                     onPress={() => greetingThanks(item)}
-                    disabled={!!thankedIds[item.id]}
-                    style={[styles.dmActionBtn, { backgroundColor: thankedIds[item.id] ? c.surface : c.brand, borderColor: thankedIds[item.id] ? c.border : c.brand, flex: 1 }]}
+                    disabled={thanked}
+                    pressRetentionOffset={0}
+                    style={[styles.dmActionBtn, { backgroundColor: thanked ? c.surface : c.brand, borderColor: thanked ? c.border : c.brand, flex: 1 }]}
                   >
-                    <Text style={{ color: thankedIds[item.id] ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{thankedIds[item.id] ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
+                    <Text style={{ color: thanked ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{thanked ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
                   </Pressable>
                   <Pressable
                     testID={`greeting-chat-${item.id}`}

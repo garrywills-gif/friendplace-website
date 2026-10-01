@@ -84,9 +84,21 @@ export default function CompanionNudge() {
   useEffect(() => { try { chime.volume = 0.45; } catch { /* noop */ } }, [chime]);
 
   const [nudge, setNudge] = useState<Nudge | null>(null);
-  // Dedup guard so a single DM doesn't nudge twice when both the
-  // `notification` push AND the `dm_update` fan-out arrive (item 7).
-  const lastDm = useRef<{ conv: string; at: number }>({ conv: "", at: 0 });
+  // Dedup guard. A single DM can arrive over BOTH the `notification`
+  // push AND the `dm_update` fan-out. We collapse them by message id so
+  // one message = one nudge, while genuinely NEW consecutive messages in
+  // the same conversation each still nudge (Garry: "repeated consecutive
+  // messages must remain reliable"). Keyed `${conv}:${msgId}`.
+  const seenMsg = useRef<Map<string, number>>(new Map());
+  const seenRecently = useCallback((key: string): boolean => {
+    const now = Date.now();
+    const m = seenMsg.current;
+    // prune old keys so the map never grows unbounded
+    for (const [k, t] of m) if (now - t > 15000) m.delete(k);
+    if (m.has(key) && now - (m.get(key) as number) < 8000) return true;
+    m.set(key, now);
+    return false;
+  }, []);
   const anim = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,12 +141,12 @@ export default function CompanionNudge() {
     if (n.type === "flutter" && pathname === "/") return;
     const route = routeFor(n);
     if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) return;
-    // Dedup DM nudges against the dm_update fan-out.
+    // Dedup DM nudges against the dm_update fan-out — by message id so
+    // consecutive distinct messages still nudge.
     if (n.type === "dm" || n.type === "dm_request") {
       const conv = n?.payload?.dm_id || n?.payload?.conv_id || "";
-      const now = Date.now();
-      if (conv && lastDm.current.conv === conv && now - lastDm.current.at < 4000) return;
-      lastDm.current = { conv, at: now };
+      const msgId = n?.payload?.msg_id || n?.id || "";
+      if (conv && seenRecently(`${conv}:${msgId}`)) return;
     }
     setNudge({
       key: n.id || String(Date.now()),
@@ -166,12 +178,11 @@ export default function CompanionNudge() {
     if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
     // Already inside this exact conversation → nothing to nudge about.
     if (pathname.startsWith(`/dm/${conv}`)) return;
-    const now = Date.now();
-    if (lastDm.current.conv === conv && now - lastDm.current.at < 4000) return;
-    lastDm.current = { conv, at: now };
+    const msgId = evt?.last_message?.id || "";
+    if (seenRecently(`${conv}:${msgId}`)) return;
     const body = cleanText(String(evt?.last_message?.text || ""));
     setNudge({
-      key: `dm:${evt?.last_message?.id || now}`,
+      key: `dm:${evt?.last_message?.id || Date.now()}`,
       ntype: evt?.is_chat_request ? "dm_request" : "dm",
       title: cleanText(`${fromName} sent you a message`),
       body,

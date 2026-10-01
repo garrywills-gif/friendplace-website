@@ -131,6 +131,7 @@ RULES
   9. NAMES: Address the member ONLY by the CONFIRMED NAME given in the context. If CONFIRMED NAME is empty, use NO name at all — a warm sentence with no name is always fine. NEVER guess or invent a name, and NEVER reuse a word the member just said (e.g. "No", "Yes", "My", "Me", "Us", "Hi") as if it were their name. Do not treat any KNOWN field value as a name.
   10. ANSWER DIRECT QUESTIONS FIRST. If the member asks you a direct question (about FriendPlace, how something works, about you, or anything else), ANSWER it fully and warmly BEFORE anything else. Do NOT ignore their question to push a getting-to-know-you question, and NEVER switch to state="ready_to_summarise" while a question of theirs is unanswered. Only after you've genuinely answered may you gently continue the conversation.
   11. FINDING FRIENDS — BE HONEST, NEVER FAKE IT. You may warmly OFFER to help them find friends ("Would you like me to help you find some friends?"). But you have NO ability to search for people, run matchmaking, generate suggestions, or make introductions, and you do NOT do anything "in the background". You must NEVER say things like "I was just about to find some people near <area>", "let me do that now", "I'll have some suggestions for you in a moment", "leave it with me", "I'll introduce you", or imply you're searching or will come back with results. NONE of that exists. What you CAN do is take them to the Find Friends screen, where THEY browse. If the member agrees (says yes / "help me" / "please" after you offer, or asks to find friends), reply with a short, honest, warm message that briefly names the real tools and set "navigate_to": "friends" — e.g. *"Absolutely — I'll take you to Find Friends now. You can search by name or interests, pick a suburb or town, or use Near Me to see people nearby."* Then STOP (no fake follow-up, keep state "needs_reply"). If they'd rather not be taken there, just tell them it's on the Friends tab.
+  12. TAKING THEM PLACES — "Take me to X" vs "Where is X?". When the member clearly asks to be TAKEN somewhere ("take me to Games", "open the Café", "go to the Notice Board", "I want to see Events"), set "navigate_to" to the matching key below AND reply with ONE short honest line that names where they're going (e.g. *"Of course — opening Games for you now."*). Only promise to take them somewhere when you ALSO set navigate_to — never say "I'll take you there" with navigate_to null. When they instead ask WHERE something is ("where is the Notice Board?", "how do I get to Events?"), DON'T navigate (navigate_to null); briefly EXPLAIN where to tap (most main areas are on the bottom bar — Home, Chats, FP Café, Friends, Profile — or reachable from Home). Valid navigate_to keys: "home", "chats", "friends", "lounge" (the FP Café), "profile", "games", "groups", "notices" (Notice Board), "events", "moments" (Share a Moment), "settings", "help", "notifications". Use "friends" for Find Friends. If you're unsure which screen they mean, ask a short clarifying question rather than guessing — do NOT navigate on a vague request.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -138,7 +139,7 @@ OUTPUT (strict JSON, no fences):
   "message": "one warm colleague-voice message to the member",
   "field_being_asked": "preferred_name" | "area" | ... | null,
   "confirm_hints": ["availability"],   // optional; fields you inferred that the preview should gently surface
-  "navigate_to": "friends" | null   // set to "friends" ONLY when taking them to the Find Friends screen (see rule 11); otherwise null
+  "navigate_to": "friends" | "home" | "chats" | "lounge" | "profile" | "games" | "groups" | "notices" | "events" | "moments" | "settings" | "help" | "notifications" | null   // set ONLY when actually taking them there (rules 11 & 12); otherwise null
 }
 """
 
@@ -454,10 +455,16 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
     }
     await db[COLL_ONBOARDING].update_one({"session_id": session_id}, {"$set": updated})
     # #5 (Garry, real-device Sep 2026): surface a navigation intent so the
-    # induction chat can actually OPEN Find Friends instead of pretending to
-    # search. Trust the composer's field, with a wording-based backup.
+    # induction chat can actually OPEN the destination instead of pretending
+    # to search. Trust the composer's field, with a wording-based backup for
+    # Find Friends. The whitelist mirrors the frontend george-nav-map.
+    _NAV_KEYS = {
+        "home", "chats", "friends", "lounge", "profile", "games", "groups",
+        "notices", "events", "moments", "founders", "help", "notifications",
+        "settings",
+    }
     nav = composed.get("navigate_to")
-    if nav not in ("friends",):
+    if not isinstance(nav, str) or nav not in _NAV_KEYS:
         nav = None
     if not nav:
         _ml = (composed.get("message") or "").lower()

@@ -279,13 +279,23 @@ class TestDmFanoutNormal:
                 # Payload MUST include dm_id + from_id (drives push deep-link).
                 assert (n.get("payload") or {}).get("dm_id") == conv_id
                 assert (n.get("payload") or {}).get("from_id") == user_b["id"]
+                # msg_id threads through so clients can dedup the notification
+                # push against the dm_update fan-out by message id.
+                assert (n.get("payload") or {}).get("msg_id") == lm.get("id")
                 assert "_id" not in n
 
-        # Confirm a notifications row was actually created for A.
+        # The DM notification row IS created, but the bell endpoint
+        # (`/notifications/{id}`) intentionally EXCLUDES chat/DM types —
+        # those live on the My Chats surface, not the bell. So the bell
+        # list length must NOT grow for a DM. Delivery is already proven
+        # by the `notification` socket frame asserted above.
         after = requests.get(
             f"{HTTP_BASE}/api/notifications/{user_a['id']}", timeout=15
         ).json()
-        assert len(after) == before_count + 1
+        assert len(after) == before_count, (
+            f"DM must not appear on the bell list (chat types excluded); "
+            f"before={before_count}, after={len(after)}"
+        )
 
 
 # ---------------------------------------------------------------------------
