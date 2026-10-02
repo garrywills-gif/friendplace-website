@@ -189,6 +189,42 @@ export default function MomentsScreen() {
         </Pressable>
       </View>
 
+      {/* iter216 (Garry, Oct 2026): "For Mum ❤️" tribute strip. Slim
+          clickable row between the Everyone / Friends toggle and the
+          Moments feed. Shows a small circular crop of Mum's photo and
+          the words "For Mum ❤️" — nothing more. Tapping opens the full
+          dedication at /moments/for-mum. Deliberately compact so it
+          doesn't dominate the page. */}
+      <Pressable
+        testID="moments-for-mum-strip"
+        onPress={() => router.push("/moments/for-mum" as any)}
+        style={({ pressed }) => [{
+          marginHorizontal: 16,
+          marginTop: 6,
+          marginBottom: 2,
+          paddingVertical: 10,
+          paddingHorizontal: 14,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: "#B6CFEA",
+          backgroundColor: pressed ? "#DCE8F7" : "#EAF2FB",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+        }]}
+      >
+        <Image
+          source={{ uri: "https://customer-assets-jai6qajn.emergentagent.net/job_a80ec07d-4f57-4c91-b9bc-efc7bf50eb01/artifacts/41octtls_Unknown.jpeg" }}
+          style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: "#FFFFFF" }}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+        />
+        <Text style={{ color: "#0F2A4D", fontWeight: "900", fontSize: 14 * scale, flex: 1 }}>
+          For Mum <Text style={{ color: "#E11D48" }}>❤️</Text>
+        </Text>
+        <Text style={{ color: "#4A6B8F", fontSize: 18 * scale, fontWeight: "800" }}>›</Text>
+      </Pressable>
+
       <ScrollView
         {...navScroll}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 48, gap: 14 }}
