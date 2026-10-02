@@ -62,13 +62,14 @@ export function useGeorgeVoiceInput(
     setVoicePhase('transcribing');
     try {
       await audioRecorder.stop();
-      // TestFlight iter136 (Garry, 5 Aug 2026): give iOS a 250ms
-      // grace period to finalise the .m4a container to disk before
-      // reading `.uri`. Without this on some iPhones we grab a
-      // 0-byte file and the backend rejects with "Empty audio upload"
-      // — which the member sees as "I couldn't quite catch that".
-      // Mirrors the wait `VoiceInputButton` learned in earlier rounds.
-      await new Promise((r) => setTimeout(r, 250));
+      // iter214 (Garry, Oct 2026 — POLISH #3): the disk-finalise grace
+      // period used to be 250ms; member feedback was transcription felt
+      // noticeably slow on real device after speech ends. 100ms is still
+      // enough for iOS to flush the .m4a container to disk (verified
+      // across the TestFlight builds) but shaves ~150ms off perceived
+      // latency — target "transcript appears about a second after
+      // speech ends" is now reachable on a healthy network.
+      await new Promise((r) => setTimeout(r, 100));
       const uri = audioRecorder.uri;
       try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
       if (!uri) {

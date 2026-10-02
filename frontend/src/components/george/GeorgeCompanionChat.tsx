@@ -63,8 +63,11 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     const t = turns[last];
     if (!t || t.role !== 'george' || !t.content?.trim()) return;
     spokenIdxRef.current = last;
-    void speakGeorgeAloud(t.content, voice);
-  }, [turns, prefs?.autoReadNewMessages, voice]);
+    // iter214 (Garry, Oct 2026 — RED #2): match the manual-tap behaviour
+    // and prepend the speaker label so auto-read also announces
+    // "Kerrie said, …" / "George said, …" at the start.
+    void speakGeorgeAloud(`${voiceLabel} said, ${t.content}`, voice);
+  }, [turns, prefs?.autoReadNewMessages, voice, voiceLabel]);
 
   useEffect(() => () => { stopGeorgeAutoRead(); }, []);
 
@@ -191,7 +194,15 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               <Text style={t.role === 'george' ? styles.bubbleText : styles.userBubbleText}>{t.content}</Text>
               {t.role === 'george' && t.content?.trim() ? (
                 <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} voice={voice} />
+                  {/* iter214 (Garry, Oct 2026 — RED #2): restore the
+                      speaker-attribution prefix that was removed in a
+                      previous round. Members on TestFlight relied on
+                      hearing "Kerrie said, …" / "George said, …" at the
+                      start of a read-aloud so they could tell at a
+                      glance whose turn was being read (especially when
+                      multitasking). We prepend the live voice label and
+                      pass the full composed string to the cloud TTS. */}
+                  <GeorgeSpeakButton text={`${voiceLabel} said, ${t.content}`} color="#FFFFFF" size={18} voice={voice} />
                 </View>
               ) : null}
             </View>
@@ -219,7 +230,14 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               placeholder={`Chat with ${voiceLabel}…`}
               placeholderTextColor="#94A3B8"
               multiline
-              editable={!busy}
+              // iter214 (Garry, Oct 2026 — RED #1): the post-induction
+              // companion chat was gating editable on `!busy`, which left
+              // the input READ-ONLY while any background API was in
+              // flight (initial load, send, clear). On real device the
+              // "busy spinner" could linger just long enough to feel
+              // broken ("I can't type!"). Typing is now ALWAYS allowed;
+              // Send is still gated so taps can't double-fire a message.
+              editable
               onFocus={() => { requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true })); }}
             />
             <Pressable onPress={send} disabled={busy || !input.trim() || isRecording || isTranscribing}

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator, FlatList, Modal, Pressable, ScrollView,
   StyleSheet, Text, View,
@@ -30,7 +30,7 @@ export default function PlayTogetherHub() {
   const { user } = useAuth();
   const { show } = useToast();
   const router = useRouter();
-  const { friend, name } = useLocalSearchParams<{ friend?: string; name?: string }>();
+  const { friend, name, reset } = useLocalSearchParams<{ friend?: string; name?: string; reset?: string }>();
 
   const [mine, setMine] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
@@ -39,6 +39,26 @@ export default function PlayTogetherHub() {
   const [preFriend, setPreFriend] = useState<{ id: string; name: string } | null>(null);
   const [inviting, setInviting] = useState(false);
   const [matching, setMatching] = useState(false);
+
+  // iter214 (Garry, Oct 2026 — RED #4): when the host returns from a
+  // declined / snoozed / "maybe later" invite screen, the parent menu
+  // may still be holding the previous target friend in `preFriend` or
+  // in the URL (`?friend=X`). If so, tapping ANY game card auto-sends
+  // another invite to the same person — which looks like "the invite
+  // button does nothing" or "it's stuck". The declined-screen "Invite
+  // someone else" button now navigates here with `?reset=1`, and this
+  // effect clears both the pre-selected friend and the stale URL
+  // params, then strips the flag so a refresh doesn't loop. Decline,
+  // Snooze and "Maybe later" all land on the declined status screen,
+  // so one reset path covers all three.
+  useEffect(() => {
+    if (reset === "1") {
+      setPreFriend(null);
+      setPickerFor(null);
+      setInviting(false);
+      try { router.replace("/games/play" as any); } catch { /* noop */ }
+    }
+  }, [reset, router]);
   // #7 (Garry, Sep 2026): match the shared bottom-nav auto-hide on the
   // Games menu — scroll down hides, up/pause/top shows.
   const navScroll = useNavHideScroll();

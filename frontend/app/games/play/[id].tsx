@@ -151,10 +151,19 @@ export default function PlayRoom() {
                 {other?.name || "Your friend"} can't play right now
               </Text>
               <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>No worries — plenty of others would love a game.</Text>
-              <Pressable testID="play-invite-someone-else" onPress={() => router.replace("/games/play")} style={[styles.primary, { backgroundColor: c.brand }]}>
+              {/* iter214 (Garry, Oct 2026 — RED #4): "Invite someone
+                  else" now carries a `?reset=1` flag. The Play Together
+                  menu clears any stale pre-selected friend (preFriend
+                  state + any lingering URL params) when that flag is
+                  present, so the next tap on a game card opens the
+                  fresh friend picker instead of silently re-trying the
+                  friend who just declined. Decline / Snooze / Later all
+                  reach this same declined status path, so one fix
+                  covers all three. */}
+              <Pressable testID="play-invite-someone-else" onPress={() => router.replace({ pathname: "/games/play", params: { reset: "1" } } as any)} style={[styles.primary, { backgroundColor: c.brand }]}>
                 <Text style={styles.primaryTxt}>Invite someone else</Text>
               </Pressable>
-              <Pressable onPress={() => router.replace("/games/play")} style={[styles.secondary, { borderColor: c.border }]}>
+              <Pressable onPress={() => router.replace({ pathname: "/games/play", params: { reset: "1" } } as any)} style={[styles.secondary, { borderColor: c.border }]}>
                 <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>
               </Pressable>
             </View>

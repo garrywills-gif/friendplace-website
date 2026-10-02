@@ -257,12 +257,11 @@ export default function VoiceInputButton({
     let audioUri: string | null = null;
     try {
       await recorder.stop();
-      // TestFlight round-3 (Garry, 29 July 2026 #16): on iOS the file
-      // sometimes isn't flushed to disk before `recorder.uri` is read,
-      // producing a 0-byte blob that the backend correctly rejects as
-      // "Empty audio upload". Give the OS a moment to finalise the
-      // container before we grab the URI.
-      await new Promise((r) => setTimeout(r, 250));
+      // iter214 (Garry, Oct 2026 — POLISH #3): shortened from 250ms to
+      // 100ms — matches the useGeorgeVoiceInput tweak so the transcript
+      // appears about a second after speech ends on real device.
+      // Verified still enough for iOS to flush the .m4a container.
+      await new Promise((r) => setTimeout(r, 100));
       audioUri = recorder.uri;
       // Release the audio session so other sounds (TTS, ringers) can
       // resume — mirrors what `useGeorgeVoiceInput` does.
