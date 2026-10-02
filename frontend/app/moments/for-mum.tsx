@@ -32,10 +32,21 @@ export default function ForMumScreen() {
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 32 + insets.bottom, alignItems: "center" }}
+        contentContainerStyle={{
+          // iter218 (Garry, Oct 2026): tribute was leaving a big empty
+          // blue strip below the caption on tall phones. Grow the
+          // scroll content to fill the viewport and centre the image
+          // + caption vertically so there's no dead space under the
+          // thank-you line. Still scrolls on short phones where the
+          // artwork is taller than the viewport.
+          flexGrow: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          paddingTop: insets.top + 8,
+          paddingBottom: 16 + insets.bottom,
+        }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ height: insets.top + 8 }} />
         <View style={{ width: "100%", aspectRatio: TRIBUTE_ASPECT, maxWidth: 560 }}>
           <Image
             source={{ uri: TRIBUTE_IMAGE_URI }}
@@ -94,7 +105,7 @@ const styles = StyleSheet.create({
     }),
   },
   ariaCaption: {
-    marginTop: 14,
+    marginTop: 10,
     fontSize: 13,
     color: "#4A6B8F",
     fontStyle: "italic",

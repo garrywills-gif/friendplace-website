@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
-import { api } from "@/src/lib/api";
+import { api, resolveMediaUri } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { emitFlutter } from "@/src/lib/flutter-fx";
@@ -776,7 +776,7 @@ export default function Home() {
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 10 }}>
               {featuredMoment.photos && featuredMoment.photos[0] ? (
                 <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FEF3C7" }}>
-                  <Image source={{ uri: featuredMoment.photos[0] }} style={{ width: 72, height: 72 }} />
+                  <Image source={{ uri: resolveMediaUri(featuredMoment.photos[0]) }} style={{ width: 72, height: 72 }} />
                 </View>
               ) : (
                 <View style={{ alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 14, backgroundColor: "#FEF3C7" }}>

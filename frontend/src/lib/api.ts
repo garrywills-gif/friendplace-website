@@ -1,6 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+
+// iter217 (Garry, Oct 2026): photos served by the Moments feed now
+// arrive as relative `/api/moments/{id}/photo/{idx}` URLs. The <Image>
+// component needs an absolute URL, so this helper prepends the backend
+// base. Absolute URLs (http(s)://) and data: URIs pass through intact.
+export function resolveMediaUri(uri: string | null | undefined): string {
+  const s = String(uri || "");
+  if (!s) return s;
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("data:")) return s;
+  if (s.startsWith("/")) return `${BASE}${s}`;
+  return s;
+}
 // IMPORTANT: this MUST match the TOKEN_KEY used by AuthProvider in
 // src/lib/auth.tsx. If they diverge, on cold-start (before AuthProvider's
 // bootstrap effect fires setAuthToken()) requests will read a stale/empty
@@ -718,6 +730,11 @@ export const api = {
   dmUnhide: (convId: string) => req(`/dm/${convId}/unhide`, { method: "POST" }),
   startDm: (uid: string, other: string) => req("/dm/start", { method: "POST", body: JSON.stringify({ user_id: uid, other_id: other }) }),
   dmMessages: (cid: string) => req(`/dm/${cid}/messages`),
+  // iter217: HTTP typing fallback (parallel with the DM WS). Used by
+  // the DM screen to keep "X is typing…" delivering reliably when
+  // iOS has silently zombie-ified the per-DM socket.
+  dmTyping: (cid: string, is_typing: boolean) =>
+    req(`/dm/${cid}/typing`, { method: "POST", body: JSON.stringify({ is_typing }) }),
   // Notes to Myself hard delete (Garry, 4 Aug 2026). Backend rejects if
   // the conversation isn't a self-DM, so this is safe to expose.
   dmClearMessages: (cid: string) => req(`/dm/${cid}/messages`, { method: "DELETE" }),

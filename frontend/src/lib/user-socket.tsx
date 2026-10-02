@@ -56,6 +56,10 @@ type EventKind =
   | "notification"
   | "dm_update"
   | "dm_read"
+  // iter217: typing fan-out piggybacking on the inbox socket so the
+  // "X is typing…" indicator still reaches the peer even when their
+  // per-DM socket has silently gone stale on iOS.
+  | "dm_typing"
   | "hello"
   | "pong"
   | "reconnect"; // synthetic: fired locally after (re)connect settles

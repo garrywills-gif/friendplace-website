@@ -10972,12 +10972,45 @@ _MOMENT_MAX_PHOTOS = 6
 _MOMENT_CAPTION_LIMIT = 500
 
 
+def _moment_photo_urls(m: dict) -> List[str]:
+    """iter217 (Garry, Oct 2026): Share a Moment was shipping 4-5 MB of
+    base64 payload per listing because photos were embedded as data:
+    URIs inside the JSON. On cellular that spins the wheel for 10-30s.
+    We now rewrite each photo in the API payload to a tiny URL that
+    points at `/api/moments/{id}/photo/{index}`, which decodes the
+    base64 once and serves binary bytes with proper HTTP caching.
+
+    Two input shapes are supported:
+      • Full doc with `photos` array (used by the detail endpoint and
+        legacy callers) — we inspect each entry: external URLs pass
+        through, base64 blobs get rewritten.
+      • Aggregated listing docs that only carry `photo_count` (used by
+        the feed listing to avoid shipping base64 through Python at
+        all) — we fabricate indexed URLs 0..count-1.
+    """
+    mid = m.get("id") or ""
+    if m.get("photos") is None and "photo_count" in m:
+        n = int(m.get("photo_count") or 0)
+        return [f"/api/moments/{mid}/photo/{i}" for i in range(max(0, n))]
+    raw = list(m.get("photos") or [])
+    out: List[str] = []
+    for i, p in enumerate(raw):
+        s = str(p or "")
+        if not s:
+            continue
+        if s.startswith(("http://", "https://", "/uploads/", "/api/")):
+            out.append(s)
+        else:
+            out.append(f"/api/moments/{mid}/photo/{i}")
+    return out
+
+
 def _moment_shape(m: dict, viewer_id: Optional[str] = None) -> dict:
     """Trim a moment document to what the client needs."""
     out = {
         "id": m.get("id"),
         "caption": m.get("caption", ""),
-        "photos": list(m.get("photos") or []),
+        "photos": _moment_photo_urls(m),
         "privacy": m.get("privacy", "everyone"),
         "author_id": m.get("author_id", ""),
         "author_name": m.get("author_name", ""),
@@ -11020,6 +11053,53 @@ async def _viewer_can_see_moment(m: dict, viewer_id: Optional[str]) -> bool:
     return bool(actor and actor.get("is_admin"))
 
 
+@api.get("/moments/{moment_id}/photo/{index}")
+async def get_moment_photo(moment_id: str, index: int):
+    """iter217 (Garry, Oct 2026): decode a stored base64 photo and serve
+    it as binary with aggressive cache headers. This is what shaved the
+    Share a Moment feed from 4.7 MB of base64 to a tiny JSON payload +
+    parallel image fetches. Moment photos are immutable (edit creates
+    a new moment), so cache for a year — the url path implicitly
+    versions by index/id so stale cache is impossible."""
+    import base64 as _b64
+    from fastapi.responses import Response
+    m = await db.moments.find_one(
+        {"id": moment_id}, {"_id": 0, "photos": 1, "hidden": 1}
+    )
+    if not m or m.get("hidden"):
+        raise HTTPException(404, "Not found")
+    photos = list(m.get("photos") or [])
+    if index < 0 or index >= len(photos):
+        raise HTTPException(404, "Photo index out of range")
+    raw = str(photos[index] or "")
+    if not raw:
+        raise HTTPException(404, "Empty photo")
+    # External URL that leaked through — redirect to it so the client
+    # follows a single fetch instead of us proxying.
+    if raw.startswith(("http://", "https://")):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=raw, status_code=307)
+    # Parse data: URI (data:image/jpeg;base64,...) or raw base64.
+    mime = "image/jpeg"
+    b64 = raw
+    if raw.startswith("data:"):
+        try:
+            header, b64 = raw.split(",", 1)
+            if ";" in header and ":" in header:
+                mime = header.split(":", 1)[1].split(";", 1)[0] or mime
+        except ValueError:
+            raise HTTPException(500, "Malformed photo")
+    try:
+        img_bytes = _b64.b64decode(b64, validate=False)
+    except Exception:
+        raise HTTPException(500, "Could not decode photo")
+    return Response(
+        content=img_bytes,
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
 @api.get("/moments")
 async def list_moments(
     viewer_id: Optional[str] = None,
@@ -11050,21 +11130,20 @@ async def list_moments(
             rx = {"$regex": safe, "$options": "i"}
             query["$or"] = [{"caption": rx}, {"author_name": rx}]
 
-    # We use `$size` on the `comments` array so the feed can show
-    # accurate comment counts without shipping every comment body down
-    # the wire — the projection excluded the comments array which
-    # made `_moment_shape` see it as empty (comment-count bug reported
-    # 31 July 2026). Aggregation is the smallest correct fix.
+    # iter217: project `photo_count` instead of the full photo array so
+    # the aggregation doesn't ship 4-5 MB of base64 through Python just
+    # to be rewritten to URLs. Shape builds URLs purely from the count.
     pipeline: list = [
         {"$match": query},
         {"$sort": {"created_at": -1}},
         {"$limit": limit * 2},
         {"$project": {
             "_id": 0,
-            "id": 1, "caption": 1, "photos": 1, "privacy": 1,
+            "id": 1, "caption": 1, "privacy": 1,
             "author_id": 1, "author_name": 1, "author_avatar": 1,
             "created_at": 1, "featured": 1, "hidden": 1,
             "likes": 1,
+            "photo_count": {"$size": {"$ifNull": ["$photos", []]}},
             "comments_count": {"$size": {"$ifNull": ["$comments", []]}},
         }},
     ]
@@ -12091,6 +12170,43 @@ async def dm_mark_read(conv_id: str, me: dict = Depends(current_user)):
     return {"ok": True, "cleared": cleared}
 
 
+# iter217 (Garry, Oct 2026): HTTP typing fallback. The DM WebSocket is
+# the fast path for "X is typing…" fan-out, but on iOS the per-DM socket
+# can go stale (OPEN but silently dropping frames), which is why typing
+# dots stopped appearing after the iter212 fix. The sender now also
+# POSTs here on each typing debounce beat; the backend fans out via the
+# recipient's long-lived user-inbox channel (same resilient path used
+# for notifications). Not persisted — purely transient fan-out.
+class _DmTypingBody(BaseModel):
+    is_typing: bool = True
+
+
+@api.post("/dm/{conv_id}/typing")
+async def dm_typing(conv_id: str, body: _DmTypingBody, me: dict = Depends(current_user)):
+    conv = await db.dm_conversations.find_one(
+        {"id": conv_id}, {"_id": 0, "participants": 1}
+    )
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    uid = me.get("id")
+    if uid not in (conv.get("participants") or []):
+        raise HTTPException(403, "Not a participant")
+    for pid in list(conv.get("participants") or []):
+        if pid == uid:
+            continue
+        try:
+            await hub.broadcast(f"user:{pid}", {
+                "type": "dm_typing",
+                "conv_id": conv_id,
+                "user_id": uid,
+                "is_typing": bool(body.is_typing),
+            })
+        except Exception:
+            # Typing is best-effort — never surface an error to the sender.
+            pass
+    return {"ok": True}
+
+
 @api.get("/dm/{conv_id}/messages")
 async def dm_messages(conv_id: str, me: dict = Depends(current_user)):
     """Fetch the full history of a DM. SEC-101 fix — the caller must be
@@ -12641,11 +12757,41 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
             # sender filters out their own typing event using `user_id`.
             if payload.get("type") == "typing":
                 is_typing = bool(payload.get("is_typing", True))
+                # iter217 (Garry, Oct 2026): fan the typing event out via
+                # TWO channels so it reaches the peer reliably on real
+                # device, where the per-DM socket sometimes keeps
+                # `readyState=OPEN` but silently drops frames:
+                #   1. The DM room (`dm:{conv_id}`) — fastest path when
+                #      both sides have the chat open AND the socket is
+                #      healthy.
+                #   2. The OTHER participant's long-lived user inbox
+                #      channel (`user:{peer_id}`) — mirrors how DM
+                #      messages are delivered when the DM socket is
+                #      down, so typing never gets stuck behind a zombie
+                #      per-DM socket. Payload is wrapped so the client
+                #      can tell DM-typing apart from other inbox events.
                 await hub.broadcast(room, {
                     "type": "typing",
                     "user_id": user_id,
                     "is_typing": is_typing,
                 })
+                try:
+                    conv = await db.dm_conversations.find_one(
+                        {"id": conv_id}, {"_id": 0, "participants": 1}
+                    )
+                    for pid in list((conv or {}).get("participants") or []):
+                        if pid == user_id:
+                            continue
+                        await hub.broadcast(f"user:{pid}", {
+                            "type": "dm_typing",
+                            "conv_id": conv_id,
+                            "user_id": user_id,
+                            "is_typing": is_typing,
+                        })
+                except Exception:
+                    # Typing is best-effort. A hiccup here never breaks
+                    # the chat itself — fall through silently.
+                    pass
                 continue
             text = (payload.get("text") or "").strip()
             if not text:

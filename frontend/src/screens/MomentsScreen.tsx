@@ -16,7 +16,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import { useAuth } from "@/src/lib/auth";
-import { api } from "@/src/lib/api";
+import { api, resolveMediaUri } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 import SpeakButton from "@/src/components/SpeakButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
@@ -384,7 +384,7 @@ export default function MomentsScreen() {
                     • 0 / many → caption on top, responsive photo grid below
                     (2 side-by-side · 3–4 grid · +N overlay for extras). */}
                 {(() => {
-                  const photos: string[] = Array.isArray(m.photos) ? m.photos.filter(Boolean) : [];
+                  const photos: string[] = Array.isArray(m.photos) ? m.photos.filter(Boolean).map(resolveMediaUri) : [];
                   const caption = m.caption ? (
                     <Text
                       numberOfLines={6}

@@ -20,7 +20,7 @@ import { useTheme } from "@/src/lib/theme";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
-import { api } from "@/src/lib/api";
+import { api, resolveMediaUri } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
@@ -356,7 +356,7 @@ export default function MomentDetail() {
               {moment.photos.map((p, i) => (
                 <TappableImage
                   key={i}
-                  uri={p}
+                  uri={resolveMediaUri(p)}
                   style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 16, backgroundColor: "#F3F4F6" }}
                   resizeMode="cover"
                   caption={moment.title || undefined}

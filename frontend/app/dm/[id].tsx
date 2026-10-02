@@ -15,6 +15,7 @@ import { parseAvatar, avatarDisplayGlyph } from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import { useComposerLock } from "@/src/lib/composer-lock";
+import { useInboxEvent } from "@/src/lib/user-socket";
 
 // Notebook look-and-feel (Garry, 4 Aug 2026 TestFlight polish): both
 // Notes to Myself and normal chats get a subtle ruled-paper background
@@ -166,11 +167,24 @@ export default function DM() {
   // iter212: debounced typing emitter — fires `is_typing:true` at most
   // every 2s while the composer has content, and schedules a
   // `is_typing:false` 3s after the last keystroke.
+  // iter217 (Garry, Oct 2026): on real iPhones the per-DM WebSocket can
+  // claim OPEN while silently dropping frames, so typing stopped
+  // reaching the peer after the earlier fix. We now send via BOTH
+  // channels in parallel:
+  //   • WS send() — fast path when the socket is healthy.
+  //   • HTTP /dm/{conv_id}/typing — reliable fallback that fans the
+  //     event out through the resilient per-user inbox channel.
+  // Whichever arrives first flips the peer's indicator on; dedup
+  // isn't needed because the state write is idempotent.
   const emitTyping = useCallback((is_typing: boolean) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== 1) return;
-    try { ws.send(JSON.stringify({ type: "typing", is_typing })); } catch { /* noop */ }
-  }, []);
+    if (ws && ws.readyState === 1) {
+      try { ws.send(JSON.stringify({ type: "typing", is_typing })); } catch { /* noop */ }
+    }
+    if (id) {
+      api.dmTyping(String(id), is_typing).catch(() => { /* best-effort */ });
+    }
+  }, [id]);
   const handleChangeText = useCallback((v: string) => {
     setText(v);
     const nowMs = Date.now();
@@ -192,6 +206,34 @@ export default function DM() {
       emitTyping(false);
     }
   }, [emitTyping]);
+
+  // iter217 (Garry, Oct 2026): backup typing channel. The DM WebSocket
+  // can go stale on iOS (OPEN but silently dropping frames) which is
+  // why "X is typing…" stopped appearing on real device after the
+  // iter212 fix. We now ALSO deliver typing via the per-user inbox
+  // channel (same resilient socket that keeps notifications flowing).
+  // Belt-AND-braces: whichever path arrives first flips the indicator
+  // on; the 4s auto-clear in the WS handler + a mirror auto-clear here
+  // keeps the state honest if a "stopped typing" is missed.
+  useInboxEvent("dm_typing", (evt: any) => {
+    try {
+      if (!evt || evt.conv_id !== id) return;
+      if (!user || evt.user_id === user.id) return;
+      setOtherTyping(!!evt.is_typing);
+      if (otherTypingTimerRef.current) clearTimeout(otherTypingTimerRef.current);
+      if (evt.is_typing) {
+        otherTypingTimerRef.current = setTimeout(() => setOtherTyping(false), 4000);
+      }
+      // Fetch peer profile on-demand so the label can say the real
+      // name instead of "Someone" when the DM socket hasn't delivered
+      // any message yet.
+      setOther((cur: any) => {
+        if (cur) return cur;
+        api.getUser(evt.user_id).then((p) => setOther(p)).catch(() => {});
+        return cur;
+      });
+    } catch { /* noop */ }
+  });
 
   useEffect(() => {
     if (!id || !user) return;
