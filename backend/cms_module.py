@@ -1228,6 +1228,25 @@ def build_router(db) -> APIRouter:
         payload: { "user_id": "<app account id>" } OR
                  { "email": "<the different email they signed up with>" }
         No guessing — the admin explicitly chooses who to link.
+
+        iter215 (Garry, Oct 2026 — RED #1): the previous email lookup
+        was `{"email": {"$regex": "^exact$", "$options": "i"}}` and quietly
+        failed when the stored email had surrounding whitespace, Gmail
+        dot-aliases (`a.b@gmail.com` vs `ab@gmail.com`), or when the
+        founder signed in with Google/Apple so their canonical FriendPlace
+        email is actually attached to a different oauth field or stored
+        in `username`. We now try, in order:
+          1. Direct case-insensitive email match (anchored, whitespace-
+             tolerant on either side).
+          2. Gmail dot-canonicalised match (strip dots in the local-part
+             for `@gmail.com` only — Google treats them as the same).
+          3. username match (some founders registered interest with
+             their email as the username).
+          4. OAuth sub-field hints (apple_id, google_id — if the input
+             happens to be the subject identifier).
+        No fuzzy / substring matching — only deterministic equivalences
+        Google / Apple define as "the same inbox". Still 404 if nothing
+        hits so the admin can see the lookup genuinely failed.
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -1240,11 +1259,57 @@ def build_router(db) -> APIRouter:
 
         user = None
         if payload.get("user_id"):
-            user = await db.users.find_one({"id": str(payload["user_id"])}, {"_id": 0})
+            # iter215: accept a raw user_id. Also accept the apple/google
+            # sub so an admin pasting an oauth identifier isn't stuck.
+            uid_raw = str(payload["user_id"]).strip()
+            user = await db.users.find_one({"id": uid_raw}, {"_id": 0})
+            if not user:
+                user = await db.users.find_one(
+                    {"$or": [{"apple_id": uid_raw}, {"google_id": uid_raw}, {"google_sub": uid_raw}]},
+                    {"_id": 0},
+                )
         elif payload.get("email"):
-            em = str(payload["email"]).strip().lower()
+            em_raw = str(payload["email"]).strip()
+            em = em_raw.lower()
+            # (1) Whitespace-tolerant, case-insensitive exact email match.
             user = await db.users.find_one(
-                {"email": {"$regex": f"^{re.escape(em)}$", "$options": "i"}}, {"_id": 0})
+                {"email": {"$regex": f"^\\s*{re.escape(em)}\\s*$", "$options": "i"}},
+                {"_id": 0},
+            )
+            # (2) Gmail dot-alias canonicalisation. Google treats
+            #     a.b.c@gmail.com and abc@gmail.com as the same inbox,
+            #     so we try the no-dot variant against gmail accounts.
+            if not user and em.endswith("@gmail.com"):
+                local, _, domain = em.partition("@")
+                no_dots = f"{local.replace('.', '')}@{domain}"
+                if no_dots != em:
+                    user = await db.users.find_one(
+                        {"email": {"$regex": f"^\\s*{re.escape(no_dots)}\\s*$", "$options": "i"}},
+                        {"_id": 0},
+                    )
+                # Also search for members whose stored email, dot-
+                # stripped, equals the admin's input (covers the reverse
+                # direction: admin types abc@…, member stored a.b.c@…).
+                if not user:
+                    async for cand in db.users.find(
+                        {"email": {"$regex": "@gmail.com$", "$options": "i"}},
+                        {"_id": 0},
+                    ):
+                        stored = str(cand.get("email") or "").strip().lower()
+                        if not stored.endswith("@gmail.com"):
+                            continue
+                        s_local, _, s_domain = stored.partition("@")
+                        if f"{s_local.replace('.', '')}@{s_domain}" == no_dots:
+                            user = cand
+                            break
+            # (3) Username lookup — some early founders registered their
+            #     interest with an email AND set that same email as their
+            #     app username.
+            if not user:
+                user = await db.users.find_one(
+                    {"username": {"$regex": f"^\\s*{re.escape(em_raw)}\\s*$", "$options": "i"}},
+                    {"_id": 0},
+                )
         if not user:
             raise HTTPException(404, "No app account found for that user_id/email")
         if user.get("is_demo"):

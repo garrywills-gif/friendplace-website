@@ -114,14 +114,14 @@ export function AskGeorgeBar() {
     }
   }
 
-  // iOS (installed Apple app / WKWebView) reliability: use a SINGLE
-  // onClick for the mic and Ask buttons — exactly like the in-sheet
-  // composer, which works cleanly on the Apple app. The previous
-  // onPointerDown+onClick pair with a ref-guard went out of sync on iOS
-  // because the mic button's label flips (🎙️ ⇄ ⏹) between renders, so
-  // Safari fired `click` inconsistently — the cause of "nothing happens",
-  // "takes 2-3 presses", and the Ask button getting stuck. onClick is a
-  // trusted user gesture on iOS, so getUserMedia() still prompts correctly.
+  // iter215 (Garry, Oct 2026 — RED #2 fix): the Ask + Mic buttons now
+  // pair `onPointerDown` (with `e.preventDefault()`) and `onClick` so a
+  // single tap fires reliably on iPhone / iPad while the input is
+  // focused. Previously, iOS would blur the input first (keyboard
+  // dismiss + viewport scroll), moving the button out from under the
+  // finger before `click` resolved — the tap landed on inert space and
+  // nothing happened. Suppressing the blur with pointerDown fires the
+  // handler on the first touch; onClick stays for desktop / keyboard.
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -182,10 +182,28 @@ export function AskGeorgeBar() {
             >✕</button>
           )}
 
-          {/* Microphone — tap-to-toggle */}
+          {/* Microphone — tap-to-toggle.
+            * iter215 (Garry, Oct 2026 — RED #2): on iPhone / iPad the
+            * Ask bar's buttons were sometimes "doing nothing" because
+            * tapping while the input was focused made iOS blur the
+            * input first (viewport scroll + keyboard dismiss), moving
+            * the Ask / Mic button out from under the finger before the
+            * `click` event resolved. Switching to `onPointerDown` with
+            * `preventDefault()` keeps the input focused, suppresses the
+            * blur-driven scroll, and fires the handler on the user's
+            * first touch — matching how the in-sheet composer behaves.
+            * `onClick` is kept as a desktop/keyboard fallback. */}
           <button
             type="button"
-            onClick={() => void toggleMic()}
+            onPointerDown={(e) => {
+              // Only hijack primary pointer taps — let right-click etc.
+              // fall through to the native click handler so we don't
+              // break screen-reader activation.
+              if (e.button !== 0) return;
+              e.preventDefault();
+              if (!transcribing) void toggleMic();
+            }}
+            onClick={() => { if (!transcribing) void toggleMic(); }}
             disabled={transcribing}
             title={rec.recording ? 'Stop recording' : 'Talk to George'}
             style={{
@@ -207,9 +225,20 @@ export function AskGeorgeBar() {
            * submit function already rejects blank content safely, so the
            * button can always accept the pointer/keyboard event and read
            * the live DOM value directly.
+           *
+           * iter215 (iPhone / iPad fix): mirror the mic button's
+           * onPointerDown approach so Ask fires on the first touch even
+           * when the on-screen keyboard is up and iOS wants to blur the
+           * input first. The handler always reads `inputRef.current?.value`
+           * so it uses the live DOM value rather than stale React state.
            */}
           <button
             type="button"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              submit(inputRef.current?.value);
+            }}
             onClick={() => submit(inputRef.current?.value)}
             aria-disabled={!input.trim()}
             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
