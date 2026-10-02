@@ -191,16 +191,19 @@ export default function MomentsScreen() {
 
       {/* iter216 (Garry, Oct 2026): "For Mum ❤️" tribute strip. Slim
           clickable row between the Everyone / Friends toggle and the
-          Moments feed. Shows a small circular crop of Mum's photo and
-          the words "For Mum ❤️" — nothing more. Tapping opens the full
-          dedication at /moments/for-mum. Deliberately compact so it
-          doesn't dominate the page. */}
+          Moments feed. Shows a precision-cropped circle of Mum's face
+          (not the full-image centre crop, which came out as an
+          indistinct square) and the words "For Mum ❤️" with a tiny
+          butterfly as a quiet FriendPlace touch. Tapping anywhere on
+          the row opens the full dedication. Deliberately compact. */}
       <Pressable
         testID="moments-for-mum-strip"
         onPress={() => router.push("/moments/for-mum" as any)}
+        accessibilityRole="button"
+        accessibilityLabel="For Mum tribute. Tap to read the dedication."
         style={({ pressed }) => [{
           marginHorizontal: 16,
-          marginTop: 6,
+          marginTop: 8,
           marginBottom: 2,
           paddingVertical: 10,
           paddingHorizontal: 14,
@@ -210,18 +213,55 @@ export default function MomentsScreen() {
           backgroundColor: pressed ? "#DCE8F7" : "#EAF2FB",
           flexDirection: "row",
           alignItems: "center",
-          gap: 10,
+          gap: 12,
         }]}
       >
-        <Image
-          source={{ uri: "https://customer-assets-jai6qajn.emergentagent.net/job_a80ec07d-4f57-4c91-b9bc-efc7bf50eb01/artifacts/41octtls_Unknown.jpeg" }}
-          style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: "#FFFFFF" }}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-        />
-        <Text style={{ color: "#0F2A4D", fontWeight: "900", fontSize: 14 * scale, flex: 1 }}>
-          For Mum <Text style={{ color: "#E11D48" }}>❤️</Text>
-        </Text>
+        {/* Face-cropped circle. We display the full tribute image at a
+            calibrated size inside a 54px overflow-hidden circle, offset
+            so Mum's actual face (centre-top region of the composite)
+            sits in the middle of the thumb. Values were sampled from
+            the uploaded artwork: image ~1138×1440 with her circular
+            portrait centred at roughly (560, 395). pointerEvents="none"
+            so the whole strip remains the single tap target. */}
+        <View
+          pointerEvents="none"
+          style={{
+            width: 54,
+            height: 54,
+            borderRadius: 27,
+            overflow: "hidden",
+            borderWidth: 2,
+            borderColor: "#FFFFFF",
+            backgroundColor: "#DCE8F7",
+          }}
+        >
+          <Image
+            source={{ uri: "https://customer-assets-jai6qajn.emergentagent.net/job_a80ec07d-4f57-4c91-b9bc-efc7bf50eb01/artifacts/r51nc7rj_image.png" }}
+            style={{
+              // Real tribute is 1122 × 1402 with Mum's face centred at
+              // roughly (360, 450) and about 360px tall. We display at
+              // ~11% scale so her face fills ~40px of the 54px thumb,
+              // then offset to put her face centre at the circle's
+              // middle (27, 27). Values hand-sampled from the artwork.
+              width: 125,
+              height: 156,
+              marginLeft: -13,
+              marginTop: -23,
+            }}
+            resizeMode="cover"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: "#0F2A4D", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+            For Mum <Text style={{ color: "#E11D48" }}>❤️</Text>
+            {"  "}
+            <Text style={{ color: "#8AA7C7", fontSize: 13 * scale, fontWeight: "700" }}>🦋</Text>
+          </Text>
+          <Text style={{ color: "#4A6B8F", fontSize: 12 * scale, marginTop: 1, fontWeight: "600" }} numberOfLines={1}>
+            A quiet thank you — tap to read
+          </Text>
+        </View>
         <Text style={{ color: "#4A6B8F", fontSize: 18 * scale, fontWeight: "800" }}>›</Text>
       </Pressable>
 

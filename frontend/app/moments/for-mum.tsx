@@ -19,12 +19,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const TRIBUTE_IMAGE_URI =
-  "https://customer-assets-jai6qajn.emergentagent.net/job_a80ec07d-4f57-4c91-b9bc-efc7bf50eb01/artifacts/41octtls_Unknown.jpeg";
+  "https://customer-assets-jai6qajn.emergentagent.net/job_a80ec07d-4f57-4c91-b9bc-efc7bf50eb01/artifacts/r51nc7rj_image.png";
 
-// The uploaded tribute is a tall portrait graphic — intrinsic size ≈
-// 1138 × 1440 (ratio ~0.79). We lock the aspect so the whole dedication
-// renders cleanly on narrow and wide phones alike without a crop.
-const TRIBUTE_ASPECT = 1138 / 1440;
+// Real intrinsic size of the uploaded tribute is 1122 × 1402.
+const TRIBUTE_ASPECT = 1122 / 1402;
 
 export default function ForMumScreen() {
   const router = useRouter();
