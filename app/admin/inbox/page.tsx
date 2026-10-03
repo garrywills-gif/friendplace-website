@@ -775,12 +775,28 @@ function ComposeEmailModal({
   onClose: () => void;
   onSent: () => Promise<void> | void;
 }) {
-  const [fromMailbox, setFromMailbox] = useState(initialFrom || mailboxes[0]?.address || '');
-  const [toEmail, setToEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [bodyText, setBodyText] = useState('');
-  const [bodyHtml, setBodyHtml] = useState('');
-  const [includeFooter, setIncludeFooter] = useState(false);
+  const DRAFT_KEY = 'fp_mcgs_compose_draft';
+  const readDraft = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.sessionStorage.getItem(DRAFT_KEY);
+      return raw ? JSON.parse(raw) as {
+        fromMailbox?: string;
+        toEmail?: string;
+        subject?: string;
+        bodyText?: string;
+        bodyHtml?: string;
+        includeFooter?: boolean;
+      } : null;
+    } catch { return null; }
+  };
+  const savedDraft = readDraft();
+  const [fromMailbox, setFromMailbox] = useState(savedDraft?.fromMailbox || initialFrom || mailboxes[0]?.address || '');
+  const [toEmail, setToEmail] = useState(savedDraft?.toEmail || '');
+  const [subject, setSubject] = useState(savedDraft?.subject || '');
+  const [bodyText, setBodyText] = useState(savedDraft?.bodyText || '');
+  const [bodyHtml, setBodyHtml] = useState(savedDraft?.bodyHtml || '');
+  const [includeFooter, setIncludeFooter] = useState(Boolean(savedDraft?.includeFooter));
   const [attachments, setAttachments] = useState<import('@/lib/inbox-api').InboxReplyAttachment[]>([]);
   const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
@@ -788,6 +804,36 @@ function ComposeEmailModal({
   const [preview, setPreview] = useState<{ subject: string; from_email: string; to_email: string; html: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!editorRef.current) return;
+    if (bodyHtml && !editorRef.current.innerHTML) editorRef.current.innerHTML = bodyHtml;
+  }, [bodyHtml]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasDraft = Boolean(
+      toEmail.trim() || subject.trim() || bodyText.trim() || bodyHtml.trim()
+    );
+    try {
+      if (!hasDraft) {
+        window.sessionStorage.removeItem(DRAFT_KEY);
+        return;
+      }
+      window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        fromMailbox,
+        toEmail,
+        subject,
+        bodyText,
+        bodyHtml,
+        includeFooter,
+      }));
+    } catch { /* storage blocked or full */ }
+  }, [fromMailbox, toEmail, subject, bodyText, bodyHtml, includeFooter]);
+
+  const clearDraft = () => {
+    try { window.sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+  };
 
   const applyFormat = (command: 'bold' | 'italic' | 'underline' | 'insertUnorderedList') => {
     editorRef.current?.focus();
@@ -860,6 +906,7 @@ function ComposeEmailModal({
           content_type: a.content_type,
         })),
       });
+      clearDraft();
       await onSent();
     } catch (e: any) {
       setError(e?.message || 'Email could not be sent.');
@@ -874,7 +921,7 @@ function ComposeEmailModal({
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
             <p style={{ ...s.cardTitle, marginBottom: 2 }}>Compose email</p>
-            <p style={{ ...s.helper, margin: 0 }}>Send a one-off email without creating a campaign.</p>
+            <p style={{ ...s.helper, margin: 0 }}>Send a one-off email without creating a campaign. Drafts save automatically while MCGS is open.</p>
           </div>
           <button type="button" onClick={onClose} style={ghostSmall}>Close</button>
         </div>
@@ -962,7 +1009,20 @@ function ComposeEmailModal({
           </div>
         )}
 
-        <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => {
+              clearDraft();
+              setToEmail('');
+              setSubject('');
+              setBodyText('');
+              setBodyHtml('');
+              setAttachments([]);
+              setIncludeFooter(false);
+              if (editorRef.current) editorRef.current.innerHTML = '';
+            }}
+            style={{ ...dangerSmall, marginRight: 'auto' }}>
+            Discard draft
+          </button>
           <button type="button" onClick={doPreview} disabled={!canSend || previewing || sending}
             style={{ ...ghostSmall, opacity: !canSend || previewing || sending ? 0.6 : 1 }}>
             {previewing ? 'Building preview…' : 'Preview'}
