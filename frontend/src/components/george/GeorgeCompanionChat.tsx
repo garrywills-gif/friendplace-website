@@ -63,11 +63,14 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     const t = turns[last];
     if (!t || t.role !== 'george' || !t.content?.trim()) return;
     spokenIdxRef.current = last;
-    // iter214 (Garry, Oct 2026 — RED #2): match the manual-tap behaviour
-    // and prepend the speaker label so auto-read also announces
-    // "Kerrie said, …" / "George said, …" at the start.
-    void speakGeorgeAloud(`${voiceLabel} said, ${t.content}`, voice);
-  }, [turns, prefs?.autoReadNewMessages, voice, voiceLabel]);
+    // iter225 (Garry, Oct 2026 — RED #3): speaker-name prefix is now
+    // scoped to multi-person rooms only (FP Café). A 1-to-1 companion
+    // chat with George/Georgia has exactly one speaker besides the
+    // member, so prefixing every message with "Georgia said, …" is
+    // noisy and clearly wrong on real-device playback. Speak the
+    // message content only.
+    void speakGeorgeAloud(t.content, voice);
+  }, [turns, prefs?.autoReadNewMessages, voice]);
 
   useEffect(() => () => { stopGeorgeAutoRead(); }, []);
 
@@ -119,14 +122,20 @@ export function GeorgeCompanionChat({ onClose }: Props) {
         if (resolved) {
           // Show a brief "Opening {label}…" fuse so the member can read
           // George's final message before the screen changes (Garry, Sep 2026).
+          //
+          // iter225 (Garry, Oct 2026 — RED/PERF #2): once the fuse
+          // completes we MUST navigate without any extra awaits — a
+          // previous order of ``markGeorgeLedNavigation → onClose →
+          // router.push`` could stall on the companion-chat close
+          // animation on real device. Navigate FIRST, then let
+          // ``onClose`` run on the next tick after routing is already
+          // in flight. No API/async work after the handoff is confirmed.
           setNavFuse({
             label: resolved.label,
             run: () => {
-              try {
-                markGeorgeLedNavigation(resolved.target.key as any);
-                onClose();
-                router.push(resolved.target.href as any);
-              } catch { /* non-fatal */ }
+              try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
+              try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
+              setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
             },
           });
         }
@@ -194,15 +203,14 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               <Text style={t.role === 'george' ? styles.bubbleText : styles.userBubbleText}>{t.content}</Text>
               {t.role === 'george' && t.content?.trim() ? (
                 <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  {/* iter214 (Garry, Oct 2026 — RED #2): restore the
-                      speaker-attribution prefix that was removed in a
-                      previous round. Members on TestFlight relied on
-                      hearing "Kerrie said, …" / "George said, …" at the
-                      start of a read-aloud so they could tell at a
-                      glance whose turn was being read (especially when
-                      multitasking). We prepend the live voice label and
-                      pass the full composed string to the cloud TTS. */}
-                  <GeorgeSpeakButton text={`${voiceLabel} said, ${t.content}`} color="#FFFFFF" size={18} voice={voice} />
+                  {/* iter225 (Garry, Oct 2026 — RED #3): speaker-name
+                      prefix is now scoped to multi-person rooms only
+                      (FP Café). This is the 1-to-1 companion chat with
+                      George/Georgia, so there's only one speaker
+                      besides the member — adding "Georgia said, …" to
+                      every bubble was clearly wrong on device. Speak
+                      the message content only. */}
+                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} voice={voice} />
                 </View>
               ) : null}
             </View>

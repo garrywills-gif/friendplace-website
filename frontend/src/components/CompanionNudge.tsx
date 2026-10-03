@@ -358,15 +358,29 @@ export default function CompanionNudge() {
 
   // iter210 (Garry, Oct 2026 — RED #8): Snooze on a game invite now
   // actually tells the sender the recipient isn't ready, instead of
-  // leaving them on an endless "Waiting for X to accept". Fire-and-forget
-  // so the UI dismisses instantly regardless of network. Same principle
-  // for Decline — handled server-side by /play/{sid}/decline.
-  const snoozeGameInvite = () => {
+  // leaving them on an endless "Waiting for X to accept".
+  //
+  // iter225 (Garry, Oct 2026 — RED #1): the previous version was
+  // fire-and-forget with ``.catch(() => {})``. A silent snooze failure
+  // (403, offline, server blip) hid the nudge but left the SENDER's
+  // session as "invited" forever — so A could never invite C. We now
+  // await the call and surface any failure as a toast, matching the
+  // Decline cleanup contract. On success the backend sets the session
+  // to ``declined`` and emits ``game_end`` to the host; the Play menu
+  // reacts to that globally (see /games/play/index.tsx) to flush any
+  // stale opponent/session state on the sender's side.
+  const snoozeGameInvite = async () => {
     const sid = nudge?.payload?.session_id;
-    if (sid) {
-      api.playSnooze(String(sid)).catch(() => {});
-    }
-    hide();
+    if (!sid) { hide(); return; }
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      await api.playSnooze(String(sid));
+      hide();
+    } catch (e: any) {
+      show(e?.message || "Couldn't snooze that invite — try again in a moment");
+      hide();
+    } finally { setActionBusy(false); }
   };
 
   return (

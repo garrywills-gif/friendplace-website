@@ -191,31 +191,37 @@ def _persona_name(persona: Optional[str]) -> str:
 # location used for the "explain" answer and for destinations we can't
 # route to directly (e.g. My Friends).
 _NAV_DESTS: list[dict] = [
-    {"key": "friends",  "label": "Find Friends", "where": "the Friends tab at the bottom of the screen",
+    # iter225 (Garry, Oct 2026 — PERF #2): manual directions must match
+    # the actual bottom bar on screen. The real bar has FIVE tabs:
+    # Home, My Chats, FP Café, Moments, More — Friends/Profile/Settings/
+    # Help live under the More menu, and Moments is now a top-level tab
+    # (not just a Home tile). Wording below reflects that so George
+    # never points to a tab the member can't see.
+    {"key": "friends",  "label": "Find Friends", "where": "the More tab at the bottom, then Friends \u2192 Find Friends",
      "syn": ["find friends", "find a friend", "find some friends", "meet people", "meet new people", "discover people", "make friends"]},
-    {"key": None,       "label": "My Friends", "where": "the Friends tab, then the \u201cMy Friends\u201d button",
+    {"key": None,       "label": "My Friends", "where": "the More tab at the bottom, then Friends \u2192 \u201cMy Friends\u201d",
      "route": "friends", "syn": ["my friends", "my friend list", "friends list", "my mates"]},
-    {"key": "chats",    "label": "My Chats", "where": "the Chats tab at the bottom",
+    {"key": "chats",    "label": "My Chats", "where": "the My Chats tab at the bottom",
      "syn": ["my chats", "chats", "messages", "my messages", "my conversations"]},
-    {"key": "lounge",   "label": "the FP Caf\u00e9", "where": "the Caf\u00e9 tab at the bottom",
+    {"key": "lounge",   "label": "the FP Caf\u00e9", "where": "the FP Caf\u00e9 tab at the bottom",
      "syn": ["fp cafe", "fp caf\u00e9", "the cafe", "the caf\u00e9", "coffee lounge", "lounge", "cafe"]},
     {"key": "notices",  "label": "the Notice Board", "where": "the Notice Board tile on your Home screen",
      "syn": ["notice board", "noticeboard", "notices", "the notices"]},
     {"key": "games",    "label": "Games", "where": "the Games tile on your Home screen",
      "syn": ["games", "play a game", "play games", "the games"]},
-    {"key": "moments",  "label": "Moments", "where": "the Moments tile on your Home screen",
+    {"key": "moments",  "label": "Moments", "where": "the Moments tab at the bottom",
      "syn": ["moments", "share a moment", "a moment"]},
     {"key": "groups",   "label": "Groups", "where": "the Groups tile on your Home screen",
      "syn": ["groups", "community groups", "a group"]},
     {"key": "events",   "label": "Events", "where": "the Events tile on your Home screen",
      "syn": ["events", "what's on", "whats on"]},
-    {"key": "profile",  "label": "my Profile", "where": "the Profile tab at the bottom",
+    {"key": "profile",  "label": "my Profile", "where": "the More tab at the bottom, then Profile",
      "syn": ["my profile", "profile", "my page"]},
-    {"key": "settings", "label": "Settings", "where": "the Settings option from your Profile tab",
+    {"key": "settings", "label": "Settings", "where": "the More tab at the bottom, then Profile \u2192 Settings",
      "syn": ["settings", "my settings"]},
     {"key": "notifications", "label": "Notifications", "where": "the bell icon at the top",
      "syn": ["notifications", "my notifications", "alerts"]},
-    {"key": "help",     "label": "Help", "where": "the Help option from your Profile tab",
+    {"key": "help",     "label": "Help", "where": "the More tab at the bottom, then Profile \u2192 Help",
      "syn": ["help", "support"]},
     {"key": "home",     "label": "Home", "where": "the Home tab at the bottom",
      "syn": ["home", "the home screen", "main screen"]},

@@ -12,6 +12,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
+import { useInboxEvent } from "@/src/lib/user-socket";
 
 type GameDef = { key: string; title: string; blurb: string; emoji: string; players: string; tint: string };
 
@@ -59,6 +60,29 @@ export default function PlayTogetherHub() {
       try { router.replace("/games/play" as any); } catch { /* noop */ }
     }
   }, [reset, router]);
+
+  // iter225 (Garry, Oct 2026 — RED #1): if the recipient Snoozes a
+  // game invite via CompanionNudge, the backend ends the session and
+  // emits ``game_end`` to the sender. The sender may be anywhere in
+  // the app at that moment — including right back on this menu — so
+  // we react globally: refresh the "YOUR GAMES" list and flush any
+  // stale pre-selected opponent / URL ``?friend=`` / in-flight invite
+  // lock. Mirrors the Decline cleanup path (declined-screen → reset=1)
+  // for the case where the sender never had the game screen mounted.
+  // Non-destructive if there's nothing to clean up.
+  useInboxEvent("notification", (evt: any) => {
+    const n = evt?.notification;
+    if (!n || n.type !== "game_end") return;
+    loadMine();
+    if (preFriend || friend || pickerFor || inviting) {
+      setPreFriend(null);
+      setPickerFor(null);
+      setInviting(false);
+      if (friend) {
+        try { router.replace("/games/play" as any); } catch { /* noop */ }
+      }
+    }
+  });
   // #7 (Garry, Sep 2026): match the shared bottom-nav auto-hide on the
   // Games menu — scroll down hides, up/pause/top shows.
   const navScroll = useNavHideScroll();
