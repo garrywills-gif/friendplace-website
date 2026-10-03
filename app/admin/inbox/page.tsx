@@ -91,6 +91,7 @@ function InboxPanel() {
   // Optional automatic "Warmly, The FriendPlace Team" footer.
   // Off by default so manual replies end with the admin's own sign-off.
   const [includeFooter, setIncludeFooter] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   // manage mailboxes
   const [manageOpen, setManageOpen] = useState(false);
@@ -454,6 +455,10 @@ function InboxPanel() {
         <Toggle active={view === 'archived'} onClick={() => { setView('archived'); setSelected(null); setThread([]); setPreview(null); }} label="Archived" />
         <Toggle active={view === 'sent'} onClick={() => { setView('sent'); setSelected(null); setThread([]); setPreview(null); }} label="Sent" />
         {!isSent && <Toggle active={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} label="Unread only" />}
+        <button type="button" onClick={() => setComposeOpen(true)}
+          style={{ ...(s.primaryBtn as React.CSSProperties), marginLeft: 'auto' }}>
+          ✉ Compose email
+        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)', gap: 20, alignItems: 'start' }}>
@@ -698,6 +703,22 @@ function InboxPanel() {
         </div>
       </div>
 
+      {composeOpen && (
+        <ComposeEmailModal
+          mailboxes={mailboxes}
+          initialFrom={fromMailbox || mailboxes[0]?.address || ''}
+          onClose={() => setComposeOpen(false)}
+          onSent={async () => {
+            setComposeOpen(false);
+            setView('sent');
+            setSelected(null);
+            setThread([]);
+            setPreview(null);
+            await load({ silent: true });
+          }}
+        />
+      )}
+
       {/* Reply preview modal — the exact final email the recipient receives */}
       {preview && (
         <div style={modalOverlay} onClick={() => setPreview(null)}>
@@ -726,6 +747,220 @@ function InboxPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function ComposeEmailModal({
+  mailboxes,
+  initialFrom,
+  onClose,
+  onSent,
+}: {
+  mailboxes: Mailbox[];
+  initialFrom: string;
+  onClose: () => void;
+  onSent: () => Promise<void> | void;
+}) {
+  const [fromMailbox, setFromMailbox] = useState(initialFrom || mailboxes[0]?.address || '');
+  const [toEmail, setToEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [bodyText, setBodyText] = useState('');
+  const [bodyHtml, setBodyHtml] = useState('');
+  const [includeFooter, setIncludeFooter] = useState(false);
+  const [attachments, setAttachments] = useState<import('@/lib/inbox-api').InboxReplyAttachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; from_email: string; to_email: string; html: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+
+  const applyFormat = (command: 'bold' | 'italic' | 'underline' | 'insertUnorderedList') => {
+    editorRef.current?.focus();
+    document.execCommand(command, false);
+    const el = editorRef.current;
+    if (!el) return;
+    setBodyHtml(el.innerHTML);
+    setBodyText(el.innerText);
+    setPreview(null);
+  };
+
+  const addFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setError(null);
+    setAttaching(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (attachments.length >= 5) {
+          setError('You can attach up to 5 PDFs per email.');
+          break;
+        }
+        const meta = await inboxApi.uploadAttachment(file);
+        setAttachments((prev) => prev.length >= 5 ? prev : [...prev, meta]);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Attachment upload failed.');
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  const canSend = Boolean(fromMailbox && toEmail.includes('@') && subject.trim() && bodyText.trim());
+
+  const doPreview = async () => {
+    if (!canSend) return;
+    setPreviewing(true);
+    setError(null);
+    try {
+      const p = await inboxApi.composePreview({
+        to_email: toEmail.trim(),
+        subject: subject.trim(),
+        body_text: bodyText.trim(),
+        body_html: brandReplyHtml(bodyHtml.trim()) || undefined,
+        from_mailbox: fromMailbox,
+        include_footer: includeFooter,
+      });
+      setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
+    } catch (e: any) {
+      setError(e?.message || 'Could not build preview.');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const send = async () => {
+    if (!canSend) return;
+    setSending(true);
+    setError(null);
+    try {
+      await inboxApi.compose({
+        to_email: toEmail.trim(),
+        subject: subject.trim(),
+        body_text: bodyText.trim(),
+        body_html: brandReplyHtml(bodyHtml.trim()) || undefined,
+        from_mailbox: fromMailbox,
+        include_footer: includeFooter,
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          content_b64: a.content_b64,
+          content_type: a.content_type,
+        })),
+      });
+      await onSent();
+    } catch (e: any) {
+      setError(e?.message || 'Email could not be sent.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={modalOverlay} onClick={onClose}>
+      <div style={{ ...modalCard, maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ ...s.cardTitle, marginBottom: 2 }}>Compose email</p>
+            <p style={{ ...s.helper, margin: 0 }}>Send a one-off email without creating a campaign.</p>
+          </div>
+          <button type="button" onClick={onClose} style={ghostSmall}>Close</button>
+        </div>
+
+        {error && <div style={errorBox}>{error}</div>}
+
+        <label style={s.label}>From</label>
+        <select value={fromMailbox} onChange={(e) => { setFromMailbox(e.target.value); setPreview(null); }}
+          style={{ ...(s.input as React.CSSProperties), marginBottom: 10 }}>
+          {mailboxes.map((mb) => (
+            <option key={mb.id || mb.address} value={(mb.address || '').toLowerCase()}>
+              {mb.label ? `${mb.label} · ${mb.address}` : mb.address}
+            </option>
+          ))}
+        </select>
+
+        <label style={s.label}>To</label>
+        <input type="email" value={toEmail}
+          onChange={(e) => { setToEmail(e.target.value); setPreview(null); }}
+          placeholder="name@example.com"
+          style={{ ...(s.input as React.CSSProperties), marginBottom: 10 }} />
+
+        <label style={s.label}>Subject</label>
+        <input value={subject}
+          onChange={(e) => { setSubject(e.target.value); setPreview(null); }}
+          placeholder="Email subject"
+          style={{ ...(s.input as React.CSSProperties), marginBottom: 10 }} />
+
+        <label style={s.label}>Message</label>
+        <style>{`
+          .compose-rich-editor, .compose-rich-editor * { color: #FFFFFF !important; }
+          .compose-rich-editor a { color: #BFE9FF !important; }
+        `}</style>
+        <div style={replyToolbar}>
+          <button type="button" onClick={() => applyFormat('bold')} style={formatBtn} title="Bold"><strong>B</strong></button>
+          <button type="button" onClick={() => applyFormat('italic')} style={formatBtn} title="Italic"><em>I</em></button>
+          <button type="button" onClick={() => applyFormat('underline')} style={formatBtn} title="Underline"><u>U</u></button>
+          <button type="button" onClick={() => applyFormat('insertUnorderedList')} style={formatBtn} title="Bullets">• List</button>
+        </div>
+        <div ref={editorRef} className="compose-rich-editor" contentEditable suppressContentEditableWarning
+          onInput={(e) => {
+            setBodyHtml(e.currentTarget.innerHTML);
+            setBodyText(e.currentTarget.innerText);
+            setPreview(null);
+          }}
+          style={{ ...replyEditorStyle, minHeight: 180 }}
+          aria-label="Compose email message" />
+
+        <div style={{ marginTop: 10 }}>
+          <label style={{ ...attachBtn, opacity: attaching || attachments.length >= 5 ? 0.6 : 1 }}>
+            {attaching ? 'Uploading…' : '📎 Attach PDF'}
+            <input type="file" accept="application/pdf" multiple
+              disabled={attaching || attachments.length >= 5}
+              style={{ display: 'none' }}
+              onChange={(e) => { void addFiles(e.target.files); e.currentTarget.value = ''; }} />
+          </label>
+          <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 10 }}>PDF only · up to 5 MB each</span>
+          {attachments.map((a, i) => (
+            <div key={`${a.filename}-${i}`} style={{ ...attachChip, marginTop: 6 }}>
+              <span>📄 {a.filename}</span>
+              <button type="button" onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                style={{ background: 'transparent', border: 'none', color: '#B91C1C', fontWeight: 800, cursor: 'pointer' }}>
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: '#334155' }}>
+          <input type="checkbox" checked={includeFooter}
+            onChange={(e) => { setIncludeFooter(e.target.checked); setPreview(null); }} />
+          Add “Warmly, The FriendPlace Team” sign-off
+        </label>
+
+        {preview && (
+          <div style={{ marginTop: 14 }}>
+            <p style={{ ...s.label, marginBottom: 6 }}>Preview</p>
+            <div style={metaLine}><strong>From:</strong> {preview.from_email}</div>
+            <div style={metaLine}><strong>To:</strong> {preview.to_email}</div>
+            <div style={metaLine}><strong>Subject:</strong> {preview.subject}</div>
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#FFFFFF', marginTop: 8 }}>
+              <iframe title="Compose preview" srcDoc={preview.html} sandbox=""
+                style={{ display: 'block', width: '100%', minHeight: 320, border: 0, background: '#FFFFFF' }} />
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button type="button" onClick={doPreview} disabled={!canSend || previewing || sending}
+            style={{ ...ghostSmall, opacity: !canSend || previewing || sending ? 0.6 : 1 }}>
+            {previewing ? 'Building preview…' : 'Preview'}
+          </button>
+          <button type="button" onClick={send} disabled={!canSend || sending}
+            style={{ ...(s.primaryBtn as React.CSSProperties), opacity: !canSend || sending ? 0.6 : 1 }}>
+            {sending ? 'Sending…' : 'Send email'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
