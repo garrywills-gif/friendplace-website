@@ -312,20 +312,13 @@ function InboxPanel() {
       if (replyEditorRef.current) replyEditorRef.current.innerHTML = '';
       setPreview(null);
       setAttachments([]);
-      const r = await inboxApi.get(selected.id);
-      const correspondent = String(r.message.from_email || '').trim().toLowerCase();
-      const selectedMailbox = String(r.message.mailbox || '').trim().toLowerCase();
-      const cleanThread = (r.thread || []).filter((t) => {
-        if (t.id === r.message.id) return true;
-        const threadMailbox = String(t.mailbox || '').trim().toLowerCase();
-        if (threadMailbox && selectedMailbox && threadMailbox !== selectedMailbox) return false;
-        if (t.direction === 'outbound') {
-          return String(t.to_email || '').trim().toLowerCase() === correspondent;
-        }
-        return String(t.from_email || '').trim().toLowerCase() === correspondent;
-      });
-      setSelected(r.message);
-      setThread(cleanThread);
+
+      // Inbox is the action queue: once we've replied, move the inbound
+      // message out of Inbox so completed conversations do not pile up.
+      // It remains available under Archived, while the outbound copy is in Sent.
+      await inboxApi.archive(selected.id);
+      setSelected(null);
+      setThread([]);
       await load({ silent: true });
     } catch (e: any) {
       setNotice(null);
