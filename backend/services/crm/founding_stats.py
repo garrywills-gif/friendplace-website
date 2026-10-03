@@ -36,8 +36,11 @@ AWAITING_STATUSES: List[str] = ["registered", "new"]
 
 
 def _base_all() -> Dict[str, Any]:
-    """Rows worth counting at all — excludes QA fixtures."""
-    return {"is_test": {"$ne": True}}
+    """Rows worth counting at all — excludes QA fixtures and duplicate
+    rows that have been merged into another record (iter225). Merged
+    duplicates are retained for audit but must not count as active
+    Founding Members anywhere."""
+    return {"is_test": {"$ne": True}, "merged_into": None}
 
 
 def _base_public() -> Dict[str, Any]:

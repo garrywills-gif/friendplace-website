@@ -1023,7 +1023,10 @@ def build_router(db) -> APIRouter:
     ):
         """List Founding Members with optional status filter + free-text search."""
         lim = max(1, min(int(limit or 500), 1000))
-        query: Dict[str, Any] = {"is_test": {"$ne": True}}
+        # iter225: exclude duplicates that have been merged into another
+        # record. They remain in Mongo for audit but must not appear in
+        # the active CRM.
+        query: Dict[str, Any] = {"is_test": {"$ne": True}, "merged_into": None}
         if status and status in _FM_STATUSES:
             if status == "registered":
                 # Include legacy "new" and missing-status rows too.
@@ -1582,6 +1585,244 @@ def build_router(db) -> APIRouter:
             "keeper_created_at":      keeper.get("created_at"),
             "retired_at":             now,
             "retired_by":             admin.get("id"),
+        }
+
+
+    @router.post("/crm/founding-members/{source_id}/merge-duplicate")
+    async def crm_founding_members_merge_duplicate(
+        source_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Merge a duplicate Founding Member registration into another
+        (iter225 — Ham/Hamze style duplicate cleanup).
+
+        Shape:
+            POST /api/cms/crm/founding-members/{source_id}/merge-duplicate
+            body: { "target_id": "..." }
+
+        The TARGET is the record we keep. Its ``founder_number`` is
+        preserved verbatim — nobody is renumbered. Useful information
+        from the source (alternate email, notes, tags, original
+        registration details) is carried across onto the target.
+
+        The SOURCE is NOT hard-deleted. It is flagged as merged
+        (``merged_into = <target_id>``, ``merged_at``, ``merged_by``,
+        and status ``merged``) and from that moment on is filtered out
+        of every active CRM read path — the list, the CSV export,
+        campaign audiences, and the stats aggregates. Mongo still has
+        the row for audit/history.
+
+        A ``history`` entry is appended to BOTH rows so the merge is
+        visible in the record timeline. The target also receives a
+        ``merged_sources`` entry with ``{source_id, source_email,
+        source_founder_number, merged_at, merged_by}`` so the UI can
+        render "merged duplicates" without re-querying the source.
+
+        Rejections (all explicit so the UI can show a clear reason):
+          - 400 : missing ``target_id`` / target same as source.
+          - 404 : source or target not found.
+          - 409 : source already merged.
+          - 409 : target itself is merged (can't merge into a tombstone).
+          - 403 : source or target is a reserved slot (#0001/#0002/#0003
+                  etc.) — reserved rows are locked and never participate
+                  in a merge.
+          - 403 : source or target is test-flagged.
+        """
+        from datetime import datetime, timezone
+        target_id = (payload or {}).get("target_id")
+        if not isinstance(target_id, str) or not target_id.strip():
+            raise HTTPException(400, "target_id is required")
+        target_id = target_id.strip()
+        if target_id == source_id:
+            raise HTTPException(400, "source_id and target_id must be different")
+
+        source = await db.interest_registrations.find_one({"id": source_id}, {"_id": 0})
+        if not source:
+            raise HTTPException(404, "Source Founding Member not found")
+        target = await db.interest_registrations.find_one({"id": target_id}, {"_id": 0})
+        if not target:
+            raise HTTPException(404, "Target Founding Member not found")
+
+        # Reserved + test guards — never participate in a merge.
+        if bool(source.get("is_reserved")):
+            raise HTTPException(
+                403,
+                "Source is a reserved Founding Member slot and cannot be merged. "
+                "Reserved slots are locked.",
+            )
+        if bool(target.get("is_reserved")):
+            raise HTTPException(
+                403,
+                "Target is a reserved Founding Member slot and cannot receive a merge. "
+                "Reserved slots are locked.",
+            )
+        if bool(source.get("is_test")) or bool(target.get("is_test")):
+            raise HTTPException(
+                403,
+                "Test-flagged rows cannot participate in a merge.",
+            )
+
+        # Already-merged guards.
+        if source.get("merged_into"):
+            raise HTTPException(
+                409,
+                f"Source is already merged into {source.get('merged_into')}. "
+                "Refusing to merge again.",
+            )
+        if target.get("merged_into"):
+            raise HTTPException(
+                409,
+                "Target is itself a merged duplicate — merge into the "
+                "surviving record instead.",
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        source_email = (source.get("email") or "").strip().lower()
+        target_email = (target.get("email") or "").strip().lower()
+
+        # ── Carry-over fields onto the target ─────────────────────────
+        target_updates: Dict[str, Any] = {"updated_at": now}
+
+        # 1) Alternate emails: keep every non-primary address seen on
+        #    either record. Preserves order, de-dupes case-insensitively,
+        #    excludes the target's primary email.
+        alt_pool: list[str] = []
+        existing_alts = target.get("alternate_emails") or []
+        if isinstance(existing_alts, list):
+            alt_pool.extend([str(a) for a in existing_alts if a])
+        src_alts = source.get("alternate_emails") or []
+        if isinstance(src_alts, list):
+            alt_pool.extend([str(a) for a in src_alts if a])
+        if source_email:
+            alt_pool.append(source_email)
+        seen_alts: set = set()
+        if target_email:
+            seen_alts.add(target_email)
+        merged_alts: list[str] = []
+        for addr in alt_pool:
+            key = addr.strip().lower()
+            if not key or key in seen_alts:
+                continue
+            seen_alts.add(key)
+            merged_alts.append(addr.strip())
+        if merged_alts:
+            target_updates["alternate_emails"] = merged_alts
+
+        # 2) Notes: concatenate with a merge header so provenance is
+        #    always obvious. 5000-char cap matches /PATCH limit.
+        src_notes = (source.get("admin_notes") or "").strip()
+        if src_notes:
+            tgt_notes = (target.get("admin_notes") or "").rstrip()
+            header = (
+                f"\n\n— Merged from duplicate "
+                f"#{source.get('founder_number'):04d} ({source_email or 'no email'}) "
+                f"on {now[:10]} —\n"
+            ) if isinstance(source.get("founder_number"), int) else (
+                f"\n\n— Merged from duplicate ({source_email or 'no email'}) on {now[:10]} —\n"
+            )
+            combined = (tgt_notes + header + src_notes) if tgt_notes else (header.lstrip() + src_notes)
+            target_updates["admin_notes"] = combined[:5000]
+
+        # 3) Tags: union, dedupe, cap at 20 (matches /PATCH limit).
+        tgt_tags = [str(t) for t in (target.get("tags") or []) if t]
+        src_tags = [str(t) for t in (source.get("tags") or []) if t]
+        tag_seen: set = set()
+        merged_tags: list[str] = []
+        for t in tgt_tags + src_tags:
+            key = t.strip().lower()
+            if not key or key in tag_seen:
+                continue
+            tag_seen.add(key)
+            merged_tags.append(t.strip()[:40])
+            if len(merged_tags) >= 20:
+                break
+        if merged_tags and merged_tags != tgt_tags:
+            target_updates["tags"] = merged_tags
+
+        # 4) Registration-detail carry-over: preserve the source's
+        #    original registration shape under a dedicated audit field
+        #    on the target (``merged_sources[].registration``). We do
+        #    NOT overwrite any target field — the target IS the record
+        #    we are keeping — but the full source registration is kept
+        #    verbatim so admins can review what came across.
+        reg_carry = {
+            k: source.get(k)
+            for k in (
+                "first_name", "last_name", "email", "state_country",
+                "suburb", "state", "country", "postcode", "phone",
+                "heard_from", "created_at", "founder_number",
+            )
+            if source.get(k) not in (None, "")
+        }
+
+        # Audit entry for the target history timeline.
+        target_history = {
+            "at":                     now,
+            "admin_id":               admin.get("id"),
+            "action":                 "merge_duplicate",
+            "source_id":              source_id,
+            "source_email":           source_email,
+            "source_founder_number":  source.get("founder_number"),
+            "merged_at":              now,
+        }
+        # Compact audit entry for the target's merged_sources list.
+        merged_source_entry = {
+            "source_id":              source_id,
+            "source_email":           source_email,
+            "source_founder_number":  source.get("founder_number"),
+            "merged_at":              now,
+            "merged_by":              admin.get("id"),
+            "registration":           reg_carry,
+        }
+
+        await db.interest_registrations.update_one(
+            {"id": target_id},
+            {
+                "$set":  target_updates,
+                "$push": {
+                    "history":        target_history,
+                    "merged_sources": merged_source_entry,
+                },
+            },
+        )
+
+        # ── Flag source as merged (soft; retained for audit) ──────────
+        source_history = {
+            "at":          now,
+            "admin_id":    admin.get("id"),
+            "action":      "merged_into",
+            "target_id":   target_id,
+            "target_founder_number": target.get("founder_number"),
+            "merged_at":   now,
+        }
+        await db.interest_registrations.update_one(
+            {"id": source_id},
+            {
+                "$set": {
+                    "merged_into":        target_id,
+                    "merged_at":          now,
+                    "merged_by":          admin.get("id"),
+                    "merged_by_email":    admin.get("email"),
+                    "merged_target_founder_number": target.get("founder_number"),
+                    # Non-standard status: filtered out by merged_into
+                    # anyway, kept here so DB Viewer makes the state
+                    # obvious at a glance.
+                    "status":             "merged",
+                    "updated_at":         now,
+                },
+                "$push": {"history": source_history},
+            },
+        )
+
+        surviving = await db.interest_registrations.find_one({"id": target_id}, {"_id": 0})
+        return {
+            "ok":             True,
+            "source_id":      source_id,
+            "target_id":      target_id,
+            "founder_number": target.get("founder_number"),
+            "merged_at":      now,
+            "target":         _normalise_fm_row(surviving) if surviving else surviving,
         }
 
 
@@ -2290,7 +2531,8 @@ def build_router(db) -> APIRouter:
 
     def _build_audience_query(f: Dict[str, Any]) -> Dict[str, Any]:
         """Turn a campaign's audience filter into a Mongo query."""
-        q: Dict[str, Any] = {"is_test": {"$ne": True}}
+        # iter225: never target merged duplicates in a campaign.
+        q: Dict[str, Any] = {"is_test": {"$ne": True}, "merged_into": None}
         if f.get("exclude_reserved", True):
             q["is_reserved"] = {"$ne": True}
         statuses = [s for s in (f.get("statuses") or []) if s in _FM_STATUSES]
@@ -4629,7 +4871,8 @@ def build_router(db) -> APIRouter:
     ):
         from fastapi.responses import Response
         import csv, io
-        query: Dict[str, Any] = {"is_test": {"$ne": True}}
+        # iter225: exclude merged duplicates from CSV export too.
+        query: Dict[str, Any] = {"is_test": {"$ne": True}, "merged_into": None}
         if status and status in _FM_STATUSES:
             if status == "registered":
                 query["$or"] = [
