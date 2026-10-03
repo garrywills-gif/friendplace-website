@@ -837,6 +837,17 @@ export const foundingMembersCrmApi = {
       linked_user: { id: string; email: string | null; first_name: string | null; username: string | null };
       member: CRMFoundingMember;
     }>('POST', `/cms/crm/founding-members/${id}/link-account`, body),
+  // Merge an accidental duplicate registration into the record that should
+  // survive. The target keeps its founder number; the source is retained
+  // internally as merged history and must no longer count as an active founder.
+  mergeDuplicate: (id: string, body: { target_id: string }) =>
+    req<{
+      ok: true;
+      source_id: string;
+      target_id: string;
+      founder_number: number | null;
+      target: CRMFoundingMember;
+    }>('POST', `/cms/crm/founding-members/${id}/merge-duplicate`, body),
   update: (
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
