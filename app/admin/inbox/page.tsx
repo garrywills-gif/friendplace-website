@@ -872,17 +872,25 @@ function ComposeEmailModal({
     setPreviewing(true);
     setError(null);
     try {
-      const p = await inboxApi.composePreview({
-        to_email: toEmail.trim(),
+      // Compose preview is rendered locally so it works even before the
+      // backend compose-preview endpoint is published.
+      const baseHtml = brandReplyHtml(bodyHtml.trim()) ||
+        brandReplyHtml(
+          bodyText
+            .trim()
+            .split(/\n{2,}/)
+            .map((p) => '<p>' + p.replace(/\n/g, '<br>') + '</p>')
+            .join('')
+        );
+      const footerHtml = includeFooter
+        ? '<div style="font-family:Arial,Helvetica,sans-serif;color:#0A2540;padding:16px 20px 0;">Warmly,<br>The FriendPlace Team</div>'
+        : '';
+      setPreview({
         subject: subject.trim(),
-        body_text: bodyText.trim(),
-        body_html: brandReplyHtml(bodyHtml.trim()) || undefined,
-        from_mailbox: fromMailbox,
-        include_footer: includeFooter,
+        from_email: fromMailbox,
+        to_email: toEmail.trim(),
+        html: baseHtml + footerHtml,
       });
-      setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
-    } catch (e: any) {
-      setError(e?.message || 'Could not build preview.');
     } finally {
       setPreviewing(false);
     }
