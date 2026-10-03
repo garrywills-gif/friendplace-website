@@ -253,6 +253,11 @@ export default function FoundingMembersCRMPage() {
               onToggle={() => setExpandedId(cur => (cur === r.id ? null : r.id))}
               onUpdate={applyPatch}
               onDelete={deleteRow}
+              onMerged={async () => {
+                setExpandedId(null);
+                await load();
+                showToast('Duplicate merged');
+              }}
             />
           ))
         )}
@@ -330,7 +335,7 @@ function StatCard({
 // ─── Row ──────────────────────────────────────────────────────
 
 function MemberRow({
-  row, expanded, onToggle, onUpdate, onDelete,
+  row, expanded, onToggle, onUpdate, onDelete, onMerged,
 }: {
   row: CRMFoundingMember;
   expanded: boolean;
@@ -341,6 +346,7 @@ function MemberRow({
     optimistic?: Partial<CRMFoundingMember>,
   ) => void;
   onDelete: (id: string) => Promise<boolean>;
+  onMerged: () => Promise<void> | void;
 }) {
   const [notesDraft, setNotesDraft] = useState(row.admin_notes || '');
   const [tagInput, setTagInput] = useState('');
@@ -348,6 +354,11 @@ function MemberRow({
   const [linkInput, setLinkInput] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
+  const [mergeQuery, setMergeQuery] = useState('');
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeMatches, setMergeMatches] = useState<CRMFoundingMember[]>([]);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [mergeMsg, setMergeMsg] = useState<string | null>(null);
   const notesInitial = useRef(row.admin_notes || '');
 
   useEffect(() => {
@@ -404,6 +415,49 @@ function MemberRow({
       setLinkMsg(`Couldn't link: ${String(e?.message || 'error').replace(/^\d+\s*/, '')}`);
     } finally {
       setLinkBusy(false);
+    }
+  };
+
+  const findMergeTargets = async () => {
+    const q = mergeQuery.trim();
+    if (!q || mergeBusy) return;
+    setMergeBusy(true);
+    setMergeMsg(null);
+    try {
+      const res = await foundingMembersCrmApi.list({ q, limit: 20 });
+      const matches = (res.rows || []).filter(m => m.id !== row.id);
+      setMergeMatches(matches);
+      setMergeTargetId(matches.length === 1 ? matches[0].id : '');
+      if (!matches.length) setMergeMsg('No other Founding Member matched that search.');
+    } catch (e: any) {
+      setMergeMsg(e?.message || 'Could not search Founding Members.');
+    } finally {
+      setMergeBusy(false);
+    }
+  };
+
+  const mergeDuplicate = async () => {
+    if (!mergeTargetId || mergeBusy) return;
+    const target = mergeMatches.find(m => m.id === mergeTargetId);
+    if (!target) return;
+    const sourceLabel = `${displayName}${row.founder_number ? ` (#${String(row.founder_number).padStart(4, '0')})` : ''}`;
+    const targetName = [target.first_name, target.last_name].filter(Boolean).join(' ') || target.email || 'target record';
+    const targetLabel = `${targetName}${target.founder_number ? ` (#${String(target.founder_number).padStart(4, '0')})` : ''}`;
+    if (!confirm(
+      `Merge duplicate registration?\n\nMerge: ${sourceLabel}\nInto: ${targetLabel}\n\nThe target record and its founder number will be kept. This should only be used when you are sure both records belong to the same person.`
+    )) return;
+
+    setMergeBusy(true);
+    setMergeMsg(null);
+    try {
+      const res = await foundingMembersCrmApi.mergeDuplicate(row.id, { target_id: mergeTargetId });
+      const num = res.founder_number ? `#${String(res.founder_number).padStart(4, '0')}` : 'the target record';
+      setMergeMsg(`✓ Duplicate merged into ${num}.`);
+      await onMerged();
+    } catch (e: any) {
+      setMergeMsg(`Couldn't merge: ${String(e?.message || 'error').replace(/^\d+\s*/, '')}`);
+    } finally {
+      setMergeBusy(false);
     }
   };
 
@@ -554,6 +608,76 @@ function MemberRow({
             )}
             {linkMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: linkMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{linkMsg}</div>}
           </div>
+
+          <div style={{
+            marginBottom: 16, padding: '12px 14px', borderRadius: 12,
+            background: '#F8FAFC', border: '1px solid #CBD5E1',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: '#0A2540', marginBottom: 4 }}>
+              Merge duplicate registration
+            </div>
+            <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+              Use this when the same person registered twice with different details. Search for the record you want to keep; its Founding Member number will survive the merge.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                value={mergeQuery}
+                onChange={e => { setMergeQuery(e.target.value); setMergeMatches([]); setMergeTargetId(''); setMergeMsg(null); }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void findMergeTargets(); } }}
+                placeholder="Search email, name or #0133"
+                style={{
+                  flex: '1 1 260px', minWidth: 220, padding: '8px 10px',
+                  border: '1.5px solid #CBD5E1', borderRadius: 10, fontSize: 13, background: '#FFFFFF',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void findMergeTargets()}
+                disabled={mergeBusy || !mergeQuery.trim()}
+                style={{
+                  padding: '8px 16px', borderRadius: 10, border: '1px solid #CBD5E1',
+                  background: '#FFFFFF', color: '#0A2540', fontWeight: 800, fontSize: 13,
+                  cursor: (mergeBusy || !mergeQuery.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (mergeBusy || !mergeQuery.trim()) ? 0.55 : 1,
+                }}
+              >
+                {mergeBusy ? 'Searching…' : 'Find duplicate'}
+              </button>
+            </div>
+
+            {mergeMatches.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ ...s.label, marginBottom: 5 }}>Keep this record</label>
+                <select
+                  value={mergeTargetId}
+                  onChange={e => { setMergeTargetId(e.target.value); setMergeMsg(null); }}
+                  style={{ ...s.input, marginBottom: 8 }}
+                >
+                  <option value="">Choose the record to keep…</option>
+                  {mergeMatches.map(m => {
+                    const name = [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email || 'Unnamed';
+                    const num = m.founder_number ? ` #${String(m.founder_number).padStart(4, '0')}` : '';
+                    return <option key={m.id} value={m.id}>{name}{num} · {m.email || 'no email'}</option>;
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void mergeDuplicate()}
+                  disabled={mergeBusy || !mergeTargetId}
+                  style={{
+                    padding: '8px 16px', borderRadius: 10, border: 'none',
+                    background: (mergeBusy || !mergeTargetId) ? '#CBD5E1' : '#B45309',
+                    color: '#FFFFFF', fontWeight: 800, fontSize: 13,
+                    cursor: (mergeBusy || !mergeTargetId) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {mergeBusy ? 'Merging…' : 'Merge duplicate'}
+                </button>
+              </div>
+            )}
+            {mergeMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: mergeMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{mergeMsg}</div>}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 20 }}>
             <div>
               <label style={s.label}>Admin notes</label>
