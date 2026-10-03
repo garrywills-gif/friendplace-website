@@ -45,7 +45,19 @@ function brandReplyHtml(html: string) {
     /Because you belong too\./g,
     '<span style="color:#FFFFFF;font-weight:700;">Because you belong too.</span>',
   );
-  return '<div style="background:#0A2540;color:#FFFFFF;padding:18px 20px;border-radius:12px;line-height:1.7;">' + branded + '</div>';
+  return (
+    '<div style="background:#FFFFFF;padding:0;margin:0;">' +
+      '<div style="padding:18px 20px 14px;text-align:left;">' +
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#0A2540;">' +
+          'Friend<span style="color:#2EA7E0;">Place</span>' +
+        '</div>' +
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0A2540;margin-top:2px;">Because you belong too.</div>' +
+      '</div>' +
+      '<div style="background:#0A2540;color:#FFFFFF;padding:18px 20px;border-radius:12px;line-height:1.7;">' +
+        branded +
+      '</div>' +
+    '</div>'
+  );
 }
 
 function syncSidebarUnreadBadge(count: number) {
