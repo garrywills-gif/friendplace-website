@@ -170,6 +170,12 @@ export const inboxApi = {
   replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string; include_footer?: boolean }) =>
     req<{ preview: true; subject: string; from_email: string; to_email: string; html: string; text: string }>(
       'POST', `/cms/email/messages/${encodeURIComponent(id)}/reply-preview`, body),
+  compose: (body: { to_email: string; subject: string; body_text: string; body_html?: string; from_mailbox?: string; include_footer?: boolean; attachments?: Array<{ filename: string; content_b64: string; content_type?: string }> }) =>
+    req<{ ok: true; message_id: string; from: string; sent: InboxMessage }>(
+      'POST', '/cms/email/compose', body),
+  composePreview: (body: { to_email: string; subject: string; body_text: string; body_html?: string; from_mailbox?: string; include_footer?: boolean }) =>
+    req<{ preview: true; subject: string; from_email: string; to_email: string; html: string; text: string }>(
+      'POST', '/cms/email/compose-preview', body),
   listSent: async (opts?: { mailbox?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (opts?.mailbox) qs.set('mailbox', opts.mailbox);
