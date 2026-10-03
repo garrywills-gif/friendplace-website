@@ -60,6 +60,43 @@ function brandReplyHtml(html: string) {
   );
 }
 
+function brandComposeHtml(html: string, includeFooter: boolean) {
+  if (!html) return '';
+  const cleaned = html
+    .replace(/\scolor\s*:\s*[^;"']+;?/gi, '')
+    .replace(/\sbackground(?:-color)?\s*:\s*[^;"']+;?/gi, '')
+    .replace(/\sbgcolor=(["'])[^"']*\1/gi, '')
+    .replace(/\scolor=(["'])[^"']*\1/gi, '');
+
+  const footer = includeFooter
+    ? '<div style="border-top:1px solid #35536E;margin-top:34px;padding-top:24px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#FFFFFF;">' +
+        '<div style="color:#D6DEE7;">Warmly,</div>' +
+        '<div style="font-weight:700;margin-top:2px;">The FriendPlace team</div>' +
+      '</div>'
+    : '';
+
+  return (
+    '<div style="margin:0;padding:0;background:#0A2B49;color:#FFFFFF;">' +
+      '<div style="max-width:760px;margin:0 auto;padding:28px 42px 34px;font-family:Arial,Helvetica,sans-serif;">' +
+        '<div style="text-align:center;padding-bottom:28px;">' +
+          '<img src="https://www.friendplace.com.au/brand-assets/butterfly.png" alt="FriendPlace butterfly" width="72" style="display:block;margin:0 auto 8px;width:72px;height:auto;border:0;">' +
+          '<div style="font-size:28px;font-weight:800;letter-spacing:-0.4px;color:#FFFFFF;">FriendPlace</div>' +
+          '<div style="margin-top:4px;font-size:13px;letter-spacing:4px;text-transform:uppercase;color:#D6DEE7;">Because you belong too. 🦋</div>' +
+        '</div>' +
+        '<div style="font-size:18px;line-height:1.65;color:#FFFFFF;">' +
+          cleaned +
+        '</div>' +
+        footer +
+        '<div style="text-align:center;margin-top:40px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:#D6DEE7;">' +
+          '<div>FriendPlace is an Australian friendship and community platform for adults.</div>' +
+          '<div style="margin-top:4px;"><a href="https://www.friendplace.com.au" style="color:#46E6D5;text-decoration:none;">friendplace.com.au</a></div>' +
+          '<div style="margin-top:8px;"><a href="https://www.facebook.com/friendplaceau" style="color:#46E6D5;text-decoration:none;">Facebook</a></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 function syncSidebarUnreadBadge(count: number) {
   // AdminShell owns the sidebar state, but reading a message happens inside this
   // child page. Update the visible badge immediately for a responsive click,
@@ -874,22 +911,17 @@ function ComposeEmailModal({
     try {
       // Compose preview is rendered locally so it works even before the
       // backend compose-preview endpoint is published.
-      const baseHtml = brandReplyHtml(bodyHtml.trim()) ||
-        brandReplyHtml(
-          bodyText
-            .trim()
-            .split(/\n{2,}/)
-            .map((p) => '<p>' + p.replace(/\n/g, '<br>') + '</p>')
-            .join('')
-        );
-      const footerHtml = includeFooter
-        ? '<div style="font-family:Arial,Helvetica,sans-serif;color:#0A2540;padding:16px 20px 0;">Warmly,<br>The FriendPlace Team</div>'
-        : '';
+      const messageHtml = bodyHtml.trim() ||
+        bodyText
+          .trim()
+          .split(/\n{2,}/)
+          .map((p) => '<p style="margin:0 0 20px;">' + p.replace(/\n/g, '<br>') + '</p>')
+          .join('');
       setPreview({
         subject: subject.trim(),
         from_email: fromMailbox,
         to_email: toEmail.trim(),
-        html: baseHtml + footerHtml,
+        html: brandComposeHtml(messageHtml, includeFooter),
       });
     } finally {
       setPreviewing(false);
@@ -905,9 +937,9 @@ function ComposeEmailModal({
         to_email: toEmail.trim(),
         subject: subject.trim(),
         body_text: bodyText.trim(),
-        body_html: brandReplyHtml(bodyHtml.trim()) || undefined,
+        body_html: brandComposeHtml(bodyHtml.trim(), includeFooter) || undefined,
         from_mailbox: fromMailbox,
-        include_footer: includeFooter,
+        include_footer: false,
         attachments: attachments.map((a) => ({
           filename: a.filename,
           content_b64: a.content_b64,
