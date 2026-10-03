@@ -10,6 +10,8 @@ Admin routes (all require a signed-in CMS admin):
     POST   /cms/email/messages/{id}/archive
     POST   /cms/email/messages/{id}/restore
     POST   /cms/email/messages/{id}/reply      {body_text, body_html?, subject?}
+    POST   /cms/email/compose                  {to_email, subject, body_text, ...}
+    POST   /cms/email/compose-preview          {to_email, subject, body_text, ...}
     GET    /cms/email/unread-count
 
 Public route (provider webhook — secured by a shared secret header):
@@ -70,6 +72,25 @@ class ReplyIn(BaseModel):
     # iter209 — auto "Warmly, The FriendPlace Team" sign-off. Off by
     # default for manual replies so the email ends with the admin's own
     # sign-off; the composer offers a toggle to add it back.
+    include_footer: bool = False
+
+
+class ComposeIn(BaseModel):
+    """One-off outbound email (iter224).
+
+    Separate from ``ReplyIn`` because there is no parent message: the
+    recipient, subject and (optional) sending mailbox are all supplied
+    directly by the composer. Attachments reuse the exact same contract
+    as reply attachments (PDFs only, 5 MB cap, same ReplyAttachment
+    shape) so the existing /attachments upload endpoint can be reused
+    unchanged.
+    """
+    to_email: str
+    subject: str
+    body_text: str
+    body_html: Optional[str] = None
+    attachments: List[ReplyAttachment] = Field(default_factory=list)
+    from_mailbox: Optional[str] = None
     include_footer: bool = False
 
 
@@ -304,6 +325,109 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         # it in the success confirmation ("✓ Reply sent from …").
         return {"ok": True, "message_id": result.message_id,
                 "from": mailbox, "reply": stored}
+
+    # ── One-off compose (iter224) ────────────────────────────────────
+    async def _resolve_compose_mailbox(requested: Optional[str]) -> str:
+        """Pick the From address for a one-off compose.
+
+        Unlike a reply there is no parent to fall back on, so when the
+        caller supplies a specific address it MUST be one of the
+        configured active FriendPlace mailboxes. When omitted we default
+        to the first configured mailbox so the composer can send even
+        without an explicit selection.
+        """
+        mbs = await store.list_mailboxes(db)
+        allowed_list = [(m.get("address") or "").strip().lower() for m in mbs]
+        allowed_list = [a for a in allowed_list if a]
+        allowed = set(allowed_list)
+        if not allowed:
+            raise HTTPException(500, "No FriendPlace mailboxes are configured")
+        req_addr = (requested or "").strip().lower()
+        if not req_addr:
+            return allowed_list[0]
+        if req_addr not in allowed:
+            raise HTTPException(400, "Selected From address is not a configured mailbox")
+        return req_addr
+
+    def _validate_compose_payload(body: ComposeIn) -> tuple[str, str, str]:
+        text = (body.body_text or "").strip()
+        if not text and not (body.body_html or "").strip():
+            raise HTTPException(400, "Email body is required")
+        to_email = (body.to_email or "").strip()
+        if not to_email or "@" not in to_email or " " in to_email:
+            raise HTTPException(400, "A valid recipient address is required")
+        subject = (body.subject or "").strip()
+        if not subject:
+            raise HTTPException(400, "Subject is required")
+        return to_email, subject, text
+
+    @router.post("/compose-preview")
+    async def _compose_preview(body: ComposeIn, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Render the FINAL compose email WITHOUT sending it. Uses the
+        exact same renderer as the send path, so what's shown here is
+        byte-for-byte what the recipient receives."""
+        to_email, subject, text = _validate_compose_payload(body)
+        from_mailbox = await _resolve_compose_mailbox(body.from_mailbox)
+        rendered = store.render_compose_email(
+            mailbox=from_mailbox, to_email=to_email,
+            subject=subject, text=text, html_override=body.body_html,
+            include_footer=body.include_footer,
+        )
+        return {"preview": True, **rendered}
+
+    @router.post("/compose")
+    async def _compose(body: ComposeIn, admin: dict = Depends(current_cms_admin)):
+        """Send a one-off outbound email through the existing Resend
+        infrastructure, persisting it so it appears in the existing Sent
+        view. Subject is preserved exactly as supplied; attachments and
+        include_footer behave identically to the reply flow."""
+        to_email, subject, text = _validate_compose_payload(body)
+        from_mailbox = await _resolve_compose_mailbox(body.from_mailbox)
+        rendered = store.render_compose_email(
+            mailbox=from_mailbox, to_email=to_email,
+            subject=subject, text=text, html_override=body.body_html,
+            include_footer=body.include_footer,
+        )
+        subj_out, html_out, text_out = rendered["subject"], rendered["html"], rendered["text"]
+        # Same PDF attachment contract as replies (validated on upload
+        # via the shared /attachments endpoint).
+        resend_attachments = None
+        if body.attachments:
+            if len(body.attachments) > _REPLY_ATTACHMENT_MAX_COUNT:
+                raise HTTPException(
+                    400,
+                    f"At most {_REPLY_ATTACHMENT_MAX_COUNT} attachments per email",
+                )
+            resend_attachments = [
+                {
+                    "filename": (a.filename or "attachment.pdf")[:200],
+                    "content": a.content_b64,
+                    "content_type": a.content_type or "application/pdf",
+                }
+                for a in body.attachments
+                if (a.content_b64 or "").strip()
+            ] or None
+        result = await send_email_detailed(
+            to=to_email, subject=subj_out, html=html_out, text=text_out or None,
+            from_email=from_mailbox, reply_to=from_mailbox,
+            attachments=resend_attachments,
+        )
+        if not result.ok:
+            raise HTTPException(
+                502,
+                f"Email could not be sent: {result.error or 'unknown error'}",
+            )
+        sent_by = admin.get("email") if isinstance(admin, dict) else None
+        stored = await store.store_outbound_compose(
+            db, mailbox=from_mailbox, to_email=to_email,
+            subject=subj_out, text=text_out, html=html_out,
+            message_id=result.message_id, sent_by=sent_by,
+        )
+        # Shape mirrors the /reply response so the frontend can reuse
+        # the same success handler: message_id + sending mailbox +
+        # stored row (shown as the new entry in Sent).
+        return {"ok": True, "message_id": result.message_id,
+                "from": from_mailbox, "sent": stored}
 
     @router.post("/attachments")
     async def _upload_attachment(

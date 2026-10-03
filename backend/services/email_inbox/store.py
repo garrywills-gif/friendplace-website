@@ -423,6 +423,90 @@ def render_reply_email(
     }
 
 
+# ── One-off compose (iter224) ────────────────────────────────────────
+# Mirrors the reply helpers above but has no parent message: this is a
+# brand-new outbound email composed from MCGS Inbox → Compose. The
+# subject is preserved exactly (no "Re:" prepend) and a fresh thread_id
+# is minted so the message shows up as its own conversation in the
+# existing Sent view / combined inbox.
+
+async def store_outbound_compose(
+    db, *, mailbox: str, to_email: str,
+    subject: str, text: str, html: str,
+    message_id: Optional[str], sent_by: Optional[str],
+) -> Dict[str, Any]:
+    doc = {
+        "id": str(uuid.uuid4()),
+        "mailbox": mailbox,
+        "direction": "outbound",
+        "from_email": mailbox,
+        "from_name": "FriendPlace",
+        "to_email": _norm_addr(to_email),
+        "subject": subject,
+        "subject_norm": _norm_subject(subject),
+        "text": text or "",
+        "html": html or "",
+        "snippet": _snippet(text, html),
+        "message_id": message_id or "",
+        "provider_message_id": message_id or "",
+        "in_reply_to": "",
+        "references": [],
+        "thread_id": str(uuid.uuid4()),
+        "read": True,
+        "archived_at": None,
+        "archived_by": None,
+        "received_at": _now(),
+        "created_at": _now(),
+        "sent_by": sent_by,
+    }
+    await db[COLL_MESSAGES].insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+def render_compose_email(
+    *, mailbox: str, to_email: str, subject: Optional[str],
+    text: str, html_override: Optional[str] = None,
+    include_footer: bool = False,
+) -> Dict[str, Any]:
+    """Produce the FINAL one-off outbound email exactly as the recipient
+    will receive it. Preview and send both call this so the preview
+    always matches what is actually sent. Subject is preserved VERBATIM
+    (no auto 'Re:' prepending — this is not a reply). ``include_footer``
+    controls the automatic 'Warmly, The FriendPlace Team' sign-off and
+    behaves identically to the reply renderer's footer setting."""
+    to_norm = _norm_addr(to_email or "")
+    subj = (subject or "").strip() or "(no subject)"
+
+    body = (html_override or "").strip() or (
+        "<div style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;"
+        "font-size:15px;line-height:1.6;color:#0f172a;white-space:pre-wrap\">"
+        + (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        + "</div>"
+    )
+    footer_html = ""
+    footer_text = ""
+    if include_footer:
+        footer_html = (
+            "<div style=\"margin-top:26px;border-top:1px solid #e2e8f0;padding-top:16px;"
+            "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;"
+            "color:#64748b;line-height:1.6\">"
+            "Warmly,<br><strong style=\"color:#0f172a\">The FriendPlace Team</strong><br>"
+            "<a href=\"https://www.friendplace.com.au\" style=\"color:#0d9488;"
+            "text-decoration:none\">friendplace.com.au</a>"
+            "</div>"
+        )
+        footer_text = "\n\nWarmly,\nThe FriendPlace Team\nfriendplace.com.au"
+    html = (
+        "<div style=\"max-width:640px;margin:0 auto;padding:4px 2px\">"
+        + body + footer_html + "</div>"
+    )
+    text_out = (text or "").rstrip() + footer_text
+    return {
+        "subject": subj, "from_email": mailbox, "to_email": to_norm,
+        "html": html, "text": text_out,
+    }
+
+
 async def ensure_inbox_indexes(db) -> None:
     await db[COLL_MAILBOXES].create_index("address", unique=True)
     await db[COLL_MESSAGES].create_index("thread_id")
@@ -434,9 +518,11 @@ async def ensure_inbox_indexes(db) -> None:
 __all__ = [
     "DEFAULT_MAILBOXES", "COLL_MAILBOXES", "COLL_MESSAGES",
     "seed_default_mailboxes", "list_mailboxes", "add_mailbox", "remove_mailbox",
-    "store_inbound", "store_outbound_reply", "fetch_received_email",
+    "store_inbound", "store_outbound_reply", "store_outbound_compose",
+    "fetch_received_email",
     "list_messages", "get_thread", "set_read",
     "archive_message", "restore_message", "unread_count",
     "list_sent", "delete_message", "render_reply_email",
+    "render_compose_email",
     "ensure_inbox_indexes",
 ]
