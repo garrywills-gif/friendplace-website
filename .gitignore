@@ -108,6 +108,15 @@ backend/scripts/_run_prod_dryrun.sh
 # Ignore all real .env files — they contain secrets. Deploy-time
 # templates live at frontend/.env.example and backend/.env.example
 # (tracked, no secrets, safe to ship in the deploy context).
+#
+# iter227 (Garry, Oct 2026 — deployment agent fix): the Emergent
+# deploy pipeline needs the shaped .env stubs at frontend/.env and
+# backend/.env in the deploy context so the Expo bundler and FastAPI
+# backend can read config at build/startup. The pipeline replaces
+# the values with production ones (see STEP 3 "Configuring backend
+# URL" in the EAS build log). Add explicit un-ignore rules for the
+# two deploy-required stubs below so a future contributor using
+# ``git archive`` doesn't accidentally strip them.
 .env
 .env.*
 *.env
@@ -116,5 +125,11 @@ backend/scripts/_run_prod_dryrun.sh
 !*.env.example
 !frontend/.env.example
 !backend/.env.example
+# iter227 — explicitly keep the deploy-required .env stubs tracked.
+# These files MUST NOT contain real secrets (production values are
+# injected by the deploy pipeline), but they MUST be present in the
+# deploy archive for the Expo bundler and FastAPI startup.
+!frontend/.env
+!backend/.env
 website_PRE_SYNC_20260902_062311/.git/objects/pack/pack-19fb2b520802d7ff56e4d2aed41592a64be46681.pack
 website/.git/objects/pack/pack-19fb2b520802d7ff56e4d2aed41592a64be46681.pack

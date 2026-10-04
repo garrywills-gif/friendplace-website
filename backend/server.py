@@ -137,6 +137,18 @@ async def owner_or_admin(user_id: str, me: dict = Depends(current_user)):
 app = FastAPI(title="FriendPlace API")
 api = APIRouter(prefix="/api")
 
+
+# iter227 (Garry, Oct 2026 — deployment agent fix): root-level health
+# probe for Kubernetes/Emergent liveness checks. The ingress probes
+# ``GET /health`` (no ``/api`` prefix), which previously 404'd and
+# cluttered the logs. The authoritative health endpoint is still
+# ``/api/health`` (defined far below); this is a lightweight alias
+# so the K8s probe always has something to hit.
+@app.get("/health", include_in_schema=False)
+async def _root_health():  # noqa: D401
+    return {"ok": True, "service": "friendplace-api"}
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("friendplace")
 
