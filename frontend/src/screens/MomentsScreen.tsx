@@ -118,7 +118,7 @@ export default function MomentsScreen() {
   }, [scope]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.surfaceTertiary }}>
+    <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Stack.Screen options={{ headerShown: false }} />
       {/* iter226 (Garry, Oct 2026 — visual uplift): warm shared brand
           bar + centered "Share a Moment" title + big "+ Share" pill
@@ -127,7 +127,7 @@ export default function MomentsScreen() {
       <View style={{ paddingTop: insets.top + 4 }}>
         <AppHeader
           testID="moments-header"
-          showTagline={false}
+          showTagline={true}
         />
       </View>
       <View style={styles.momentsTitleRow}>

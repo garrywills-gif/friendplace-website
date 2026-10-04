@@ -1071,8 +1071,8 @@ export default function Home() {
             collapsable={false}
             style={[
               styles.flutterBox,
+              styles.forMeCard,
               {
-                borderColor: "#8B5CF6",
                 // Hidden (opacity 0, tiny upward offset) until the
                 // butterfly lands on its first appearance this
                 // session — then it fades in with a subtle drop.
@@ -1082,8 +1082,8 @@ export default function Home() {
             ]}
           >
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-              <GeorgeButterflyMark size={24} />
-              <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
+              <View style={styles.forMeIconWrap}><GeorgeButterflyMark size={18} /></View>
+              <Text style={{ color: "#065F46", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
             </View>
             {flutters.slice(0, 3).map((f) => {
               const responded = f?.responded_action;
@@ -1251,26 +1251,32 @@ export default function Home() {
 
         {/* Incoming welcome / birthday greetings — prominent Home cards.
             A copy also lives in Notifications. Actions: Say thanks (one-tap)
-            · Start chat · Later. Acting or Later removes the card. */}
+            · Start chat · Later. Acting or Later removes the card.
+            iter226 — unified teal palette matching the For Me section. */}
         {greetings.map((n: any) => (
-          <View key={`greet-${n.id}`} testID={`home-greeting-${n.id}`} style={[styles.communityCard, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 8 }]}>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{n.title}</Text>
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <View key={`greet-${n.id}`} testID={`home-greeting-${n.id}`} style={[styles.communityCard, styles.forMeCard, { marginTop: 8 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <View style={styles.forMeIconWrap}>
+                <Ionicons name={n.type === "birthday_wish" ? "gift" : "hand-left"} size={18} color="#065F46" />
+              </View>
+              <Text style={{ color: "#0D2A57", fontWeight: "900", fontSize: 16 * scale, flex: 1 }} numberOfLines={2}>{n.title}</Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               <Pressable
                 testID={`home-greeting-thanks-${n.id}`}
                 onPress={() => greetingSayThanks(n)}
                 disabled={thanked[n.id] || n?.responded?.action === "thanks"}
                 pressRetentionOffset={0}
-                style={[styles.greetBtn, { backgroundColor: (thanked[n.id] || n?.responded?.action === "thanks") ? c.surface : c.brand, borderColor: (thanked[n.id] || n?.responded?.action === "thanks") ? c.border : c.brand }]}
+                style={[styles.greetBtn, { backgroundColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#FFFFFF" : "#0F766E", borderColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#CBD5E1" : "#0F766E" }]}
               >
-                <Text style={{ color: (thanked[n.id] || n?.responded?.action === "thanks") ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{(thanked[n.id] || n?.responded?.action === "thanks") ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
+                <Text style={{ color: (thanked[n.id] || n?.responded?.action === "thanks") ? "#64748B" : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{(thanked[n.id] || n?.responded?.action === "thanks") ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
               </Pressable>
-              <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: c.surface, borderColor: c.border }]}>
-                <Ionicons name="chatbubble-outline" size={15} color={c.brand} />
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
+              <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#B7E4D5" }]}>
+                <Ionicons name="chatbubble-outline" size={15} color="#0F766E" />
+                <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
               </Pressable>
-              <Pressable testID={`home-greeting-later-${n.id}`} onPress={() => greetingLater(n)} style={[styles.greetBtn, { backgroundColor: c.surface, borderColor: c.border }]}>
-                <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
+              <Pressable testID={`home-greeting-later-${n.id}`} onPress={() => greetingLater(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#CBD5E1" }]}>
+                <Text style={{ color: "#64748B", fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
               </Pressable>
             </View>
           </View>
