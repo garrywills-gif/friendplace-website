@@ -575,7 +575,7 @@ export function GeorgeButterfly() {
          *  bubble itself remains tappable (to dismiss on tap). This
          *  is what makes George feel present without ever *blocking*
          *  the member's next tap. */}
-        {showBubble && greeting && (
+        {showBubble && greeting && currentScreen !== 'home' && (
           <Animated.View
             pointerEvents="box-none"
             style={[
@@ -615,6 +615,42 @@ export function GeorgeButterfly() {
             />
           </Animated.View>
         )}
+        </Animated.View>
+      )}
+
+      {/* iter226 followup (Garry, Oct 2026): on HOME the welcome bubble
+          lives OUTSIDE the butterfly layer so it can be positioned
+          independently. The new Home layout stacks: brand header →
+          greet row → Share a Moment card. There is no spot near
+          George's resting position that doesn't obscure the brand,
+          the greeting or the hero, so on Home we present the welcome
+          bubble as a toast-style card floating above the bottom nav.
+          Actions (Chat to George / Dismiss) and the auto-fade timer
+          are IDENTICAL to the near-George variant above — only the
+          anchor changed. */}
+      {showFloatingButterfly && showBubble && greeting && currentScreen === 'home' && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.homeBubbleWrap,
+            { bottom: insets.bottom + 90, width: Math.min(SCREEN_W - 32, 360) },
+            bubbleStyle,
+          ]}
+        >
+          <GeorgeWelcomeBubble
+            greeting={greeting}
+            chatLabel={`💬  Chat to ${companionShortName}`}
+            onChat={flutterAndOpenChat}
+            onDismiss={() => {
+              bubbleOpacity.value = withTiming(0, { duration: 160 });
+              setTimeout(() => setShowBubble(false), 180);
+              setPhase('resting');
+              if (isFirstMeetingRef.current) {
+                isFirstMeetingRef.current = false;
+                void georgeApi.introduced().catch(() => {});
+              }
+            }}
+          />
         </Animated.View>
       )}
 
@@ -843,8 +879,25 @@ const styles = StyleSheet.create({
     // shorter 3.2 s auto-fade and `pointerEvents="box-none"` above,
     // George now feels present without ever *blocking* a member's
     // next tap.
+    //
+    // iter226 followup (Garry, Oct 2026): on HOME the welcome bubble
+    // is rendered via a separate ``homeBubbleWrap`` (toast-style,
+    // bottom-anchored) because the new Home layout leaves no clean
+    // space near George. Non-home screens keep this original anchor.
     bottom: 44,
     width: Math.min(240, SCREEN_W - 120),
+  },
+  // iter226 followup — Home-only toast anchor for George's welcome
+  // bubble. Centred horizontally, floats above the bottom nav, no
+  // tail (the tail would point into empty space because the butterfly
+  // rests high at the top of the screen). Chat / Dismiss actions
+  // behave identically to the near-butterfly variant.
+  homeBubbleWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    zIndex: 950,
   },
   bubble: {
     // Locked with Garry 1 Aug 2026: George's signature voice. Soft

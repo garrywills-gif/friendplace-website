@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState, useWindowDimensions } from "react-native";
 import { HERO_IMAGES, pickSessionHeroIndex } from "@/src/lib/hero-images";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -56,6 +56,13 @@ const CARD_SUB_INK = "#63697A";
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
+  // iter226 followup (Garry, Oct 2026): narrow-phone stacking for the
+  // "My Chats + FP Café" 2-up row so "My C…" / "FP C…" never gets
+  // ellipsised. Threshold set empirically: 400px covers every iPhone
+  // mini / SE / 12/13/14 width. Wider phones keep the side-by-side
+  // layout the mockup shows.
+  const { width: _winW } = useWindowDimensions();
+  const stackShortcuts = _winW < 400;
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
@@ -694,7 +701,7 @@ export default function Home() {
             These are DUPLICATE entry points for already-existing
             destinations (also present in the Explore carousel below)
             so no button/behaviour/rotation is lost. */}
-        <View style={styles.primaryShortcutsRow}>
+        <View style={[styles.primaryShortcutsRow, stackShortcuts && { flexDirection: "column" }]}>
           <Pressable
             testID="home-primary-chats"
             onPress={() => goTo("/chats")}
@@ -712,8 +719,8 @@ export default function Home() {
               ) : null}
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.primaryShortcutTitle} numberOfLines={1}>My Chats</Text>
-              <Text style={styles.primaryShortcutSub} numberOfLines={1}>Pick up a conversation.</Text>
+              <Text style={styles.primaryShortcutTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>My Chats</Text>
+              <Text style={styles.primaryShortcutSub} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>Pick up a conversation.</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
           </Pressable>
@@ -727,8 +734,8 @@ export default function Home() {
               <Ionicons name="cafe" size={26} color="#0F766E" />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.primaryShortcutTitle} numberOfLines={1}>FP Café</Text>
-              <Text style={styles.primaryShortcutSub} numberOfLines={1}>Pull up a chair.</Text>
+              <Text style={styles.primaryShortcutTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>FP Café</Text>
+              <Text style={styles.primaryShortcutSub} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>Pull up a chair.</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
           </Pressable>
@@ -1559,7 +1566,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryShortcutBadgeTxt: { color: "#FFF", fontWeight: "900", fontSize: 11, lineHeight: 13 },
-  primaryShortcutTitle: { color: "#0D2A57", fontWeight: "900", fontSize: 17 },
+  primaryShortcutTitle: {
+    color: "#0D2A57",
+    fontWeight: "900",
+    fontSize: 17,
+    // iter226 followup: let the title shrink a touch if the device is
+    // the very edge of our narrow-threshold check, so "My Chats" and
+    // "FP Café" never end up as "My C…" / "FP C…" even on an iPhone
+    // SE in portrait.
+    includeFontPadding: false,
+  },
   primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 13, marginTop: 2 },
 
   findFriendsCard: {
