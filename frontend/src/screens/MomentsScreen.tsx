@@ -8,6 +8,7 @@ import {
   RefreshControl,
   Image,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -37,6 +38,12 @@ import AppHeader from "@/src/components/AppHeader";
 export default function MomentsScreen() {
   const router = useRouter();
   const { c, scale } = useTheme();
+  // iter226 (Garry, Oct 2026 — Moments uplift): side-by-side photo +
+  // caption on wider phones (iPhone Pro Max / Plus / foldables),
+  // stacked on narrow phones so nothing gets squeezed. Threshold set
+  // empirically to match the primary-shortcut row on Home.
+  const { width: _winW } = useWindowDimensions();
+  const sideBySideMoments = _winW >= 400;
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
@@ -394,9 +401,12 @@ export default function MomentsScreen() {
                 </View>
 
                 {/* Row 2+3 (Wave B): the story and its photos.
-                    • 1 photo  → Savi-style side-by-side (story beside photo)
-                    • 0 / many → caption on top, responsive photo grid below
-                    (2 side-by-side · 3–4 grid · +N overlay for extras). */}
+                    • Wide phones (≥400px): Savi-style side-by-side
+                      whenever there's at least one photo (iter226
+                      Moments uplift — matches the mockup).
+                    • Narrow phones: caption on top, responsive photo
+                      grid below (2 side-by-side · 3–4 grid · +N
+                      overlay for extras). */}
                 {(() => {
                   const photos: string[] = Array.isArray(m.photos) ? m.photos.filter(Boolean).map(resolveMediaUri) : [];
                   const caption = m.caption ? (
@@ -407,10 +417,17 @@ export default function MomentsScreen() {
                       {m.caption}
                     </Text>
                   ) : null;
-                  // One photo: SHORT (or no) caption → larger full-width photo
-                  // with the caption above it; LONGER caption → Savi-style
-                  // side-by-side so the text stays readable beside the photo.
-                  // (iter191 Wave 2 — adaptive, no full redesign.)
+                  // iter226 — on wide phones, if there's exactly ONE
+                  // photo, lay it beside the caption. Keeps the Savi
+                  // behaviour for long captions on narrow phones too.
+                  if (photos.length === 1 && sideBySideMoments) {
+                    return (
+                      <View style={styles.sideBySide}>
+                        {caption ? <View style={{ flex: 1, minWidth: 0 }}>{caption}</View> : null}
+                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} />
+                      </View>
+                    );
+                  }
                   if (photos.length === 1 && m.caption && String(m.caption).trim().length > 90) {
                     return (
                       <View style={styles.sideBySide}>
@@ -429,7 +446,10 @@ export default function MomentsScreen() {
 
                 {/* Row 4: engagement — quiet, spelled-out counts. Not
                     social-media-y counters, just gentle indicators of
-                    the conversation waiting inside. */}
+                    the conversation waiting inside. iter226 — the
+                    "Comment" pill mirrors the mockup for a clearer
+                    call to join the conversation; the whole card is
+                    still tappable to open the detail view. */}
                 <View style={styles.cardActions}>
                   <Pressable
                     testID={`moment-like-${m.id}`}
@@ -459,6 +479,17 @@ export default function MomentsScreen() {
                       {m.comments_count || 0}
                     </Text>
                   </View>
+                  <View style={{ flex: 1 }} />
+                  <Pressable
+                    testID={`moment-comment-${m.id}`}
+                    onPress={() => router.push(`/moments/${m.id}` as any)}
+                    accessibilityLabel="Open comments"
+                    style={({ pressed }) => [styles.commentPill, { opacity: pressed ? 0.85 : 1 }]}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="chatbubble-outline" size={14} color="#0D2A57" />
+                    <Text style={styles.commentPillTxt}>Comment</Text>
+                  </Pressable>
                 </View>
               </Pressable>
             );
@@ -578,6 +609,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     minHeight: 40,
     borderRadius: 999,
+  },
+  // iter226 — "Comment" pill on each moment card, matching the mockup.
+  commentPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#EAF2FD",
+    paddingHorizontal: 12,
+    minHeight: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C9DCF4",
+  },
+  commentPillTxt: {
+    color: "#0D2A57",
+    fontWeight: "900",
+    fontSize: 13,
   },
   scopeRow: {
     flexDirection: "row",

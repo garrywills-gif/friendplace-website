@@ -877,29 +877,39 @@ export default function Home() {
             /app/memory/design-presence-and-status.md. */}
         <MyStatusCard />
 
-        {/* Today's Thought — surfaced at the top of Home (above First-Run
-            and Flutters) so the very first thing returning members read is
-            something warm and grounding. Stays sticky across opens via
-            the daily-rotation key but can be reshuffled manually. */}
-        <View style={[styles.thoughtCard, { backgroundColor: c.surfaceSecondary, borderColor: c.brand }]} testID="todays-thought">
+        {/* iter226 (Garry, Oct 2026 — visual uplift): soft-blue "Today's
+            Thought" card. Pale-blue background, navy wordmark, speaker/
+            favourite/shuffle icons preserved verbatim. Only the surface
+            colour, chip and border changed — rotation + favourites +
+            speech + daily persistence all untouched. */}
+        <View style={[styles.thoughtCard, { backgroundColor: "#EAF2FD", borderColor: "#C9DCF4" }]} testID="todays-thought">
           <View style={styles.thoughtHead}>
-            <View style={[styles.thoughtChip, { backgroundColor: c.brandTertiary }]}>
-              <Ionicons name="sunny" size={14} color={c.brand} />
-              <Text style={[styles.thoughtChipText, { color: c.brand, fontSize: 12 * scale }]}>TODAY&apos;S THOUGHT</Text>
+            <View style={[styles.thoughtChip, { backgroundColor: "#D5E6FB" }]}>
+              <Ionicons name="sunny" size={14} color="#1E3A8A" />
+              <Text style={[styles.thoughtChipText, { color: "#1E3A8A", fontSize: 12 * scale }]}>TODAY&apos;S THOUGHT</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               {prefs.readMessagesAloud && (
-                <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
+                <SpeakButton text={thought} color="#1E3A8A" size={22} testID="thought-speak" />
               )}
               <Pressable testID="thought-fav" onPress={toggleFav} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel={isFav ? "Remove from favourites" : "Save to favourites"}>
-                <Ionicons name={isFav ? "heart" : "heart-outline"} size={22} color={isFav ? c.error : c.brand} />
+                <Ionicons name={isFav ? "heart" : "heart-outline"} size={22} color={isFav ? c.error : "#1E3A8A"} />
               </Pressable>
               <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel="Shuffle thought">
-                <Ionicons name="shuffle" size={22} color={c.brand} />
+                <Ionicons name="shuffle" size={22} color="#1E3A8A" />
               </Pressable>
             </View>
           </View>
-          <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
+          <Text style={[styles.thoughtText, { color: "#0F2544", fontSize: 18 * scale }]}>{thought}</Text>
+        </View>
+
+        {/* iter226 — "For Me" section header. A gentle intro to the
+            personalised feed below (greetings, unread chats, friend
+            requests, flutters). Pure visual grouping — none of the
+            underlying cards or actions change. */}
+        <View style={styles.forMeHeader}>
+          <Text style={[styles.forMeTitle, { fontSize: 22 * scale }]}>For Me</Text>
+          <Text style={[styles.forMeSub, { fontSize: 14 * scale }]}>A little connection, just for you.</Text>
         </View>
 
         {/* First-run guidance — visible only for the first ~3 opens after
@@ -927,10 +937,10 @@ export default function Home() {
             screen calls `dmMarkRead`, which zeroes unread_count and
             drops the card on the next focus/resume. */}
         {unreadDms.length > 0 && (
-          <View style={[styles.flutterBox, { borderColor: "#10B981", backgroundColor: "#ECFDF5" }]} testID="home-unread-dms-card">
+          <View style={[styles.flutterBox, styles.forMeCard]} testID="home-unread-dms-card">
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-              <Ionicons name="chatbubbles" size={22} color="#047857" />
-              <Text style={{ color: "#047857", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+              <View style={styles.forMeIconWrap}><Ionicons name="chatbubbles" size={18} color="#065F46" /></View>
+              <Text style={{ color: "#065F46", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
                 {unreadDms.length === 1 ? "New message" : `${unreadDms.length} new chats`}
               </Text>
             </View>
@@ -985,10 +995,10 @@ export default function Home() {
         )}
 
         {pendingFriendReqs.length > 0 && (
-          <View style={[styles.flutterBox, { borderColor: "#0EA5E9" }]} testID="home-friend-requests-card">
+          <View style={[styles.flutterBox, styles.forMeCard]} testID="home-friend-requests-card">
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-              <Ionicons name="person-add" size={22} color="#0369A1" />
-              <Text style={{ color: "#0369A1", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+              <View style={styles.forMeIconWrap}><Ionicons name="person-add" size={18} color="#065F46" /></View>
+              <Text style={{ color: "#065F46", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
                 {pendingFriendReqs.length === 1 ? "New friend request" : `${pendingFriendReqs.length} new friend requests`}
               </Text>
             </View>
@@ -1605,6 +1615,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   findFriendsCtaTxt: { color: "#0D2A57", fontWeight: "900", fontSize: 14 },
+
+  // iter226 — "For Me" visual grouping (title + subtitle + shared
+  // teal card look for existing greetings/flutters/friend-request/
+  // unread-DM cards). The underlying action handlers and real-time
+  // behaviours are untouched; only the surface palette changed.
+  forMeHeader: {
+    marginTop: 6,
+    marginBottom: 2,
+    paddingHorizontal: 2,
+  },
+  forMeTitle: {
+    color: "#0D2A57",
+    fontWeight: "900",
+    letterSpacing: -0.3,
+  },
+  forMeSub: {
+    color: "#64748B",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  forMeCard: {
+    borderColor: "#B7E4D5",
+    backgroundColor: "#ECFDF5",
+    borderRadius: 18,
+  },
+  forMeIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#D1FAE5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
