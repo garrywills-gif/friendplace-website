@@ -423,16 +423,16 @@ export default function MomentsScreen() {
                   if (photos.length === 1 && sideBySideMoments) {
                     return (
                       <View style={styles.sideBySide}>
-                        {caption ? <View style={{ flex: 1, minWidth: 0 }}>{caption}</View> : null}
-                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} />
+                        {caption ? <View style={styles.sideCaptionCol}>{caption}</View> : <View style={styles.sideCaptionCol} />}
+                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} resizeMode="cover" />
                       </View>
                     );
                   }
                   if (photos.length === 1 && m.caption && String(m.caption).trim().length > 90) {
                     return (
                       <View style={styles.sideBySide}>
-                        <View style={{ flex: 1, minWidth: 0 }}>{caption}</View>
-                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} />
+                        <View style={styles.sideCaptionCol}>{caption}</View>
+                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} resizeMode="cover" />
                       </View>
                     );
                   }
@@ -653,8 +653,21 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  sideBySide: { flexDirection: "row", gap: 12, marginTop: 10, alignItems: "flex-start" },
-  sidePhoto: { width: 112, height: 112, borderRadius: 14, backgroundColor: "#EEE" },
+  sideBySide: { flexDirection: "row", gap: 14, marginTop: 10, alignItems: "flex-start" },
+  // iter226 followup (Garry, Oct 2026): photo column now takes ~42%
+  // of the card's content width via flex, so moments feel properly
+  // "shown" instead of thumbnailed. ``resizeMode="cover"`` + a 1:1
+  // aspectRatio keeps the image un-stretched (natural proportions —
+  // no horizontal squish) and the ``maxWidth`` cap stops the photo
+  // from going edge-to-edge on tablet-wide screens.
+  sideCaptionCol: { flex: 1.35, minWidth: 0 },
+  sidePhoto: {
+    flex: 1,
+    maxWidth: 220,
+    aspectRatio: 1,
+    borderRadius: 14,
+    backgroundColor: "#EEE",
+  },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 10 },
   featureBadge: {
     flexDirection: "row",
