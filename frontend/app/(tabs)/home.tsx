@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { HERO_IMAGES, pickSessionHeroIndex } from "@/src/lib/hero-images";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,12 +15,12 @@ import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
-import BrandLockup from "@/src/components/BrandLockup";
 import MyStatusCard from "@/src/components/status/MyStatusCard";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import AppHeader from "@/src/components/AppHeader";
 
 type Tile = {
   key: string;
@@ -571,25 +570,18 @@ export default function Home() {
         }
       >
         <View style={styles.headerRow}>
-          {/* Brand lockup absolutely centred so it stays centred no matter
-              how wide the right-hand actions are (avoids the old spacer
-              overflow that hid the bell on narrow iPhones). */}
-          <View style={styles.headerBrandCenter} pointerEvents="none">
-            <BrandLockup width={148} variant="navy" showTagline={false} testID="home-brand-lockup" />
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable ref={bellRef} testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-              <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
-              {unread > 0 && (
-                <View style={[styles.bellBadge, { backgroundColor: c.error }]}>
-                  <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>{unread > 9 ? "9+" : unread}</Text>
-                </View>
-              )}
-            </Pressable>
-            <Pressable testID="home-settings" onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-              <Ionicons name="settings-outline" size={26} color={c.onSurface} />
-            </Pressable>
-          </View>
+          {/* iter226 (Garry, Oct 2026 — visual uplift): warm left-aligned
+              brand bar — butterfly tile + "FriendPlace / Because you
+              belong too" wordmark + the SAME notifications bell wired
+              to the same handler and unread counter. Settings icon is
+              still reachable through the More tab + Profile, so no
+              feature is lost. */}
+          <AppHeader
+            onBell={() => router.push("/notifications")}
+            bellRef={bellRef}
+            unread={unread}
+            testID="home-header"
+          />
         </View>
         {/* "Welcome back" line removed 1 Aug 2026 (Garry) — George's
             Daily Welcome now handles the greeting, and a stacked
@@ -611,7 +603,7 @@ export default function Home() {
               <GeorgeButterflyMark size={24 * scale} />
             </View>
             <Text style={[styles.greetSub, { color: c.muted, fontSize: 15 * scale }]}>
-              Good to see you again!
+              Good to see you again.
             </Text>
           </View>
         </View>
@@ -624,76 +616,141 @@ export default function Home() {
             → POST_GREET_DELAY_MS). */}
 
         {/* --- HERO: Share a Moment -------------------------------------
-            Locked with Garry 31 July 2026 as the primary feature of
-            the Home screen, and (Garry, 1 Aug 2026) moved to sit
-            immediately below George's Daily Welcome so the very first
-            action on Home every day is "what's your moment today?".
-            "What's your moment today?" is a signature FriendPlace
-            phrase — every member has moments worth sharing (a coffee,
-            a walk, a flowering orchid, the grandkids), and this hero
-            makes the ask feel warm and everyday, not performative.
-            The whole card taps through to the feed; the inline CTA
-            jumps straight into the composer. */}
-        <View style={styles.momentHero}>
-          {/* Warm community photo bleeds in from the right and fades into
-              the cream card; the copy + CTAs sit on the cream left. The
-              photo rotates per session (src/lib/hero-images.ts). */}
+            iter226 (Garry, Oct 2026) visual uplift: title at the top,
+            rotating photo as the hero image, three-dot pager (the
+            photos rotate per session so the dots are an at-a-glance
+            cue, not a swipe surface), one big navy "+ Share a Moment"
+            CTA, and the "See moments →" teal link underneath. The
+            rotating hero asset, +8 Butterfly Points reward, and both
+            tap targets are preserved verbatim — only presentation
+            changed. */}
+        <Pressable
+          testID="home-moment-hero-feed"
+          onPress={() => goTo("/moments")}
+          accessibilityLabel="Open Share a Moment"
+          style={styles.momentHeroV2}
+        >
+          <Text style={[styles.momentHeroV2Title, { fontSize: 24 * scale, color: "#0D2A57" }]}>
+            Share a Moment
+          </Text>
+          <Text style={[styles.momentHeroV2Sub, { fontSize: 14 * scale, color: "#64748B" }]}>
+            A little moment worth sharing.
+          </Text>
           {heroIdx != null ? (
-            <Image source={HERO_IMAGES[heroIdx]} style={styles.momentHeroImg} resizeMode="cover" />
-          ) : null}
-          <LinearGradient
-            colors={["#FBEFD9", "#FBEFD9", "rgba(251,239,217,0.55)", "rgba(251,239,217,0)"]}
-            locations={[0, 0.42, 0.62, 0.88]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          <View style={styles.momentHeroContent}>
-            <Text style={styles.momentHeroBadge}>SHARE A MOMENT</Text>
-            <Pressable
-              testID="home-moment-hero-feed"
-              onPress={() => goTo("/moments")}
-              accessibilityLabel="Open Share a Moment"
-            >
-              <Text style={[styles.momentHeroTitle, { fontSize: 30 * scale }]}>
-                What&apos;s your{"\n"}moment today?
-              </Text>
-              <Text style={[styles.momentHeroSub, { fontSize: 15 * scale }]}>
-                Share a photo, a story, or something that made you smile today.
-              </Text>
-              <View style={styles.momentHeroPointsRow}>
-                <GeorgeButterflyMark size={18} />
-                <Text style={[styles.momentHeroPoints, { fontSize: 14 * scale }]}>
-                  +8 Butterfly Points every time you share
-                </Text>
-              </View>
-            </Pressable>
-
-            <View style={styles.momentHeroBtnRow}>
-              <Pressable
-                testID="home-moment-hero-share"
-                onPress={() => goTo("/moments/new")}
-                accessibilityLabel="Share a Moment"
-                style={({ pressed }) => [styles.momentHeroCta, { opacity: pressed ? 0.9 : 1 }]}
-              >
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale, marginLeft: 6 }}>
-                  Share a Moment
-                </Text>
-              </Pressable>
-              <Pressable
-                testID="home-moment-hero-see-all"
-                onPress={() => goTo("/moments")}
-                accessibilityLabel="See all moments"
-                style={styles.momentHeroSecondary}
-              >
-                <Text style={{ color: "#0F766E", fontWeight: "800", fontSize: 15 * scale }}>See moments</Text>
-                <Ionicons name="chevron-forward" size={16} color="#0F766E" />
-              </Pressable>
+            <View style={styles.momentHeroV2ImgWrap}>
+              <Image source={HERO_IMAGES[heroIdx]} style={styles.momentHeroV2Img} resizeMode="cover" />
             </View>
+          ) : (
+            <View style={[styles.momentHeroV2ImgWrap, { backgroundColor: "#F1F5F9" }]} />
+          )}
+          {/* Three-dot pager — purely visual indicator that the hero
+              photo rotates between sessions. Active dot reflects a
+              stable session index so it feels alive but doesn't
+              reposition under the member's finger. */}
+          <View style={styles.momentHeroV2Dots}>
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.momentHeroV2Dot,
+                  {
+                    backgroundColor: i === ((heroIdx ?? 0) % 3) ? "#0D2A57" : "#CBD5E1",
+                    width: i === ((heroIdx ?? 0) % 3) ? 18 : 8,
+                  },
+                ]}
+              />
+            ))}
           </View>
+          <Pressable
+            testID="home-moment-hero-share"
+            onPress={() => goTo("/moments/new")}
+            accessibilityLabel="Share a Moment"
+            style={({ pressed }) => [styles.momentHeroV2Cta, { opacity: pressed ? 0.9 : 1 }]}
+          >
+            <Ionicons name="add" size={22} color="#FFFFFF" />
+            <Text style={styles.momentHeroV2CtaTxt}>Share a Moment</Text>
+          </Pressable>
+          <Pressable
+            testID="home-moment-hero-see-all"
+            onPress={() => goTo("/moments")}
+            accessibilityLabel="See all moments"
+            style={styles.momentHeroV2Link}
+            hitSlop={6}
+          >
+            <Text style={styles.momentHeroV2LinkTxt}>See moments</Text>
+            <Ionicons name="arrow-forward" size={16} color="#0F766E" />
+          </Pressable>
+          {/* +8 Butterfly Points nudge — preserved from the previous
+              hero so members know every share earns points. Subtle so
+              it doesn't dominate the new, cleaner card. */}
+          <View style={styles.momentHeroV2Points}>
+            <GeorgeButterflyMark size={16} />
+            <Text style={styles.momentHeroV2PointsTxt}>+8 Butterfly Points every share</Text>
+          </View>
+        </Pressable>
+
+        {/* iter226 dedicated primary shortcuts — My Chats + FP Café as
+            a 2-up row, and Find Friends as a dedicated full-width card.
+            These are DUPLICATE entry points for already-existing
+            destinations (also present in the Explore carousel below)
+            so no button/behaviour/rotation is lost. */}
+        <View style={styles.primaryShortcutsRow}>
+          <Pressable
+            testID="home-primary-chats"
+            onPress={() => goTo("/chats")}
+            accessibilityLabel="My Chats"
+            style={({ pressed }) => [styles.primaryShortcutCard, { opacity: pressed ? 0.92 : 1 }]}
+          >
+            <View style={[styles.primaryShortcutIconWrap, { backgroundColor: "#EAF1FA" }]}>
+              <Ionicons name="chatbubbles" size={26} color="#3E6DA6" />
+              {chatsUnread > 0 ? (
+                <View style={styles.primaryShortcutBadge}>
+                  <Text style={styles.primaryShortcutBadgeTxt}>
+                    {chatsUnread > 9 ? "9+" : String(chatsUnread)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.primaryShortcutTitle} numberOfLines={1}>My Chats</Text>
+              <Text style={styles.primaryShortcutSub} numberOfLines={1}>Pick up a conversation.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+          </Pressable>
+          <Pressable
+            testID="home-primary-cafe"
+            onPress={() => goTo("/lounge")}
+            accessibilityLabel="FP Café"
+            style={({ pressed }) => [styles.primaryShortcutCard, { opacity: pressed ? 0.92 : 1 }]}
+          >
+            <View style={[styles.primaryShortcutIconWrap, { backgroundColor: "#DFF2ED" }]}>
+              <Ionicons name="cafe" size={26} color="#0F766E" />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.primaryShortcutTitle} numberOfLines={1}>FP Café</Text>
+              <Text style={styles.primaryShortcutSub} numberOfLines={1}>Pull up a chair.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+          </Pressable>
         </View>
+
+        <Pressable
+          testID="home-primary-find-friends"
+          onPress={() => goTo("/friends")}
+          accessibilityLabel="Find Friends"
+          style={({ pressed }) => [styles.findFriendsCard, { opacity: pressed ? 0.92 : 1 }]}
+        >
+          <View style={[styles.primaryShortcutIconWrap, { backgroundColor: "#E0EAFB" }]}>
+            <Ionicons name="people" size={26} color="#1E3A8A" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.primaryShortcutTitle} numberOfLines={1}>Find Friends</Text>
+            <Text style={styles.primaryShortcutSub} numberOfLines={2}>Meet people who share your interests.</Text>
+          </View>
+          <View style={styles.findFriendsCta}>
+            <Text style={styles.findFriendsCtaTxt}>Find Friends</Text>
+          </View>
+        </Pressable>
 
         {/* Explore FriendPlace — sits directly below the hero so the
             shortcuts are one of the first things a member sees. */}
@@ -1392,9 +1449,147 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", minHeight: 56 },
+  headerRow: { minHeight: 60, marginHorizontal: -16, marginTop: -4 },
   headerBrandCenter: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+
+  // iter226 (Garry, Oct 2026) — new Share-a-Moment hero + primary
+  // shortcuts styling. Visual-only; handlers/rotation untouched.
+  momentHeroV2: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 16,
+    gap: 10,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  momentHeroV2Title: { fontWeight: "900" },
+  momentHeroV2Sub: { fontWeight: "600", marginTop: -4 },
+  momentHeroV2ImgWrap: {
+    width: "100%",
+    aspectRatio: 16 / 10,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "#F1F5F9",
+    marginTop: 6,
+  },
+  momentHeroV2Img: { width: "100%", height: "100%" },
+  momentHeroV2Dots: {
+    flexDirection: "row",
+    gap: 6,
+    alignSelf: "center",
+    marginTop: 4,
+    alignItems: "center",
+  },
+  momentHeroV2Dot: { height: 8, borderRadius: 4 },
+  momentHeroV2Cta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#0D2A57",
+    minHeight: 54,
+    borderRadius: 999,
+    marginTop: 6,
+  },
+  momentHeroV2CtaTxt: { color: "#FFFFFF", fontWeight: "900", fontSize: 17 },
+  momentHeroV2Link: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 2,
+    paddingVertical: 6,
+  },
+  momentHeroV2LinkTxt: { color: "#0F766E", fontWeight: "800", fontSize: 15 },
+  momentHeroV2Points: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  momentHeroV2PointsTxt: { color: "#64748B", fontWeight: "700", fontSize: 12 },
+
+  primaryShortcutsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  primaryShortcutCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    minHeight: 76,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  primaryShortcutIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  primaryShortcutBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryShortcutBadgeTxt: { color: "#FFF", fontWeight: "900", fontSize: 11, lineHeight: 13 },
+  primaryShortcutTitle: { color: "#0D2A57", fontWeight: "900", fontSize: 17 },
+  primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 13, marginTop: 2 },
+
+  findFriendsCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 14,
+    minHeight: 84,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+    marginTop: 4,
+  },
+  findFriendsCta: {
+    backgroundColor: "#D5E8FA",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  findFriendsCtaTxt: { color: "#0D2A57", fontWeight: "900", fontSize: 14 },
+
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
   name: { fontWeight: "900" },

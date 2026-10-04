@@ -21,6 +21,7 @@ import { useToast } from "@/src/lib/toast";
 import SpeakButton from "@/src/components/SpeakButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import AppHeader from "@/src/components/AppHeader";
 
 /**
  * Share a Moment — feed screen.
@@ -112,29 +113,42 @@ export default function MomentsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceTertiary }}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* Header — matches Home's chrome (back arrow left, title centred,
-          composer button on the right). */}
-      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: c.border }]}>
+      {/* iter226 (Garry, Oct 2026 — visual uplift): warm shared brand
+          bar + centered "Share a Moment" title + big "+ Share" pill
+          on the right. Back arrow, "Share" composer button and
+          notifications bell all wired to their existing handlers. */}
+      <View style={{ paddingTop: insets.top + 4 }}>
+        <AppHeader
+          testID="moments-header"
+          showTagline={false}
+        />
+      </View>
+      <View style={styles.momentsTitleRow}>
         <Pressable
           testID="moments-back"
           onPress={() => (router.canGoBack() ? router.back() : router.push("/(tabs)/home" as any))}
           accessibilityLabel="Back"
-          style={styles.headerBtn}
+          style={styles.momentsTitleBack}
           hitSlop={10}
         >
-          <Ionicons name="chevron-back" size={26} color={c.onSurface} />
+          <Ionicons name="chevron-back" size={28} color={c.onSurface} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: c.onSurface, fontSize: 18 * scale }]}>
-          Share a Moment
-        </Text>
+        <View style={{ flex: 1, alignItems: "center" }} pointerEvents="none">
+          <Text style={[styles.momentsTitleTxt, { color: c.onSurface, fontSize: 24 * scale }]}>
+            Share a Moment
+          </Text>
+          <Text style={[styles.momentsTitleSub, { color: c.muted, fontSize: 13 * scale }]}>
+            Little moments. Real connections.
+          </Text>
+        </View>
         <Pressable
           testID="moments-new"
           onPress={() => router.push("/moments/new" as any)}
           accessibilityLabel="Share a moment"
-          style={[styles.headerBtn, { backgroundColor: c.brand, borderRadius: 999, paddingHorizontal: 14 }]}
+          style={[styles.momentsShareBtn, { backgroundColor: "#0D2A57" }]}
         >
-          <Ionicons name="add" size={20} color="#FFFFFF" />
-          <Text style={{ color: "#FFFFFF", fontWeight: "800", marginLeft: 4, fontSize: 14 * scale }}>Share</Text>
+          <Ionicons name="add" size={18} color="#FFFFFF" />
+          <Text style={{ color: "#FFFFFF", fontWeight: "900", marginLeft: 4, fontSize: 14 * scale }}>Share</Text>
         </Pressable>
       </View>
 
@@ -541,6 +555,30 @@ const styles = StyleSheet.create({
     height: 40,
   },
   headerTitle: { fontWeight: "900", letterSpacing: 0.2 },
+  // iter226 — "Share a Moment" title row below the shared app header.
+  momentsTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  momentsTitleBack: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -4,
+  },
+  momentsTitleTxt: { fontWeight: "900", letterSpacing: -0.3 },
+  momentsTitleSub: { fontWeight: "600", marginTop: 2 },
+  momentsShareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 999,
+  },
   scopeRow: {
     flexDirection: "row",
     gap: 8,
