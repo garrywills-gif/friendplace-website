@@ -9,6 +9,7 @@ import {
   Image,
   ActivityIndicator,
   useWindowDimensions,
+  Platform,
 } from "react-native";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -288,7 +289,17 @@ export default function MomentsScreen() {
 
       <ScrollView
         {...navScroll}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 48, gap: 14 }}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 6,
+          paddingBottom: 48,
+          gap: 14,
+          // iter226 followup (Garry, Oct 2026 — web layout cap):
+          // centre and cap the content width on desktop so moments
+          // cards don't stretch across a wide monitor. No-op on
+          // native where the ScrollView is already phone-wide.
+          ...(Platform.OS === "web" ? { maxWidth: 640, alignSelf: "center", width: "100%" } : {}),
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

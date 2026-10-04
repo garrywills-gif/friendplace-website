@@ -566,7 +566,23 @@ export default function Home() {
        */}
       <ScrollView
         {...navScroll}
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}
+        contentContainerStyle={[styles.scroll, {
+          paddingTop: insets.top + 12,
+          // iter226 followup (Garry, Oct 2026 — bottom nav fix): reserve
+          // enough bottom room that the last card / CTA on Home is
+          // always reachable, even on a small iPhone where the tab bar
+          // + home indicator is ~110px. ``sceneContainerStyle`` on the
+          // Tabs layout already pads for the bar, but adding a defensive
+          // 32px cushion here guarantees the final tap target never
+          // sits flush under the bar.
+          paddingBottom: insets.bottom + 32,
+          // iter226 followup — on web/desktop, centre the content and
+          // cap the maximum width so the hero + Moments cards don't
+          // stretch across a 27" monitor. On native (iOS/Android)
+          // these styles are a no-op because ``alignSelf: 'center'``
+          // on a flex child with no fixed parent width just centres.
+          ...(Platform.OS === "web" ? { maxWidth: 640, alignSelf: "center", width: "100%" } : {}),
+        }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1186,6 +1202,42 @@ export default function Home() {
           </Animated.View>
         )}
 
+        {/* Incoming welcome / birthday greetings — iter226 followup
+            (Garry, Oct 2026): moved UP so they sit alongside the
+            other For Me cards (flutters, friend requests, unread DMs)
+            BEFORE Butterfly Points and the Founders Wall. A copy
+            still lives in Notifications. Actions preserved verbatim:
+            Say thanks (one-tap) · Start chat · Later. Acting or Later
+            removes the card. */}
+        {greetings.map((n: any) => (
+          <View key={`greet-${n.id}`} testID={`home-greeting-${n.id}`} style={[styles.communityCard, styles.forMeCard, { marginTop: 8 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <View style={styles.forMeIconWrap}>
+                <Ionicons name={n.type === "birthday_wish" ? "gift" : "hand-left"} size={18} color="#065F46" />
+              </View>
+              <Text style={{ color: "#0D2A57", fontWeight: "900", fontSize: 16 * scale, flex: 1 }} numberOfLines={2}>{n.title}</Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <Pressable
+                testID={`home-greeting-thanks-${n.id}`}
+                onPress={() => greetingSayThanks(n)}
+                disabled={thanked[n.id] || n?.responded?.action === "thanks"}
+                pressRetentionOffset={0}
+                style={[styles.greetBtn, { backgroundColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#FFFFFF" : "#0F766E", borderColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#CBD5E1" : "#0F766E" }]}
+              >
+                <Text style={{ color: (thanked[n.id] || n?.responded?.action === "thanks") ? "#64748B" : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{(thanked[n.id] || n?.responded?.action === "thanks") ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
+              </Pressable>
+              <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#B7E4D5" }]}>
+                <Ionicons name="chatbubble-outline" size={15} color="#0F766E" />
+                <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
+              </Pressable>
+              <Pressable testID={`home-greeting-later-${n.id}`} onPress={() => greetingLater(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#CBD5E1" }]}>
+                <Text style={{ color: "#64748B", fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+
         <Pressable testID="home-points-card" onPress={() => setPointsInfoOpen(true)} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
             <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>BUTTERFLY POINTS</Text>
@@ -1249,38 +1301,9 @@ export default function Home() {
           </Pressable>
         ) : null}
 
-        {/* Incoming welcome / birthday greetings — prominent Home cards.
-            A copy also lives in Notifications. Actions: Say thanks (one-tap)
-            · Start chat · Later. Acting or Later removes the card.
-            iter226 — unified teal palette matching the For Me section. */}
-        {greetings.map((n: any) => (
-          <View key={`greet-${n.id}`} testID={`home-greeting-${n.id}`} style={[styles.communityCard, styles.forMeCard, { marginTop: 8 }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <View style={styles.forMeIconWrap}>
-                <Ionicons name={n.type === "birthday_wish" ? "gift" : "hand-left"} size={18} color="#065F46" />
-              </View>
-              <Text style={{ color: "#0D2A57", fontWeight: "900", fontSize: 16 * scale, flex: 1 }} numberOfLines={2}>{n.title}</Text>
-            </View>
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <Pressable
-                testID={`home-greeting-thanks-${n.id}`}
-                onPress={() => greetingSayThanks(n)}
-                disabled={thanked[n.id] || n?.responded?.action === "thanks"}
-                pressRetentionOffset={0}
-                style={[styles.greetBtn, { backgroundColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#FFFFFF" : "#0F766E", borderColor: (thanked[n.id] || n?.responded?.action === "thanks") ? "#CBD5E1" : "#0F766E" }]}
-              >
-                <Text style={{ color: (thanked[n.id] || n?.responded?.action === "thanks") ? "#64748B" : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{(thanked[n.id] || n?.responded?.action === "thanks") ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
-              </Pressable>
-              <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#B7E4D5" }]}>
-                <Ionicons name="chatbubble-outline" size={15} color="#0F766E" />
-                <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
-              </Pressable>
-              <Pressable testID={`home-greeting-later-${n.id}`} onPress={() => greetingLater(n)} style={[styles.greetBtn, { backgroundColor: "#FFFFFF", borderColor: "#CBD5E1" }]}>
-                <Text style={{ color: "#64748B", fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
+        {/* Incoming welcome / birthday greetings have moved UP into
+            the For Me section — see the block above the Butterfly
+            Points card. (iter226 followup, Garry Oct 2026.) */}
 
         {/* Prominent invite card — sits above-the-fold so growth is one tap away. */}
         <View style={{ marginTop: 4 }}>

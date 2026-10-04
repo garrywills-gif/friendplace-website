@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -10,6 +11,7 @@ import Header from "@/src/components/Header";
 import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 
 // AsyncStorage key for the Draw 1 vs Draw 3 preference. Persisted so
 // the choice sticks across sessions without cluttering server state.
@@ -25,6 +27,13 @@ export default function SolitaireHub() {
   const router = useRouter();
   const { c, scale } = useTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  // iter226 followup (Garry, Oct 2026 — bottom nav fix): auto-hide the
+  // global tab bar while scrolling the Solitaire menu, AND add enough
+  // bottom padding so the "Deal a new game" button is always reachable
+  // even when the bar is visible on small iPhones. Pre-fix the Play
+  // button could sit flush under the bar on a 5.4"/5.8" screen.
+  const navScroll = useNavHideScroll();
   const [stats, setStats] = useState<{ lifetime_wins: number; lifetime_played: number }>({ lifetime_wins: 0, lifetime_played: 0 });
   const [drawCount, setDrawCount] = useState<DrawCount>(3);
   const season = getCurrentSeason();
@@ -57,7 +66,10 @@ export default function SolitaireHub() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Solitaire" emoji="🦋" subtitle={`Klondike · Draw ${drawCount}`} backHref="/games" />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <ScrollView
+        {...navScroll}
+        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 140 }}
+      >
         {/* Seasonal hero */}
         <View style={[styles.hero, { backgroundColor: season.felt, borderColor: season.outline }]}>
           <View style={styles.heroBackWrap}>

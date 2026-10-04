@@ -84,6 +84,11 @@ export default function GlobalBottomNav() {
   // bar on the Play Together landing hub (/games/play) so members aren't
   // stranded there. (iter191 Wave 2)
   if (top === "games" && segments[1] === "play" && !!segments[2]) return null;
+  // iter226 followup (Garry, Oct 2026): hide during active Solitaire play
+  // too. On a small iPhone the tab bar was covering the bottom row of the
+  // tableau; the back button in the header is the dedicated exit so no
+  // member can get stranded.
+  if (top === "games" && segments[1] === "solitaire" && segments[2] === "play") return null;
 
   const bottomPad = Math.max(insets.bottom, 10);
 
