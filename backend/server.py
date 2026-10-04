@@ -6307,12 +6307,18 @@ async def trivia_stats(user_id: str):
 
 
 # ------------- Bingo -------------
+# Flat win reward — every completed Bingo (any difficulty, Daily, or
+# Community Event) awards the same 50 Butterfly Points. One-shot per
+# session: `bingo_complete` is idempotent and the DB update is guarded
+# so retries / reopens never award twice.
+BINGO_WIN_POINTS = 50
+
 # Difficulty config
 BINGO_DIFFICULTY_META = [
-    {"key": "easy",      "label": "Easy",      "cols": 4, "rows": 4, "cards": 1, "free_center": False, "pattern": "any_line",       "points": 5,  "auto_call_ms": 0,    "color": "#0F766E"},
-    {"key": "moderate",  "label": "Moderate",  "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "any_line",       "points": 10, "auto_call_ms": 0,    "color": "#2563EB"},
-    {"key": "hard",      "label": "Hard",      "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "two_lines_corners", "points": 20, "auto_call_ms": 4000, "color": "#B45309"},
-    {"key": "nightmare", "label": "Nightmare", "cols": 5, "rows": 5, "cards": 2, "free_center": True,  "pattern": "full_house",     "points": 35, "auto_call_ms": 3000, "color": "#7C3AED"},
+    {"key": "easy",      "label": "Easy",      "cols": 4, "rows": 4, "cards": 1, "free_center": False, "pattern": "any_line",       "points": BINGO_WIN_POINTS, "auto_call_ms": 0,    "color": "#0F766E"},
+    {"key": "moderate",  "label": "Moderate",  "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "any_line",       "points": BINGO_WIN_POINTS, "auto_call_ms": 0,    "color": "#2563EB"},
+    {"key": "hard",      "label": "Hard",      "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "two_lines_corners", "points": BINGO_WIN_POINTS, "auto_call_ms": 4000, "color": "#B45309"},
+    {"key": "nightmare", "label": "Nightmare", "cols": 5, "rows": 5, "cards": 2, "free_center": True,  "pattern": "full_house",     "points": BINGO_WIN_POINTS, "auto_call_ms": 3000, "color": "#7C3AED"},
 ]
 BINGO_DIFFICULTIES = [d["key"] for d in BINGO_DIFFICULTY_META]
 
@@ -6406,11 +6412,12 @@ def _bingo_initial_marked(cards: List[List[List[int]]]) -> List[List[List[bool]]
     return out
 
 
-# Community bingo events — seeded sample data
+# Community bingo events — seeded sample data. All events share the
+# flat BINGO_WIN_POINTS reward so there is no "better payout" event.
 COMMUNITY_BINGO_EVENTS = [
-    {"id": "evt-weekly-friday", "title": "Friday Night Bingo", "subtitle": "Async weekly comp · play any time", "difficulty": "moderate", "starts_iso": "2026-06-12T19:00:00+10:00", "ends_iso":   "2026-06-15T23:59:59+10:00", "seed": 99001, "points_on_complete": 25},
-    {"id": "evt-weekend-warmup", "title": "Weekend Warm-Up",   "subtitle": "Easy difficulty · open all weekend", "difficulty": "easy",     "starts_iso": "2026-06-13T08:00:00+10:00", "ends_iso":   "2026-06-14T23:59:59+10:00", "seed": 99002, "points_on_complete": 12},
-    {"id": "evt-nightmare-challenge", "title": "Nightmare Challenge", "subtitle": "For brave butterflies only", "difficulty": "nightmare","starts_iso": "2026-06-15T18:00:00+10:00","ends_iso":   "2026-06-21T23:59:59+10:00", "seed": 99003, "points_on_complete": 50},
+    {"id": "evt-weekly-friday", "title": "Friday Night Bingo", "subtitle": "Async weekly comp · play any time", "difficulty": "moderate", "starts_iso": "2026-06-12T19:00:00+10:00", "ends_iso":   "2026-06-15T23:59:59+10:00", "seed": 99001, "points_on_complete": BINGO_WIN_POINTS},
+    {"id": "evt-weekend-warmup", "title": "Weekend Warm-Up",   "subtitle": "Easy difficulty · open all weekend", "difficulty": "easy",     "starts_iso": "2026-06-13T08:00:00+10:00", "ends_iso":   "2026-06-14T23:59:59+10:00", "seed": 99002, "points_on_complete": BINGO_WIN_POINTS},
+    {"id": "evt-nightmare-challenge", "title": "Nightmare Challenge", "subtitle": "For brave butterflies only", "difficulty": "nightmare","starts_iso": "2026-06-15T18:00:00+10:00","ends_iso":   "2026-06-21T23:59:59+10:00", "seed": 99003, "points_on_complete": BINGO_WIN_POINTS},
 ]
 
 
@@ -6432,7 +6439,7 @@ async def bingo_daily():
     rnd = random.Random(_bingo_seed_from_date())
     meta = _bingo_meta("moderate")
     cards = [_bingo_card(meta["cols"], meta["rows"], meta["free_center"], rnd) for _ in range(meta["cards"])]
-    return {"date": datetime.now(timezone.utc).date().isoformat(), "difficulty": "moderate", "points_on_complete": 15, "sample_card": cards[0]}
+    return {"date": datetime.now(timezone.utc).date().isoformat(), "difficulty": "moderate", "points_on_complete": BINGO_WIN_POINTS, "sample_card": cards[0]}
 
 
 @api.get("/games/bingo/community-events")
@@ -6540,8 +6547,20 @@ async def bingo_complete(user_id: str, session_id: str, me: dict = Depends(owner
     doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id})
     if not doc:
         raise HTTPException(404, "Session not found")
+    # Already-completed short-circuit — surface the already-awarded
+    # points without re-crediting. Keeps retries / reopens idempotent.
     if doc.get("completed"):
-        return {**{k: v for k, v in doc.items() if k != "_id"}, "already_completed": True}
+        return {
+            "session_id": session_id,
+            "difficulty": doc.get("difficulty"),
+            "points_earned": int(doc.get("points_earned") or 0),
+            "duration_seconds": int(doc.get("duration_seconds") or 0),
+            "calls_used": int(doc.get("calls_used") or doc.get("call_index") or 0),
+            "granted": [],
+            "is_daily": bool(doc.get("is_daily")),
+            "event_id": doc.get("event_id"),
+            "already_completed": True,
+        }
     meta = _bingo_meta(doc["difficulty"])
     valid = _bingo_check_win(doc["cards"], doc["marked"], meta["pattern"], meta["free_center"])
     if not valid:
@@ -6551,15 +6570,38 @@ async def bingo_complete(user_id: str, session_id: str, me: dict = Depends(owner
         duration = max(1, int((datetime.now(timezone.utc) - start_dt.replace(tzinfo=start_dt.tzinfo or timezone.utc)).total_seconds()))
     except Exception:
         duration = 0
-    event = _community_event(doc.get("event_id") or "") if doc.get("event_id") else None
-    base_points = int(event["points_on_complete"]) if event else (15 if doc.get("is_daily") else int(meta["points"]))
-    await db.bingo_sessions.update_one({"id": session_id}, {"$set": {
-        "completed": True, "completed_at": now_iso(), "points_earned": base_points,
-        "duration_seconds": duration, "calls_used": doc.get("call_index", 0),
-    }})
+    # Flat 50-point win across every mode (solo difficulties, Daily
+    # Bingo, Community Events). No per-mode variation.
+    base_points = BINGO_WIN_POINTS
+    # Atomic guard: only mark completed if we're the first to do so.
+    # Prevents double-award on concurrent /complete calls (e.g. retry
+    # taps, duplicate network submits).
+    marked = await db.bingo_sessions.update_one(
+        {"id": session_id, "completed": {"$ne": True}},
+        {"$set": {
+            "completed": True, "completed_at": now_iso(), "points_earned": base_points,
+            "duration_seconds": duration, "calls_used": doc.get("call_index", 0),
+        }},
+    )
+    if marked.modified_count == 0:
+        # Lost the race — someone else completed in the meantime.
+        # Re-read and return the authoritative already-awarded state.
+        fresh = await db.bingo_sessions.find_one({"id": session_id}, {"_id": 0}) or {}
+        return {
+            "session_id": session_id,
+            "difficulty": fresh.get("difficulty"),
+            "points_earned": int(fresh.get("points_earned") or 0),
+            "duration_seconds": int(fresh.get("duration_seconds") or 0),
+            "calls_used": int(fresh.get("calls_used") or 0),
+            "granted": [],
+            "is_daily": bool(fresh.get("is_daily")),
+            "event_id": fresh.get("event_id"),
+            "already_completed": True,
+        }
     await award_points(user_id, base_points)
     granted: List[str] = []
     try:
+        event = _community_event(doc.get("event_id") or "") if doc.get("event_id") else None
         label = (event["title"] if event else (f"Daily Bingo" if doc.get("is_daily") else f"Bingo · {doc['difficulty'].title()}"))
         log = await log_game_completion(user_id, GameCompletionBody(
             game_type="bingo",

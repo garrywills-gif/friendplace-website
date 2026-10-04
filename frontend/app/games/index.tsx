@@ -21,7 +21,7 @@ import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark
  *      hero at the top of the hub.
  *   2. Daily Challenges: Puzzle · Word Search · Trivia
  *   3. All Games (with schedule chips):
- *      Solitaire (Signature), Bingo (Tue/Thu/Sun 6pm AEST),
+ *      Solitaire (Signature), Bingo (play any time · 50 pts per win),
  *      Crossword, Sudoku, Word Search, Puzzle Centre, Trivia,
  *      Memory Match (Weekly)
  *   Spot the Difference has been retired.
@@ -41,7 +41,7 @@ type GameTile = {
 
 const GAMES: GameTile[] = [
   { key: "solitaire",  title: "Solitaire",          sub: "Signature · Klondike Draw 3", icon: "sparkles",     tint: "#7C3AED", route: "/games/solitaire",  ready: true, schedule: "signature" },
-  { key: "bingo",      title: "Bingo",              sub: "75-ball · live events",       icon: "apps",         tint: "#2E9EE2", route: "/games/bingo",      ready: true, schedule: { label: "Tue/Thu/Sun 6pm AEST" } },
+  { key: "bingo",      title: "Bingo",              sub: "75-ball · 50 pts per win",    icon: "apps",         tint: "#2E9EE2", route: "/games/bingo",      ready: true },
   { key: "crossword",  title: "Crossword",          sub: "Daily + 4 levels",            icon: "newspaper",    tint: "#0E7490", route: "/games/crossword",  ready: true, schedule: "daily" },
   { key: "sudoku",     title: "Sudoku",             sub: "4 levels · pencil notes",     icon: "grid-outline", tint: "#1E3A7F", route: "/games/sudoku",     ready: true, schedule: "daily" },
   { key: "wordsearch", title: "Word Search",        sub: "20 themes · 4 levels",        icon: "search",       tint: "#B45309", route: "/games/wordsearch", ready: true, schedule: "daily" },
@@ -50,7 +50,7 @@ const GAMES: GameTile[] = [
   { key: "memory",     title: "Memory Match",       sub: "12 themes · 4 levels",        icon: "square",       tint: "#0891B2", route: "/games/memory",     ready: true, schedule: "weekly" },
 ];
 
-const INSTRUCTIONS = "Welcome to the Games Hub. Solitaire is your signature game — play any time. Daily challenges give a little Butterfly Points bonus if you'd like one. Bingo runs live on Tuesday, Thursday and Sunday at six PM. Every game earns Butterfly Points.";
+const INSTRUCTIONS = "Welcome to the Games Hub. Solitaire is your signature game — play any time. Daily challenges give a little Butterfly Points bonus if you'd like one. Bingo rewards fifty points for every win. Every game earns Butterfly Points.";
 
 function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: string }) {
   if (!sched) return null;
