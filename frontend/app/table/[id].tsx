@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView,
   Platform, Pressable, Image, ActivityIndicator, Modal, Linking, Keyboard, ScrollView,
+  AppState,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -91,12 +92,41 @@ export default function TableChat() {
 
   useEffect(() => {
     if (!id || !user) return;
+    let closed = false;             // set when the screen unmounts — stops reconnects
+    let reconnectTimer: any = null;
+    let backoff = 1000;             // start at 1s, double on each failure (cap 15s)
+    const seenIds = new Set<string>(); // de-dupe across refetches + socket pushes
+
+    // Hoist the message loader so both the initial fetch and every WS
+    // (re)open can call it — the WS was previously only loading history
+    // on first mount, so any message sent while the socket was dead
+    // (iOS backgrounding, network blip, server restart) never appeared
+    // on this device until the user manually left and rejoined.
+    // iter232 (Neo, Oct 2026 — RED #2): FP Café / Xanda's-table
+    // regression where messages sent on the iPad didn't appear on the
+    // phone — the phone's socket had quietly died and nothing was
+    // refetching history on reconnect.
+    const loadMessages = async () => {
+      try {
+        const msgs: Msg[] = await api.tableMessages(id);
+        const merged: Msg[] = [];
+        for (const m of msgs) {
+          if (!seenIds.has(m.id)) { seenIds.add(m.id); merged.push(m); }
+        }
+        setMessages((prev) => {
+          // Merge server history with any newer local-only system
+          // chips (join/leave) we may have added since.
+          const sysOnly = prev.filter((p) => p.system && !seenIds.has(p.id));
+          return [...merged, ...sysOnly];
+        });
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 60);
+      } catch { /* transient — keep current state */ }
+    };
+
     (async () => {
       try {
         const t = await api.getTable(id);
         setTable(t); setSeated(t.seated_users || []);
-        const msgs = await api.tableMessages(id);
-        setMessages(msgs);
       } catch {
         // Table was closed/deleted by its host, or never existed. Show a
         // friendly "this table has closed" state instead of a blank screen
@@ -104,55 +134,112 @@ export default function TableChat() {
         setNotFound(true);
         return;
       }
+      await loadMessages();
     })();
-    const ws = new WebSocket(wsUrl(`/ws/table/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
-    wsRef.current = ws;
-    // Authoritative seat reconcile — the presence events give instant
-    // feedback, but join/leave/reconnect/background can desync the count
-    // across devices (real-device fix #5). Re-pull the server's seated list
-    // on (re)connect and on a light interval so every device converges.
-    const reconcileSeats = async () => {
-      try {
-        const t = await api.getTable(id);
-        setSeated(t.seated_users || []);
-        setTable((prev: any) => (prev ? { ...prev, ...t } : t));
-      } catch { /* transient — keep current state */ }
-    };
-    ws.onopen = () => { reconcileSeats(); };
-    const seatTimer = setInterval(reconcileSeats, 15000);
-    ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === "message") {
-        // De-dupe by message id — reconnect/refetch/double-broadcast must
-        // never render the same message twice (real-device fix #6).
-        setMessages((m) => (data.message && m.some((x) => x.id === data.message.id) ? m : [...m, data.message]));
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-      } else if (data.type === "presence") {
-        setSeated((s) => {
-          if (!data.user) return s;
-          if (data.event === "join") return s.find((u: any) => u.id === data.user.id) ? s : [...s, data.user];
-          return s.filter((u: any) => u.id !== data.user.id);
-        });
-        // Insert a local-only "system message" so the chat feed shows a
-        // gentle "Garry took a seat" / "Garry left the table" chip — the
-        // same social cue you'd get sitting at a real cafe. The backend
-        // isn't persisting these, so we key on user id + event + a coarse
-        // 5s bucket to dedupe against duplicate WS broadcasts.
-        if (data.user && (data.event === "join" || data.event === "leave")) {
-          const first = data.user.first_name || data.user.name || "Someone";
-          const bucket = Math.floor(Date.now() / 5000);
-          const sysId = `sys:${data.user.id}:${data.event}:${bucket}`;
-          const line = data.event === "join"
-            ? `🪑 ${first} took a seat`
-            : `👋 ${first} left the table`;
-          setMessages((m) => (m.some((x) => x.id === sysId) ? m : [...m, { id: sysId, user_id: "system", system: true, text: line } as Msg]));
-          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+
+    let seatTimer: any = null;
+    const openSocket = () => {
+      if (closed) return;
+      const ws = new WebSocket(wsUrl(`/ws/table/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
+      wsRef.current = ws;
+      // Authoritative seat reconcile — the presence events give instant
+      // feedback, but join/leave/reconnect/background can desync the count
+      // across devices (real-device fix #5). Re-pull the server's seated list
+      // on (re)connect and on a light interval so every device converges.
+      const reconcileSeats = async () => {
+        try {
+          const t = await api.getTable(id);
+          setSeated(t.seated_users || []);
+          setTable((prev: any) => (prev ? { ...prev, ...t } : t));
+        } catch { /* transient — keep current state */ }
+      };
+      ws.onopen = () => {
+        backoff = 1000;              // reset backoff on successful (re)connect
+        reconcileSeats();
+        // CRITICAL: refetch history on every (re)open so messages sent
+        // while this device's socket was dead are never missed.
+        loadMessages();
+      };
+      if (seatTimer) clearInterval(seatTimer);
+      seatTimer = setInterval(reconcileSeats, 15000);
+      ws.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "message") {
+          // De-dupe by message id — reconnect/refetch/double-broadcast must
+          // never render the same message twice (real-device fix #6).
+          if (data.message && !seenIds.has(data.message.id)) {
+            seenIds.add(data.message.id);
+            setMessages((m) => [...m, data.message]);
+            setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+          }
+        } else if (data.type === "presence") {
+          setSeated((s) => {
+            if (!data.user) return s;
+            if (data.event === "join") return s.find((u: any) => u.id === data.user.id) ? s : [...s, data.user];
+            return s.filter((u: any) => u.id !== data.user.id);
+          });
+          // Insert a local-only "system message" so the chat feed shows a
+          // gentle "Garry took a seat" / "Garry left the table" chip — the
+          // same social cue you'd get sitting at a real cafe. The backend
+          // isn't persisting these, so we key on user id + event + a coarse
+          // 5s bucket to dedupe against duplicate WS broadcasts.
+          if (data.user && (data.event === "join" || data.event === "leave")) {
+            const first = data.user.first_name || data.user.name || "Someone";
+            const bucket = Math.floor(Date.now() / 5000);
+            const sysId = `sys:${data.user.id}:${data.event}:${bucket}`;
+            const line = data.event === "join"
+              ? `🪑 ${first} took a seat`
+              : `👋 ${first} left the table`;
+            if (!seenIds.has(sysId)) {
+              seenIds.add(sysId);
+              setMessages((m) => [...m, { id: sysId, user_id: "system", system: true, text: line } as Msg]);
+              setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+            }
+          }
+        } else if (data.type === "error") {
+          show(data.message || "Send failed");
         }
-      } else if (data.type === "error") {
-        show(data.message || "Send failed");
-      }
+      };
+      ws.onclose = () => {
+        if (closed) return;
+        // Exponential-backoff reconnect — covers iOS background kills,
+        // Wi-Fi drops, server restarts. loadMessages() runs again on the
+        // next onopen so no message is permanently missed.
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          backoff = Math.min(backoff * 2, 15000);
+          openSocket();
+        }, backoff);
+      };
+      ws.onerror = () => { try { ws.close(); } catch { /* noop */ } };
     };
-    return () => { clearInterval(seatTimer); ws.close(); if (user && id) api.leaveTable(id, user.id).catch(() => {}); };
+    openSocket();
+
+    // iter232 (Neo, Oct 2026 — RED #2): iOS kills the WS when the app
+    // backgrounds; `onclose` may not fire until the user foregrounds,
+    // so proactively kick a reconnect + history refetch the moment the
+    // app becomes active again. Covers "I opened my phone and nothing
+    // new had come through from the iPad."
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        openSocket();
+      } else {
+        // Socket still OPEN — just catch up on anything we might have
+        // missed while backgrounded.
+        loadMessages();
+      }
+    });
+
+    return () => {
+      closed = true;
+      appStateSub.remove();
+      if (seatTimer) clearInterval(seatTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { wsRef.current?.close(); } catch { /* noop */ }
+      if (user && id) api.leaveTable(id, user.id).catch(() => {});
+    };
   }, [id, user?.id]);
 
   const send = () => {
@@ -368,7 +455,7 @@ export default function TableChat() {
                   <AvatarBubble value={inv.avatar} size={34} fallback="🙂" />
                   <Text numberOfLines={1} style={[styles.inviteeName, { color: c.onSurface, fontSize: 12 * scale }]}>{inv.first_name}</Text>
                   <View style={[styles.inviteePill, { backgroundColor: pill.bg }]}>
-                    <Text style={{ color: pill.fg, fontWeight: "800", fontSize: 10.5 * scale }}>{pill.label}</Text>
+                    <Text numberOfLines={1} style={{ color: pill.fg, fontWeight: "800", fontSize: 10.5 * scale }}>{pill.label}</Text>
                   </View>
                 </View>
               );
@@ -708,9 +795,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   inviteeTitle: { fontWeight: "800", letterSpacing: 0.6, fontSize: 11, marginBottom: 8 },
-  inviteeChip: { alignItems: "center", width: 64, gap: 3 },
-  inviteeName: { fontWeight: "700", maxWidth: 60, textAlign: "center" },
-  inviteePill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  inviteeChip: { alignItems: "center", width: 76, gap: 3 },
+  inviteeName: { fontWeight: "700", maxWidth: 72, textAlign: "center" },
+  inviteePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, alignSelf: "center" },
   // System messages ("🪑 Garry took a seat") — centred pill so they
   // read as ambient presence chatter rather than a message.
   systemRow: {

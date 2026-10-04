@@ -63,10 +63,20 @@ export default function NewThisWeek() {
     try {
       await api.greet({ from_id: user.id, to_id: m.id, kind: "welcome" });
       setWelcomed((w) => ({ ...w, [m.id]: true }));
+      // iter232 (Neo, Oct 2026 — RED #4): once a welcome is sent, drop
+      // the row immediately so the list visibly shrinks and the Home
+      // "N new neighbours" count that drives this screen matches
+      // reality. Server /community/today already filters greeted
+      // members out, so the next focus-refresh is consistent too.
+      setMembers((xs) => xs.filter((x) => x.id !== m.id));
       show("Welcome sent 👋");
     } catch (e: any) {
       const raw = String(e?.message || "");
-      if (/already/i.test(raw)) { setWelcomed((w) => ({ ...w, [m.id]: true })); show("Already welcomed 💛"); }
+      if (/already/i.test(raw)) {
+        setWelcomed((w) => ({ ...w, [m.id]: true }));
+        setMembers((xs) => xs.filter((x) => x.id !== m.id));
+        show("Already welcomed 💛");
+      }
       else show("Couldn't send just now — please try again.");
     }
   };
@@ -74,6 +84,17 @@ export default function NewThisWeek() {
   const load = useCallback(async () => {
     if (!user) return;
     try {
+      // Hydrate the server-backed welcomed set FIRST so a focus-refresh
+      // never flashes the "👋 Welcome" button for someone we already
+      // waved to today (iter232, Neo — RED #4). The /community/today
+      // response already strips greeted members, but hydrating the
+      // in-memory set keeps the state consistent for any stale rows.
+      try {
+        const sent: any = await api.greetingsSentToday(user.id);
+        const map: Record<string, boolean> = {};
+        ((sent?.welcome as string[]) || []).forEach((id) => { if (id) map[id] = true; });
+        setWelcomed(map);
+      } catch { /* non-fatal */ }
       const c2: any = await api.communityToday(user.id);
       setMembers(((c2?.new_members as NewMember[]) || []).filter((u) => u.id !== user.id));
     } catch {

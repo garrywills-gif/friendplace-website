@@ -120,21 +120,18 @@ export function GeorgeCompanionChat({ onClose }: Props) {
       if (s.navigate_to) {
         const resolved = resolveGeorgeNavigate(s.navigate_to);
         if (resolved) {
-          // Show a brief "Opening {label}…" fuse so the member can read
-          // George's final message before the screen changes (Garry, Sep 2026).
-          //
-          // iter225 (Garry, Oct 2026 — RED/PERF #2): once the fuse
-          // completes we MUST navigate without any extra awaits — a
-          // previous order of ``markGeorgeLedNavigation → onClose →
-          // router.push`` could stall on the companion-chat close
-          // animation on real device. Navigate FIRST, then let
-          // ``onClose`` run on the next tick after routing is already
-          // in flight. No API/async work after the handoff is confirmed.
+          // iter232 (Neo, Oct 2026 — RED #2 recurrence): navigate
+          // IMMEDIATELY, don't gate it behind the fuse timer. The old
+          // flow ran router.push inside the fuse's onDone, which
+          // meant any early Close / unmount / "ask again" cancelled
+          // the handoff and the member saw "it promised to take me
+          // and never did." Now the push happens up-front; the fuse
+          // is a short cosmetic cue only, and onClose runs after it.
+          try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
+          try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
           setNavFuse({
             label: resolved.label,
             run: () => {
-              try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
-              try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
               setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
             },
           });

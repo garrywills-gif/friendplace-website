@@ -70,10 +70,16 @@ export default function PlayTogetherHub() {
   // lock. Mirrors the Decline cleanup path (declined-screen → reset=1)
   // for the case where the sender never had the game screen mounted.
   // Non-destructive if there's nothing to clean up.
+  //
+  // iter232 (Neo, Oct 2026 — RED #3 recurrence): also surface the
+  // reason as a toast so the sender actually sees "X isn't ready to
+  // play right now" — previously silent when they weren't on the
+  // detail screen, which read as "snooze did nothing".
   useInboxEvent("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || n.type !== "game_end") return;
     loadMine();
+    if (n.title) show(String(n.title));
     if (preFriend || friend || pickerFor || inviting) {
       setPreFriend(null);
       setPickerFor(null);
@@ -134,6 +140,11 @@ export default function PlayTogetherHub() {
       setPickerFor(null);
       router.push(`/games/play/${s.id}` as any);
     } catch (e: any) {
+      // iter232 (Neo, Oct 2026 — RED #3 recurrence): close the picker
+      // so the toast isn't hidden behind the modal. Previously the
+      // error silently stacked under the sheet and the user read it
+      // as "nothing happened".
+      setPickerFor(null);
       show(e?.message || "No one's free to play right now — try again shortly.");
     } finally { setMatching(false); }
   }, [matching, router, show]);

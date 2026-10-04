@@ -56,13 +56,15 @@ const CARD_SUB_INK = "#63697A";
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
-  // iter226 followup (Garry, Oct 2026): narrow-phone stacking for the
-  // "My Chats + FP Café" 2-up row so "My C…" / "FP C…" never gets
-  // ellipsised. Threshold set empirically: 400px covers every iPhone
-  // mini / SE / 12/13/14 width. Wider phones keep the side-by-side
-  // layout the mockup shows.
+  // iter232 (Neo, Oct 2026): keep My Chats + FP Café SIDE BY SIDE on
+  // every phone size that comfortably fits both labels. Stack only on
+  // the very narrowest devices (≤360px, e.g. iPhone SE 1st gen) or
+  // when the member has bumped accessibility text up far enough that
+  // "My Chats" / "FP Café" would start to ellipsise. The subtitle has
+  // ``adjustsFontSizeToFit`` + ``numberOfLines=1`` so it never dictates
+  // the stack decision — only the title does.
   const { width: _winW } = useWindowDimensions();
-  const stackShortcuts = _winW < 400;
+  const stackShortcuts = _winW < 360 * Math.max(1, scale);
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
@@ -770,9 +772,11 @@ export default function Home() {
             <Text style={styles.primaryShortcutTitle} numberOfLines={1}>Find Friends</Text>
             <Text style={styles.primaryShortcutSub} numberOfLines={2}>Meet people who share your interests.</Text>
           </View>
-          <View style={styles.findFriendsCta}>
-            <Text style={styles.findFriendsCtaTxt}>Find Friends</Text>
-          </View>
+          {/* iter232 (Neo, Oct 2026 — RED #6): the whole card already
+              navigates to /friends, so the repeated inner "Find Friends"
+              pill crowded out the subtitle. A single chevron keeps the
+              tap affordance without hogging space. */}
+          <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
         </Pressable>
 
         {/* Explore FriendPlace — sits directly below the hero so the
@@ -787,7 +791,7 @@ export default function Home() {
             snapToInterval={166}
             snapToAlignment="start"
           >
-            {tiles.map((t) => {
+            {tiles.filter((t) => !["chats", "lounge", "friends"].includes(t.key)).map((t) => {
               const tint = CARD_TINT[t.key] ?? { bg: t.bg, icon: t.ink };
               return (
               <Pressable
@@ -1571,12 +1575,13 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     minHeight: 76,
     shadowColor: "#0D2A57",
     shadowOpacity: 0.04,
@@ -1585,9 +1590,9 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   primaryShortcutIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -1608,14 +1613,16 @@ const styles = StyleSheet.create({
   primaryShortcutTitle: {
     color: "#0D2A57",
     fontWeight: "900",
-    fontSize: 17,
-    // iter226 followup: let the title shrink a touch if the device is
-    // the very edge of our narrow-threshold check, so "My Chats" and
-    // "FP Café" never end up as "My C…" / "FP C…" even on an iPhone
-    // SE in portrait.
+    fontSize: 16,
+    // iter232 (Neo, Oct 2026): slightly smaller base so "My Chats" /
+    // "FP Café" always fit on a 390px side-by-side layout without the
+    // adjustsFontSizeToFit kicking in. Combined with the tighter card
+    // padding (10px horiz instead of 12) and 40px icon wrap (down
+    // from 48px), both labels sit comfortably on every iPhone from
+    // 12 mini through 15 Pro Max in the 2-up row.
     includeFontPadding: false,
   },
-  primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 13, marginTop: 2 },
+  primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 12.5, marginTop: 2 },
 
   findFriendsCard: {
     flexDirection: "row",

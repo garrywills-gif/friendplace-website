@@ -23,10 +23,14 @@ import { Animated, Easing, StyleSheet, Text, View, Platform } from 'react-native
 import { GeorgeButterflyMark } from '@/src/components/george/GeorgeButterflyMark';
 import { useTheme } from '@/src/lib/theme';
 
-// iter211: 8 seconds. Long enough to comfortably finish reading George's
-// final message AND the "Opening X…" line without the handoff feeling
-// stuck. Shorter was flagged as "still too quick to read" on real device.
-const DURATION_MS = 8000;
+// iter232 (Neo, Oct 2026 — RED #2 recurrence): 8 seconds was flagged
+// as "stalls" on real device — long enough that members tapped away,
+// closed the chat, or asked again, which cancelled the handoff
+// mid-flight. Dropped to 1.8s — plenty to read "Opening X…" and the
+// butterfly fuse, without reading as a hang. The chat parent also
+// now fires the pending nav from its Close button so an impatient
+// tap never cancels the actual navigation.
+const DURATION_MS = 1800;
 
 export default function GeorgeNavFuse({
   label,

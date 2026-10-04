@@ -159,9 +159,36 @@ export default function PlayRoom() {
                   fresh friend picker instead of silently re-trying the
                   friend who just declined. Decline / Snooze / Later all
                   reach this same declined status path, so one fix
-                  covers all three. */}
-              <Pressable testID="play-invite-someone-else" onPress={() => router.replace({ pathname: "/games/play", params: { reset: "1" } } as any)} style={[styles.primary, { backgroundColor: c.brand }]}>
-                <Text style={styles.primaryTxt}>Invite someone else</Text>
+                  covers all three.
+
+                  iter232 (Neo, Oct 2026 — RED #3 recurrence): added a
+                  direct "Find someone to play" shortcut here so the
+                  user doesn't have to go back to the menu, tap the
+                  Invite CTA, pick a game, and tap again — three steps
+                  that read as "nothing happens" after a snooze. One
+                  tap on this screen now opens the matchmaking flow for
+                  the same game they already picked. */}
+              <Pressable
+                testID="play-declined-find-someone"
+                disabled={busy}
+                onPress={() => act(async () => {
+                  try {
+                    const fresh = await api.playFindMatch(String(game));
+                    router.replace(`/games/play/${fresh.id}` as any);
+                    return null;
+                  } catch (e: any) {
+                    // Surface the real reason, then step back to the menu
+                    // where the user can try a different game.
+                    showErr(e?.message || "No one's free to play right now — try again shortly.");
+                    throw e;
+                  }
+                })}
+                style={[styles.primary, { backgroundColor: c.brand, opacity: busy ? 0.7 : 1 }]}
+              >
+                <Text style={styles.primaryTxt}>Find someone to play</Text>
+              </Pressable>
+              <Pressable testID="play-invite-someone-else" onPress={() => router.replace({ pathname: "/games/play", params: { reset: "1" } } as any)} style={[styles.secondary, { borderColor: c.border }]}>
+                <Text style={[styles.secondaryTxt, { color: c.muted }]}>Invite someone else</Text>
               </Pressable>
               <Pressable onPress={() => router.replace({ pathname: "/games/play", params: { reset: "1" } } as any)} style={[styles.secondary, { borderColor: c.border }]}>
                 <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>

@@ -360,6 +360,37 @@ def register(api, ctx: Dict[str, Any]) -> None:
             ephemeral=ephemeral,
         )
 
+    async def _cancel_my_stale_invites(host_id: str, reason: str = "withdrew") -> int:
+        """iter232 (Neo, Oct 2026 — RED #3 recurrence): auto-cancel any
+        still-``invited`` sessions this member is the host of before they
+        send a new invite / find-match. Without this, a snooze or decline
+        that didn't reach the sender (missed socket, backgrounded app)
+        leaves a ghost "waiting to accept" session that collides with the
+        new attempt — the user sees "nothing" when they try again.
+
+        Every cancelled session fires a ``game_end`` to its guest so stale
+        companion nudges / open game rooms close cleanly. Returns the
+        count of sessions cancelled.
+        """
+        stale = await db.play_sessions.find(
+            {"host_id": host_id, "status": "invited"}, {"_id": 0}
+        ).to_list(20)
+        cancelled = 0
+        for s in stale:
+            s["status"] = "cancelled"
+            s["updated_at"] = now_iso()
+            await db.play_sessions.replace_one({"id": s["id"]}, s)
+            try:
+                host_name = (s.get("players") or [{}])[0].get("name") or "A friend"
+                await _notify(
+                    s, s["guest_id"], "game_end",
+                    f"{host_name} is looking for another player — this invite was withdrawn",
+                )
+            except Exception as e:  # pragma: no cover
+                logging.warning("stale-invite notify failed: %s", e)
+            cancelled += 1
+        return cancelled
+
     async def _finish_and_award(sess: Dict[str, Any]) -> None:
         """Mark finished, compute winner, and award complete/win points."""
         players = sess["players"]
@@ -395,6 +426,11 @@ def register(api, ctx: Dict[str, Any]) -> None:
             raise HTTPException(400, "Unknown game")
         if body.friend_id == me["id"]:
             raise HTTPException(400, "Pick a friend to play with")
+        # iter232 (Neo, Oct 2026 — RED #3 recurrence): a prior invite that
+        # was snoozed/declined but never cleared on the sender's device
+        # must not block or shadow this new attempt. Withdraw it first so
+        # the new session is the only one the sender is holding.
+        await _cancel_my_stale_invites(me["id"])
         my = await db.users.find_one({"id": me["id"]}, {"_id": 0, "friends": 1, "first_name": 1})
         if body.friend_id not in (my.get("friends") or []):
             raise HTTPException(400, "You can only play with your friends")
@@ -439,6 +475,10 @@ def register(api, ctx: Dict[str, Any]) -> None:
         """
         if body.game not in GAMES:
             raise HTTPException(400, "Unknown game")
+        # iter232 (Neo, Oct 2026 — RED #3 recurrence): same guard as
+        # /play/invite — withdraw any still-pending invite this member
+        # was holding so matchmaking starts clean.
+        await _cancel_my_stale_invites(me["id"])
         my = await db.users.find_one({"id": me["id"]}, {"_id": 0}) or {}
         my_friends = set(my.get("friends") or [])
         my_blocked = set(my.get("blocked") or [])
