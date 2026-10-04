@@ -56,15 +56,13 @@ const CARD_SUB_INK = "#63697A";
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
-  // iter232 (Neo, Oct 2026): keep My Chats + FP Café SIDE BY SIDE on
-  // every phone size that comfortably fits both labels. Stack only on
-  // the very narrowest devices (≤360px, e.g. iPhone SE 1st gen) or
-  // when the member has bumped accessibility text up far enough that
-  // "My Chats" / "FP Café" would start to ellipsise. The subtitle has
-  // ``adjustsFontSizeToFit`` + ``numberOfLines=1`` so it never dictates
-  // the stack decision — only the title does.
+  // iter232 (Neo, Oct 2026 — follow-up): user asked to go back to the
+  // stacked layout so the subtitles on all three primary shortcuts
+  // ("Pick up a conversation." / "Pull up a chair." / "Meet people
+  // who share your interests.") read clearly on every phone. Side by
+  // side forced the subtitle to truncate even on wider screens.
   const { width: _winW } = useWindowDimensions();
-  const stackShortcuts = _winW < 360 * Math.max(1, scale);
+  const stackShortcuts = true;
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
@@ -1575,14 +1573,13 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    minHeight: 76,
+    padding: 14,
+    minHeight: 84,
     shadowColor: "#0D2A57",
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -1590,9 +1587,9 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   primaryShortcutIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 11,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -1613,16 +1610,10 @@ const styles = StyleSheet.create({
   primaryShortcutTitle: {
     color: "#0D2A57",
     fontWeight: "900",
-    fontSize: 16,
-    // iter232 (Neo, Oct 2026): slightly smaller base so "My Chats" /
-    // "FP Café" always fit on a 390px side-by-side layout without the
-    // adjustsFontSizeToFit kicking in. Combined with the tighter card
-    // padding (10px horiz instead of 12) and 40px icon wrap (down
-    // from 48px), both labels sit comfortably on every iPhone from
-    // 12 mini through 15 Pro Max in the 2-up row.
+    fontSize: 17,
     includeFontPadding: false,
   },
-  primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 12.5, marginTop: 2 },
+  primaryShortcutSub: { color: "#64748B", fontWeight: "600", fontSize: 13, marginTop: 2 },
 
   findFriendsCard: {
     flexDirection: "row",
