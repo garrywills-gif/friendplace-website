@@ -71,15 +71,25 @@ export function setCachedUri(voice: string, text: string, uri: string) {
  * returns immediately. Silent on failure (pre-warm is a courtesy, not a
  * contract — a real tap will retry).
  */
-export async function prewarmTts(text: string): Promise<void> {
+export async function prewarmTts(text: string, voiceOverride?: string): Promise<void> {
   const clean = (text || '').toString().trim();
   if (!clean) return;
   try {
+    // iter237 (Neo, Oct 2026 — RED #1): fire the AVAudioSession
+    // warm-up in parallel with the TTS fetch. On a cold iPhone the
+    // session activation alone was ~400-500ms of the first-tap
+    // delay; doing it here (before the member taps) collapses that
+    // window entirely.
+    const { prewarmAudioSession } = await import('./george-playback');
+    void prewarmAudioSession();
     const { getVoice, DEFAULT_VOICE } = await import('./george-voice');
-    const voice = (await getVoice()) ?? DEFAULT_VOICE;
+    // iter237 followup: respect any explicit voice override (companion
+    // chat bubbles pass the persona they're drawn as). Otherwise fall
+    // back to the member's saved voice.
+    const voice = voiceOverride ?? ((await getVoice()) ?? DEFAULT_VOICE);
     if (getCachedUri(voice, clean)) return;      // already warm
     const { georgeApi } = await import('./george-api');
-    const uri = await georgeApi.speak(clean);    // disk → network as needed
+    const uri = await georgeApi.speak(clean, voice);
     setCachedUri(voice, clean, uri);
   } catch {
     // Pre-warm is best-effort. A real tap will retry and surface the

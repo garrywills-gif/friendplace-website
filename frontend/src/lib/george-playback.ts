@@ -28,6 +28,30 @@ export type PlaybackController = {
   whenDone: Promise<void>;
 };
 
+/**
+ * iter237 (Neo, Oct 2026 — RED #1 TTS first-tap lag): activate iOS
+ * AVAudioSession for playback AHEAD of time. On a cold device the first
+ * `setAudioModeAsync` + first `createAudioPlayer` call together cost
+ * 400-800 ms before `.play()` can even start — this is what members
+ * felt as "the first tap takes ages". We now preactivate the session
+ * on screen mount so by the time the member taps, iOS has already
+ * configured playback and only the audio-file decode remains.
+ *
+ * Idempotent — safe to call on every mount; subsequent calls are
+ * cheap no-ops because the OS session is already in the right state.
+ * Silent on failure (web has no AVAudioSession; native rejects become
+ * no-ops because actual playback also calls setAudioModeAsync as a
+ * belt-and-braces guard).
+ */
+export async function prewarmAudioSession(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+  } catch {
+    // Non-fatal — the first real play() will reconfigure.
+  }
+}
+
 /** Play an audio URI. Returns a controller so the caller can stop
  *  playback and await natural completion. */
 export function playAudioUri(uri: string): PlaybackController {

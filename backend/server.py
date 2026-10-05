@@ -6910,8 +6910,19 @@ async def create_table(body: CreateTableBody):
             # Persist the invited set on the table so the host can see a
             # roster of who they invited + each person's status (joined /
             # pending / declined) on the table screen.
+            #
+            # iter237 (Neo, Oct 2026 — Home For Me invite card): also
+            # persist a per-invitee ``invited_at`` so the Home invite
+            # card can say "Invited today at 8:12 pm". A single table
+            # creation = one invite moment, so every member in this
+            # batch shares the same timestamp.
+            invited_at_iso = now_iso()
+            invites_meta = {uid: {"at": invited_at_iso, "by": body.host_id} for uid in friend_ids[:100]}
             await db.tables.update_one(
-                {"id": t.id}, {"$set": {"invited_ids": friend_ids[:100]}},
+                {"id": t.id}, {"$set": {
+                    "invited_ids": friend_ids[:100],
+                    "invites_meta": invites_meta,
+                }},
             )
             hname = host.get("first_name") or host.get("username") or "Someone"
             havatar = host.get("avatar") or "☕"
@@ -7067,7 +7078,8 @@ async def my_table_invites(me: dict = Depends(current_user)):
         },
         {"_id": 0, "id": 1, "name": 1, "emoji": 1, "description": 1,
          "host_id": 1, "seated": 1, "capacity": 1, "last_activity_at": 1,
-         "created_at": 1, "visibility": 1, "founder_only": 1},
+         "created_at": 1, "visibility": 1, "founder_only": 1,
+         "invites_meta": 1},
     )
     invites = await cursor.to_list(100)
     if not invites:
@@ -7082,12 +7094,28 @@ async def my_table_invites(me: dict = Depends(current_user)):
         ):
             hosts[u["id"]] = {"first_name": u.get("first_name") or "A friend",
                                "avatar": u.get("avatar") or ""}
-    # Newest invites first — show the freshest at the top of the Home card.
-    invites.sort(key=lambda t: t.get("last_activity_at") or t.get("created_at") or "", reverse=True)
+    # iter237 (Neo, Oct 2026 — Home For Me invite card): sort by the
+    # per-invitee ``invited_at`` first (newest invites to THIS member
+    # on top), then fall back to table activity for legacy rows that
+    # don't have per-invitee metadata.
+    def _sort_key(tbl):
+        meta = ((tbl.get("invites_meta") or {}).get(uid) or {})
+        return meta.get("at") or tbl.get("last_activity_at") or tbl.get("created_at") or ""
+    invites.sort(key=_sort_key, reverse=True)
     out = []
     for t in invites:
         host = hosts.get(t.get("host_id") or "") or {"first_name": "A friend", "avatar": ""}
         seated_count = len(t.get("seated") or [])
+        meta = ((t.get("invites_meta") or {}).get(uid) or {})
+        # Per-invitee invited_at falls back to table.created_at so legacy
+        # invitations (pre-iter237) still render a sensible timestamp.
+        invited_at = meta.get("at") or t.get("created_at") or ""
+        visibility = (t.get("visibility") or "public").lower()
+        # A table is "private" when it was opened as friends-only, i.e.
+        # the host hand-picked specific friends to invite rather than
+        # opening it to the whole community. The frontend uses this to
+        # swap the card copy to "private FP Café table".
+        is_private = (visibility == "friends") or (visibility == "private") or bool(t.get("founder_only"))
         out.append({
             "table_id": t["id"],
             "name": t.get("name") or "FP Café table",
@@ -7098,6 +7126,9 @@ async def my_table_invites(me: dict = Depends(current_user)):
             "capacity": int(t.get("capacity") or 0),
             "visibility": t.get("visibility") or "public",
             "founder_only": bool(t.get("founder_only")),
+            "is_private": is_private,
+            "invited_at": invited_at,
+            "invited_by": meta.get("by") or t.get("host_id") or "",
         })
     return {"invites": out}
 

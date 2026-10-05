@@ -17,18 +17,19 @@
  *     toast — silence is better than the wrong voice.
  */
 import React from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Platform, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '@/src/lib/toast';
 import { georgeApi } from '@/src/lib/george-api';
 import { subscribeVoice, getVoice, DEFAULT_VOICE, type GeorgeVoice } from '@/src/lib/george-voice';
-import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
+import { playAudioUri, prewarmAudioSession, type PlaybackController } from '@/src/lib/george-playback';
 import {
   claimActiveSpeaker,
   releaseActiveSpeaker,
   getCachedUri,
   setCachedUri,
   clearUriCache,
+  prewarmTts,
 } from '@/src/lib/tts-shared';
 
 type Props = {
@@ -44,6 +45,13 @@ type Props = {
    *  on-screen persona. When omitted, falls back to the persisted
    *  global voice preference. */
   voice?: GeorgeVoice;
+  /** iter237 — kick off a background TTS fetch for this text on mount
+   *  so the first tap plays from cache. Dramatically reduces perceived
+   *  latency on the first tap (OpenAI cold-start + iOS audio-session
+   *  activation combined was ~1-2s). The iOS AVAudioSession is also
+   *  preactivated unconditionally so even non-prewarm buttons pay no
+   *  session-activation cost. */
+  prewarm?: boolean;
 };
 
 // TestFlight round-5 (Feb 2026): active-speaker coordination is now
@@ -58,10 +66,24 @@ export default function GeorgeSpeakButton({
   size = 22,
   testID,
   voice: voiceProp,
+  prewarm,
 }: Props) {
   const { show } = useToast();
   const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
   const activeCtrlRef = React.useRef<PlaybackController | null>(null);
+
+  // iter237 (Neo, Oct 2026 — RED #1): mirror SpeakButton's warm-up —
+  // ALWAYS preactivate iOS AVAudioSession on mount, and optionally
+  // prefetch the TTS text so the first tap plays from cache instead
+  // of eating 1-2s of cold-start.
+  React.useEffect(() => {
+    if (Platform.OS !== 'web') void prewarmAudioSession();
+    if (!prewarm || !text) return;
+    // Pass the explicit voice prop so the prewarm fetches the SAME
+    // persona the bubble will play as (and the first tap plays from
+    // cache rather than refetching).
+    void prewarmTts(text, voiceProp);
+  }, [prewarm, text, voiceProp]);
 
   const stopRef = React.useRef<() => void>(() => {});
   const stop = React.useCallback(() => {

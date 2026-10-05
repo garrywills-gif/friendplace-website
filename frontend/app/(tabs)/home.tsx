@@ -53,6 +53,38 @@ const CARD_TINT: Record<string, { bg: string; icon: string }> = {
 const CARD_TITLE_INK = "#1C2A47";
 const CARD_SUB_INK = "#63697A";
 
+/**
+ * iter237 (Neo, Oct 2026 — POLISH #2): format a Café invite timestamp
+ * for the Home → For Me card. Follows Neo's spec:
+ *   • Same day     → "Invited today at 8:12 pm"
+ *   • Day before   → "Invited yesterday at 7:30 am"
+ *   • Within a week→ "Invited Monday at 6:45 pm"
+ *   • Older        → "Invited on 3 Oct at 2:15 pm"
+ * Localised to the device's current timezone — never UTC. Returns ""
+ * if the input is empty / unparseable so the card can conditionally
+ * hide the line.
+ */
+function _formatInvitedAt(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+  if (sameYMD(d, now)) return `Invited today at ${time}`;
+  if (sameYMD(d, yesterday)) return `Invited yesterday at ${time}`;
+  const diffMs = now.getTime() - d.getTime();
+  const daysAgo = Math.floor(diffMs / 86400000);
+  if (daysAgo >= 2 && daysAgo <= 6) {
+    const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
+    return `Invited ${weekday} at ${time}`;
+  }
+  const dayMonth = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return `Invited on ${dayMonth} at ${time}`;
+}
+
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
@@ -1036,7 +1068,22 @@ export default function Home() {
                 {tableInvites.length === 1 ? "Invited to a chair" : `${tableInvites.length} table invites`}
               </Text>
             </View>
-            {tableInvites.slice(0, 3).map((inv: any) => (
+            {tableInvites.slice(0, 3).map((inv: any) => {
+              // iter237 (Neo, Oct 2026 — POLISH #2): make it obvious
+              // this is a personal/private invitation. The copy pattern
+              // (per Neo's spec):
+              //   "{Host} invited you to a private FP Café table"
+              //   {emoji} {Table name}
+              //   "Invited today at 8:12 pm"
+              //   "Only invited members can see and join this table."
+              // We only call it "private" when the backend flags it
+              // (friends-only / founder-only / explicit private).
+              const hostName = inv.host?.first_name || "A friend";
+              const privateLine = inv.is_private
+                ? `${hostName} invited you to a private FP Café table`
+                : `${hostName} invited you to join an FP Café table`;
+              const invitedAtLine = _formatInvitedAt(inv.invited_at);
+              return (
               <View
                 key={inv.table_id}
                 testID={`home-table-invite-${inv.table_id}`}
@@ -1045,22 +1092,38 @@ export default function Home() {
                 <Pressable
                   testID={`home-table-invite-open-${inv.table_id}`}
                   onPress={() => router.push(`/table/${inv.table_id}` as any)}
-                  accessibilityLabel={`${inv.host?.first_name || "A friend"} invited you to ${inv.name}`}
+                  accessibilityLabel={`${hostName} invited you to ${inv.name}`}
                   style={styles.flutterSenderRow}
                   hitSlop={4}
                 >
-                  <AvatarBubble value={inv.host?.avatar} size={36} fallback="🙂" />
+                  <AvatarBubble value={inv.host?.avatar} size={40} fallback="🙂" />
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                    {/* Private-invite line — the headline per Neo's spec. */}
+                    <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13.5 * scale }} numberOfLines={2}>
+                      {privateLine}
+                    </Text>
+                    {/* Table name + emoji on its own line, prominent. */}
+                    <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 16 * scale, marginTop: 2 }} numberOfLines={1}>
                       {inv.emoji || "☕"} {inv.name}
                     </Text>
-                    <Text style={{ color: "#475569", fontSize: 12.5 * scale, fontWeight: "600" }} numberOfLines={1}>
-                      {inv.host?.first_name ? `${inv.host.first_name} saved you a seat` : "A seat's waiting"}
-                      {inv.seated_count ? ` · ${inv.seated_count} already there` : ""}
-                    </Text>
+                    {/* Timestamp line. */}
+                    {invitedAtLine ? (
+                      <Text style={{ color: "#64748B", fontWeight: "600", fontSize: 12.5 * scale, marginTop: 2 }} numberOfLines={1}>
+                        {invitedAtLine}
+                      </Text>
+                    ) : null}
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
                 </Pressable>
+                {/* Private-invite reassurance microcopy. */}
+                {inv.is_private ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, marginBottom: 2 }}>
+                    <Ionicons name="lock-closed" size={12} color="#047857" />
+                    <Text style={{ color: "#047857", fontWeight: "600", fontSize: 11.5 * scale, flex: 1 }} numberOfLines={2}>
+                      Only invited members can see and join this table.
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={styles.flutterActions}>
                   <Pressable
                     testID={`home-table-invite-join-${inv.table_id}`}
@@ -1076,7 +1139,7 @@ export default function Home() {
                     accessibilityLabel={`Join ${inv.name}`}
                   >
                     <Ionicons name="cafe" size={14} color="#FFF" />
-                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Join</Text>
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Join table</Text>
                   </Pressable>
                   <Pressable
                     testID={`home-table-invite-later-${inv.table_id}`}
@@ -1094,7 +1157,8 @@ export default function Home() {
                   </Pressable>
                 </View>
               </View>
-            ))}
+              );
+            })}
             {tableInvites.length > 3 && (
               <Pressable
                 testID="home-table-invites-see-all"

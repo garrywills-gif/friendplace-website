@@ -26,11 +26,11 @@
  * longer used (cloud TTS controls prosody server-side).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { georgeApi } from '@/src/lib/george-api';
 import { getVoice, DEFAULT_VOICE, subscribeVoice } from '@/src/lib/george-voice';
-import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
+import { playAudioUri, prewarmAudioSession, type PlaybackController } from '@/src/lib/george-playback';
 import {
   claimActiveSpeaker,
   releaseActiveSpeaker,
@@ -75,7 +75,16 @@ export default function SpeakButton({
   // background TTS fetch for this text on mount so the first tap plays
   // instantly instead of waiting ~2–3s for OpenAI's cold-start. Safe
   // to call across renders — `prewarmTts` is idempotent.
+  //
+  // iter237 (Neo, Oct 2026 — RED #1 recurrence): ALWAYS warm the iOS
+  // AVAudioSession on mount, even when text-prewarm is off. The
+  // session activation alone was ~400-500ms of the first-tap delay
+  // (the TTS fetch was the other ~500-1500ms). Doing this unconditionally
+  // costs nothing (setAudioModeAsync is cheap and idempotent) and
+  // guarantees any speaker button pays zero audio-stack cost when the
+  // member finally taps it.
   useEffect(() => {
+    if (Platform.OS !== 'web') void prewarmAudioSession();
     if (!prewarm) return;
     void prewarmTts(text);
   }, [prewarm, text]);

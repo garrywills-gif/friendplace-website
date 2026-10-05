@@ -219,7 +219,20 @@ export function GeorgeCompanionChat({ onClose }: Props) {
                       besides the member — adding "Georgia said, …" to
                       every bubble was clearly wrong on device. Speak
                       the message content only. */}
-                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} voice={voice} />
+                  {/* iter237 (Neo, Oct 2026 — RED #1): prewarm the
+                      FIRST bubble so the opening greeting's speaker
+                      tap plays instantly. Later bubbles arrive AS the
+                      member interacts, so iOS audio session is
+                      already warm by then. idx===0 captures the
+                      "Hi, I'm Georgia / George" opening line that
+                      members typically tap first. */}
+                  <GeorgeSpeakButton
+                    text={t.content}
+                    color="#FFFFFF"
+                    size={18}
+                    voice={voice}
+                    prewarm={i === 0}
+                  />
                 </View>
               ) : null}
             </View>
