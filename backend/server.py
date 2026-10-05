@@ -955,11 +955,31 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     Founders Lounge group + table seating, welcome notification) but
     against a user that's already in the DB.
 
+    iter236 (Neo, Oct 2026 — Founder email-link rule):
+      `interest_registrations` is the SOURCE OF TRUTH for Founding Member
+      numbers. Before drawing a brand-new number for this account we must
+      look up the user's (normalised) email in `interest_registrations`.
+      If a prior registration exists with a locked `founder_number`, that
+      number is reused — the user mirrors it onto their account via
+      `users.founder_number`, and the registration is marked `joined /
+      linked_user_id = user_id`. An email that already belongs to a
+      Founding Member record can NEVER receive a new number. Only an
+      email with no existing registration draws the next available
+      number from the shared counter (`_next_founder_number`), and we
+      write a stub registration row at that point so the ledger and the
+      app account stay in sync.
+
+      This applies to both password and Google/social accounts because
+      both route through this helper at Claim time (`_assign_founder_
+      status` is a no-op since iter190 — no auto-stamping at signup).
+
     Returns a dict with `founder_number` and the refreshed user document.
 
     Raises HTTPException:
       400 — user not found / demo account
-      409 — already a Founding Member
+      409 — already a Founding Member, OR the FMN reserved on this email
+            is already held by a different account (human-recovery via
+            `/api/admin/founders/link`)
       410 — Founding Member cohort is full
     """
     u = await db.users.find_one({"id": user_id}, {"_id": 0})
@@ -972,14 +992,6 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     cap = max(0, int(settings.founding_member_cap or 0))
     if cap <= 0:
         raise HTTPException(410, "Founding Member programme is closed")
-    # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
-    # counter now excludes `is_test=true` seed rows from the cap check so
-    # test fixtures don't quietly consume real launch seats. The next
-    # founder_number is derived from the max(founder_number) already
-    # assigned + 1 — this preserves any historical numbering gaps
-    # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
-    # with genuine members who kept their original numbers, and never
-    # re-uses a number once assigned.
     current = await db.users.count_documents({
         "is_founder": True,
         "is_demo": {"$ne": True},
@@ -988,31 +1000,119 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     if current >= cap:
         raise HTTPException(410, "Founding Member cohort is full")
 
-    highest = await db.users.find_one(
-        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
-        {"_id": 0, "founder_number": 1},
-        sort=[("founder_number", -1)],
-    )
-    highest_num = int((highest or {}).get("founder_number") or 0)
-    founder_number = max(highest_num + 1, current + 1)
+    # ── Email-first lookup (iter236) ────────────────────────────────────
+    # Normalise exactly how `/public/register-interest` stored it —
+    # trim + lowercase. Case-insensitive match is implicit because every
+    # row was stored lowercase; use an anchored regex as belt-and-braces
+    # for any legacy mixed-case rows that pre-date the lowercase rule.
+    email_norm = (u.get("email") or "").strip().lower()
+    reg: Optional[dict] = None
+    if email_norm:
+        reg = await db.interest_registrations.find_one(
+            {
+                "email": {"$regex": f"^{re.escape(email_norm)}$", "$options": "i"},
+                "founder_number": {"$exists": True, "$ne": None, "$gt": 0},
+            },
+            {"_id": 0, "id": 1, "founder_number": 1, "linked_user_id": 1, "status": 1},
+        )
+
+    linked_reg_id: Optional[str] = None
+    if reg:
+        reserved_num = int(reg["founder_number"])
+        # Refuse to double-assign a reserved number that another real
+        # account already holds (e.g. an admin link already pointed a
+        # different account at this registration). An admin resolves it
+        # via /api/admin/founders/link.
+        clash = await db.users.find_one(
+            {"founder_number": reserved_num, "id": {"$ne": user_id}, "is_demo": {"$ne": True}, "is_test": {"$ne": True}},
+            {"_id": 0, "id": 1},
+        )
+        if clash:
+            raise HTTPException(
+                409,
+                f"Founding Member #{reserved_num:04d} on this email is already linked to another account. "
+                f"Please contact hello@friendplace.com.au to help us resolve it.",
+            )
+        founder_number = reserved_num
+        linked_reg_id = reg.get("id")
+    else:
+        # Genuinely new email — draw from the shared counter (same source
+        # the register-interest confirm uses). After drawing we re-check
+        # against `users.founder_number` because historical direct-claim
+        # users can hold numbers the counter doesn't know about yet;
+        # if we hit a clash we recycle and try again (bounded loop).
+        founder_number = None
+        for _attempt in range(10):
+            candidate = await _next_founder_number()
+            user_clash = await db.users.find_one(
+                {"founder_number": candidate, "is_demo": {"$ne": True}, "is_test": {"$ne": True}},
+                {"_id": 0, "id": 1},
+            )
+            if not user_clash:
+                founder_number = candidate
+                break
+            # Someone (historically) already owns this one — recycle and
+            # retry so we land on a genuinely-free number.
+            await _recycle_founder_number(candidate)
+        if founder_number is None:
+            raise HTTPException(500, "Could not assign a Founding Member number — please try again shortly.")
+        # Write a stub registration row so the ledger (MCGS CRM, future
+        # ack re-sends, re-link logic) can find this member by email too.
+        try:
+            await db.interest_registrations.insert_one({
+                "id": str(uuid.uuid4()),
+                "founder_number": int(founder_number),
+                "founder_number_locked": True,
+                "is_reserved": False,
+                "first_name": u.get("first_name") or "",
+                "email": email_norm,
+                "state_country": u.get("suburb") or None,
+                "heard_from": None,
+                "companion_choice": None,
+                "status": "joined",
+                "source": "direct_app_claim",
+                "linked_user_id": user_id,
+                "linked_at": now_iso(),
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+                "is_test": False,
+            })
+        except Exception as e:
+            # Stub row is bookkeeping — don't fail the claim if the write
+            # hiccups. The user still gets the number on their account.
+            logger.warning("direct-claim stub registration insert failed: %s", e)
+
     badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
     new_points = int(u.get("points") or 0) + 50
 
-    # Promote the user atomically (small race window vs other parallel
-    # claims is acceptable at MVP traffic — the count is rechecked next
-    # time and self-corrects to "at most cap + a few", same as the old
-    # auto-assignment flow).
     await db.users.update_one(
         {"id": user_id},
         {"$set": {
             "is_founder": True,
-            "founder_number": founder_number,
+            "founder_number": int(founder_number),
             "badges": badges,
             "points": new_points,
         }},
     )
+
+    # Mark the matched registration (if any) as joined + linked so MCGS
+    # CRM reflects the live state and so a future admin audit can trace
+    # who claimed which number from where.
+    if linked_reg_id:
+        try:
+            await db.interest_registrations.update_one(
+                {"id": linked_reg_id},
+                {"$set": {
+                    "status": "joined",
+                    "linked_user_id": user_id,
+                    "linked_at": now_iso(),
+                    "updated_at": now_iso(),
+                }},
+            )
+        except Exception as e:
+            logger.warning("founder claim: linking registration %s failed: %s", linked_reg_id, e)
 
     # Add to the private Founders Lounge group.
     fl = await _ensure_founders_lounge()
@@ -1038,9 +1138,6 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
                 {"$addToSet": {"seated": user_id},
                  "$set": {"last_activity_at": now_iso()}},
             )
-            # If the table was created before any founder existed, the
-            # host_id may still be blank — set this new founder as host
-            # so the lounge card shows a real "Started by …" attribution.
             await db.tables.update_one(
                 {"id": ft["id"], "host_id": ""},
                 {"$set": {"host_id": user_id}},
@@ -1056,9 +1153,8 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
         "read": False, "created_at": now_iso(),
     })
 
-    # Reload the user so callers get the post-promotion document.
     refreshed = await db.users.find_one({"id": user_id}, {"_id": 0}) or u
-    return {"founder_number": founder_number, "user": refreshed}
+    return {"founder_number": int(founder_number), "user": refreshed}
 
 
 @api.post("/auth/signup")
@@ -15174,12 +15270,25 @@ async def _seed_founder_numbers():  # noqa: D401
         # 3) Rebase the counter to the current max so the next $inc
         # returns max+1. Never regress — a concurrent live
         # registration could already have advanced it further.
+        # iter236 (Neo, Oct 2026): also consider `users.founder_number`
+        # so the counter stays above ANY existing holder — not just
+        # interest_registrations rows. Historical direct-claim users
+        # (pre-stub-row) could otherwise hold numbers higher than the
+        # ledger knows about, causing collisions on the next draw.
         current_max_doc = await db.interest_registrations.find_one(
             {"founder_number": {"$exists": True}},
             {"_id": 0, "founder_number": 1},
             sort=[("founder_number", -1)],
         )
-        current_max = max(int((current_max_doc or {}).get("founder_number") or 2), 2)
+        user_max_doc = await db.users.find_one(
+            {"founder_number": {"$exists": True, "$ne": None},
+             "is_demo": {"$ne": True}, "is_test": {"$ne": True}},
+            {"_id": 0, "founder_number": 1},
+            sort=[("founder_number", -1)],
+        )
+        reg_max = int((current_max_doc or {}).get("founder_number") or 2)
+        usr_max = int((user_max_doc or {}).get("founder_number") or 0)
+        current_max = max(reg_max, usr_max, 2)
         existing_counter = await db.counters.find_one({"id": _FOUNDER_NUMBER_COUNTER_ID})
         if not existing_counter:
             await db.counters.insert_one({"id": _FOUNDER_NUMBER_COUNTER_ID, "value": current_max})
