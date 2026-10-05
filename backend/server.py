@@ -6944,6 +6944,68 @@ async def decline_table_invite(table_id: str, user_id: str, me: dict = Depends(o
     return {"ok": True}
 
 
+@api.get("/tables/invites/mine")
+async def my_table_invites(me: dict = Depends(current_user)):
+    """iter233 (Neo, Oct 2026 — final polish #2): list every FP Café
+    table the caller has been invited to but has NOT yet joined or
+    declined. Powers the Home → For Me "Invited to a chair" card so
+    members see outstanding invites without having to open the bell.
+
+    A pending invite for user X is any table where:
+      • ``invited_ids`` contains X
+      • ``seated`` does NOT contain X (hasn't joined yet)
+      • ``declined_ids`` does NOT contain X (hasn't tapped Later)
+    Also excluded: closed/deleted tables (filtered by the base query)
+    and tables the member happens to host (hosts don't invite themselves).
+
+    Returned fields are intentionally lean so the Home card renders in
+    one round-trip (no follow-up table GETs required).
+    """
+    uid = me["id"]
+    cursor = db.tables.find(
+        {
+            "invited_ids": uid,
+            "seated": {"$ne": uid},
+            "declined_ids": {"$ne": uid},
+            "host_id": {"$ne": uid},
+        },
+        {"_id": 0, "id": 1, "name": 1, "emoji": 1, "description": 1,
+         "host_id": 1, "seated": 1, "capacity": 1, "last_activity_at": 1,
+         "created_at": 1, "visibility": 1, "founder_only": 1},
+    )
+    invites = await cursor.to_list(100)
+    if not invites:
+        return {"invites": []}
+    # Enrich each row with host display info (one batched lookup).
+    host_ids = list({t.get("host_id") for t in invites if t.get("host_id") and t["host_id"] != "system"})
+    hosts = {}
+    if host_ids:
+        async for u in db.users.find(
+            {"id": {"$in": host_ids}},
+            {"_id": 0, "id": 1, "first_name": 1, "avatar": 1},
+        ):
+            hosts[u["id"]] = {"first_name": u.get("first_name") or "A friend",
+                               "avatar": u.get("avatar") or ""}
+    # Newest invites first — show the freshest at the top of the Home card.
+    invites.sort(key=lambda t: t.get("last_activity_at") or t.get("created_at") or "", reverse=True)
+    out = []
+    for t in invites:
+        host = hosts.get(t.get("host_id") or "") or {"first_name": "A friend", "avatar": ""}
+        seated_count = len(t.get("seated") or [])
+        out.append({
+            "table_id": t["id"],
+            "name": t.get("name") or "FP Café table",
+            "emoji": t.get("emoji") or "☕",
+            "description": t.get("description") or "",
+            "host": host,
+            "seated_count": seated_count,
+            "capacity": int(t.get("capacity") or 0),
+            "visibility": t.get("visibility") or "public",
+            "founder_only": bool(t.get("founder_only")),
+        })
+    return {"invites": out}
+
+
 @api.post("/tables/{table_id}/join/{user_id}")
 async def join_table(table_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     t = await db.tables.find_one({"id": table_id}, {"_id": 0})

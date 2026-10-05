@@ -158,6 +158,11 @@ export default function Home() {
   // chat (the DM screen calls `dmMarkRead` on view, which zeroes
   // `unread_count` and drops the card on next focus).
   const [unreadDms, setUnreadDms] = useState<any[]>([]);
+  // iter233 (Neo, Oct 2026 — final polish #2): pending FP Café table
+  // invites surfaced on Home → For Me so members don't have to open
+  // the bell. Refreshed on focus, DM/notification socket events, and
+  // whenever the member joins/declines a table from this card.
+  const [tableInvites, setTableInvites] = useState<any[]>([]);
   // Butterfly Points details modal — previously the whole tile did a hard
   // navigation to /profile, which made the Home screen "close" behind the
   // user with no context. Now the tile opens an inline modal that shows
@@ -340,6 +345,11 @@ export default function Home() {
       const unread = list.filter((r: any) => (r?.unread_count || 0) > 0);
       setUnreadDms(unread);
     } catch { setUnreadDms([]); }
+    // iter233 — pending FP Café invites for the Home → For Me card.
+    try {
+      const r: any = await api.myTableInvites();
+      setTableInvites(((r?.invites as any[]) || []));
+    } catch { setTableInvites([]); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     // Incoming welcome/birthday greetings — surfaced prominently on Home
@@ -1006,6 +1016,93 @@ export default function Home() {
               >
                 <Text style={{ color: "#047857", fontWeight: "800", fontSize: 13 * scale }}>
                   See all {unreadDms.length} chats →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* iter233 (Neo, Oct 2026 — final polish #2): pending FP Café
+            table invites. Members see every outstanding invite without
+            opening the bell. Join → routes to the table (join_table
+            fires on seat); Later → records a soft decline and strips
+            the row. Backend filters out joined/declined/own-hosted
+            tables, so this card never shows duplicates or stale rows. */}
+        {tableInvites.length > 0 && (
+          <View style={[styles.flutterBox, styles.forMeCard]} testID="home-table-invites-card">
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+              <View style={styles.forMeIconWrap}><Ionicons name="cafe" size={18} color="#065F46" /></View>
+              <Text style={{ color: "#065F46", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+                {tableInvites.length === 1 ? "Invited to a chair" : `${tableInvites.length} table invites`}
+              </Text>
+            </View>
+            {tableInvites.slice(0, 3).map((inv: any) => (
+              <View
+                key={inv.table_id}
+                testID={`home-table-invite-${inv.table_id}`}
+                style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#D1FAE5" }]}
+              >
+                <Pressable
+                  testID={`home-table-invite-open-${inv.table_id}`}
+                  onPress={() => router.push(`/table/${inv.table_id}` as any)}
+                  accessibilityLabel={`${inv.host?.first_name || "A friend"} invited you to ${inv.name}`}
+                  style={styles.flutterSenderRow}
+                  hitSlop={4}
+                >
+                  <AvatarBubble value={inv.host?.avatar} size={36} fallback="🙂" />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                      {inv.emoji || "☕"} {inv.name}
+                    </Text>
+                    <Text style={{ color: "#475569", fontSize: 12.5 * scale, fontWeight: "600" }} numberOfLines={1}>
+                      {inv.host?.first_name ? `${inv.host.first_name} saved you a seat` : "A seat's waiting"}
+                      {inv.seated_count ? ` · ${inv.seated_count} already there` : ""}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
+                <View style={styles.flutterActions}>
+                  <Pressable
+                    testID={`home-table-invite-join-${inv.table_id}`}
+                    onPress={() => {
+                      // Optimistically strip the row — joining the table
+                      // on the destination screen seats the member, which
+                      // the next focus-refresh (or any socket nudge)
+                      // reconciles with the server anyway.
+                      setTableInvites((xs) => xs.filter((x) => x.table_id !== inv.table_id));
+                      router.push(`/table/${inv.table_id}` as any);
+                    }}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#0F766E", borderColor: "#0F766E" }]}
+                    accessibilityLabel={`Join ${inv.name}`}
+                  >
+                    <Ionicons name="cafe" size={14} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Join</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`home-table-invite-later-${inv.table_id}`}
+                    onPress={() => {
+                      if (!user?.id) return;
+                      api.declineTable(inv.table_id, user.id).catch(() => {});
+                      setTableInvites((xs) => xs.filter((x) => x.table_id !== inv.table_id));
+                      show("We'll let the host know — you can still pop in later.");
+                    }}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}
+                    accessibilityLabel="Maybe later"
+                  >
+                    <Ionicons name="time-outline" size={14} color="#64748B" />
+                    <Text style={{ color: "#334155", fontWeight: "800", fontSize: 13 * scale }}>Later</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {tableInvites.length > 3 && (
+              <Pressable
+                testID="home-table-invites-see-all"
+                onPress={() => router.push("/lounge" as any)}
+                style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              >
+                <Text style={{ color: "#047857", fontWeight: "800", fontSize: 13 * scale }}>
+                  See all {tableInvites.length} invites →
                 </Text>
               </Pressable>
             )}

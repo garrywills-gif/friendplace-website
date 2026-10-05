@@ -120,18 +120,18 @@ export function GeorgeCompanionChat({ onClose }: Props) {
       if (s.navigate_to) {
         const resolved = resolveGeorgeNavigate(s.navigate_to);
         if (resolved) {
-          // iter232 (Neo, Oct 2026 — RED #2 recurrence): navigate
-          // IMMEDIATELY, don't gate it behind the fuse timer. The old
-          // flow ran router.push inside the fuse's onDone, which
-          // meant any early Close / unmount / "ask again" cancelled
-          // the handoff and the member saw "it promised to take me
-          // and never did." Now the push happens up-front; the fuse
-          // is a short cosmetic cue only, and onClose runs after it.
-          try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
-          try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
+          // iter233 (Neo, Oct 2026 — final polish #1): HOLD the current
+          // screen for the full fuse duration (7.5s). Navigation runs
+          // from the fuse's onDone callback — NEVER immediately on
+          // intent detection. This gives members comfortable time to
+          // read George's final message. The parent's Close button
+          // short-circuits the fuse and fires `run` early so an
+          // impatient tap still lands at the destination.
           setNavFuse({
             label: resolved.label,
             run: () => {
+              try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
+              try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
               setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
             },
           });
@@ -185,7 +185,19 @@ export function GeorgeCompanionChat({ onClose }: Props) {
           <Ionicons name="refresh" size={14} color="#0F766E" />
           <Text style={styles.clearChatText}>Clear chat</Text>
         </Pressable>
-        <Pressable onPress={onClose} hitSlop={8} testID="companion-close">
+        <Pressable
+          onPress={() => {
+            // iter233 (Neo, Oct 2026 — final polish #1): if a nav
+            // handoff is in flight when the member taps Close, fire
+            // it IMMEDIATELY so the handoff still lands rather than
+            // being cancelled by the dismiss. ``run`` is idempotent
+            // on the fuse side (``doneRef`` guards double-fire).
+            if (navFuse) { try { navFuse.run(); } catch { /* non-fatal */ } return; }
+            onClose();
+          }}
+          hitSlop={8}
+          testID="companion-close"
+        >
           <Text style={styles.finishLater}>Close</Text>
         </Pressable>
       </View>

@@ -16,6 +16,7 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import AnimatedTagline from "@/src/components/AnimatedTagline";
 
 const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v5.png");
 
@@ -101,9 +102,7 @@ export default function AppHeader({
           </Text>
         )}
         {showTagline && !title ? (
-          <Text style={[styles.tagline, { color: "#64748B", fontSize: 13 * scale }]} numberOfLines={1}>
-            Because you belong too
-          </Text>
+          <AnimatedTagline fontSize={14 * scale} />
         ) : null}
       </View>
       <View style={styles.rightCol}>

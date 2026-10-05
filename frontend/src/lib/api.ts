@@ -560,6 +560,9 @@ export const api = {
   joinTable: (id: string, uid: string) => req(`/tables/${id}/join/${uid}`, { method: "POST" }),
   leaveTable: (id: string, uid: string) => req(`/tables/${id}/leave/${uid}`, { method: "POST" }),
   declineTable: (id: string, uid: string) => req(`/tables/${id}/decline/${uid}`, { method: "POST" }),
+  // iter233 — pending FP Café table invites for the current user,
+  // surfaced on Home → For Me so members don't have to open the bell.
+  myTableInvites: () => req(`/tables/invites/mine`),
 
   // groups
   listGroups: (opts: { user_id?: string; q?: string; radius_km?: number } = {}) => {
