@@ -121,20 +121,40 @@ export default function ProfileEdit() {
       show("Profile saved — your changes are live.");
       router.back();
     } catch (e: any) {
-      const msg = String(e?.message || "");
-      if (msg.includes("401") || msg.toLowerCase().includes("re-enter your current password")) {
-        show("That password isn't right. Please re-enter your current password to change your email.");
-      } else if (msg.includes("409") && msg.toLowerCase().includes("email")) {
-        show("That email is already used by another account.");
-      } else if (msg.includes("409") && msg.toLowerCase().includes("username")) {
-        show("That username is already taken — try a different one.");
-      } else if (msg.includes("400") && msg.toLowerCase().includes("email")) {
-        show("That email doesn't look right. Try something like name@example.com");
-      } else if (msg.includes("400") && msg.toLowerCase().includes("username")) {
-        show("Username must be 3-24 characters (letters, numbers, dots, dashes, underscores).");
-      } else {
-        show("Could not save. Please check your details and try again.");
+      // iter235 (Neo, Oct 2026 — RED email save): `api.updateProfile`
+      // throws with the backend's `detail` string ONLY (the global
+      // `_friendlyErrorMessage` strips the status code). Previously
+      // every branch here matched on "401"/"409"/"400" and never
+      // fired, so every real reason — duplicate email, bad password,
+      // Google-locked account, invalid format — fell through to the
+      // generic "Could not save." Now we match on the DETAIL text
+      // (which the backend writes for end-users) and only fall back
+      // to a generic message when we truly have no signal.
+      const raw = String(e?.message || "");
+      const low = raw.toLowerCase();
+      let friendly = raw.trim() || "Could not save. Please check your details and try again.";
+
+      if (low.includes("current password")) {
+        friendly = "That password isn't right. Please re-enter your current password to change your email.";
+      } else if (low.includes("already in use") && low.includes("email")) {
+        friendly = "That email is already used by another account.";
+      } else if (low.includes("already taken") && low.includes("username")) {
+        friendly = "That username is already taken — try a different one.";
+      } else if (low.includes("email") && (low.includes("doesn't look right") || low.includes("look right") || low.includes("too long"))) {
+        friendly = raw;                                     // backend copy is already perfect
+      } else if (low.includes("google")) {
+        friendly = "Your email is managed by Google sign-in — you'll need to switch Google accounts to change it.";
+      } else if (low.includes("username") && low.includes("letters")) {
+        friendly = "Username must be 3-24 characters (letters, numbers, dots, dashes, underscores).";
+      } else if (low.includes("demo accounts")) {
+        friendly = "Demo accounts can't change this.";
+      } else if (low.includes("network") || low.includes("fetch") || low.includes("timeout") || low.includes("failed to fetch")) {
+        friendly = "We couldn't reach FriendPlace. Check your connection and try again.";
+      } else if (!raw || low.includes("could not save") || low.includes("try again")) {
+        // Only when the server genuinely gave us nothing to work with.
+        friendly = "Could not save. Please check your details and try again.";
       }
+      show(friendly);
     } finally { setSaving(false); }
   };
 
