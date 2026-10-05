@@ -379,6 +379,24 @@ export const georgeApi = {
     return (data?.text || '').trim();
   },
 
+  // iter234 (Neo, Oct 2026 — POLISH #4): warm the Whisper client on
+  // the server so the FIRST real transcription after opening the
+  // companion chat doesn't pay OpenAI's cold-start tax. Called
+  // from `useGeorgeVoiceInput` on hook mount. Fire-and-forget; a
+  // failure here just means the first transcription will warm up
+  // the hard way.
+  transcribeWarmup: async (): Promise<void> => {
+    try {
+      const tok = await _token();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+      await fetch(`${BASE}/api/mcgs/george/transcribe/warmup`, {
+        method: 'POST',
+        headers,
+      });
+    } catch { /* silent — pre-warm is best effort */ }
+  },
+
   // C1 Voice Phase 2 — Text-to-speech. Fetches MP3 audio for George's
   // reply text and returns a local file URI (native) or blob URL (web)
   // ready for `expo-audio` playback. The frontend renders a speaker
@@ -406,7 +424,11 @@ export const georgeApi = {
     // TestFlight round-5 (Garry, Feb 2026): SpeakButton is now cloud-
     // backed on every screen (games, notices, DMs, events…) so caching
     // is the difference between "acceptable" and "expensive".
-    const filename = `george-${voice}-${_shortHash(text)}.mp3`;
+    // iter234 (Neo, Oct 2026 — POLISH #3): bumped filename version
+    // from `george-` to `george2-` so Georgia audio cached at the
+    // previous 0.98 speed is ignored and re-fetched at the new slower
+    // 0.90 pace. Old files silently age out of the OS cache.
+    const filename = `george2-${voice}-${_shortHash(text)}.mp3`;
     if (Platform.OS !== 'web') {
       try {
         const cached = new File(Paths.cache, filename);

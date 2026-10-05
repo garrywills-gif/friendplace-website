@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   base: {
-    color: "#14B8A6",                           // teal — matches "Place"
+    color: "#0D2A57",                           // iter234 — FriendPlace navy
     fontWeight: "500",
     letterSpacing: 0.3,
     includeFontPadding: false,

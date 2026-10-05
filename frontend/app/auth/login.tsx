@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
 import { needsProfileSetup } from "@/src/lib/profile";
 import { shouldShowAppleButton, startAppleSignIn } from "@/src/lib/appleSignIn";
+import { Ionicons } from "@expo/vector-icons";
 
 type DemoAccount = { username: string; first_name: string; avatar: string; suburb: string };
 
@@ -39,6 +40,12 @@ export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
+  // iter234 (Neo, Oct 2026 — RED #5): inline, visible-above-the-fold
+  // error so wrong-password attempts never read as "nothing happened".
+  // Toast alone was unreliable — on narrow screens / with the keyboard
+  // up, members never saw it. Cleared the moment the member edits
+  // either field again (per spec).
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const [demos, setDemos] = useState<DemoAccount[]>([]);
   const [showDemos, setShowDemos] = useState(false);
   // Ref to the outer ScrollView so we can programmatically scroll to
@@ -115,18 +122,39 @@ export default function Login() {
 
   const submit = async () => {
     const id = identifier.trim();
-    if (!id) { show("Enter your username or email"); return; }
-    if (!pw) { show("Enter your password"); return; }
+    setInlineError(null);                                     // reset on submit
+    if (!id) {
+      setInlineError("Please enter your username or email.");
+      return;
+    }
+    if (!pw) {
+      setInlineError("Please enter your password.");
+      return;
+    }
     setBusy(true);
     try {
       await login(id, pw);
       goHome(router);
     } catch (e: any) {
-      const msg = String(e?.message || "");
-      if (msg.includes("429")) show("Too many attempts. Please wait a few minutes.");
-      else if (msg.includes("Demo accounts")) show("Use 'Try a demo account' below");
-      else if (msg.includes("403") && (msg.toLowerCase().includes("banned") || msg.toLowerCase().includes("suspend"))) show("Your account is restricted. Please contact support.");
-      else show("Invalid username or password");
+      const raw = String(e?.message || "");
+      const lower = raw.toLowerCase();
+      // Map every known failure mode to a plain, warm sentence that
+      // sits on the form itself. Toast is kept as a backup for the
+      // rare case the member has already scrolled.
+      let friendly = "Incorrect email or password. Please try again.";
+      if (raw.includes("429") || lower.includes("too many")) {
+        friendly = "Too many attempts. Please wait a few minutes before trying again.";
+      } else if (lower.includes("demo accounts")) {
+        friendly = "That's a demo account — use 'Try a demo account' below.";
+      } else if (raw.includes("403") && (lower.includes("banned") || lower.includes("suspend"))) {
+        friendly = "Your account is restricted. Please contact support.";
+      } else if (lower.includes("network") || lower.includes("fetch") || lower.includes("timeout") || lower.includes("failed to fetch")) {
+        friendly = "We couldn't reach FriendPlace. Check your connection and try again.";
+      } else if (raw.match(/^5\d\d/) || raw.includes("500") || raw.includes("502") || raw.includes("503")) {
+        friendly = "Something went wrong on our side. Please try again in a moment.";
+      }
+      setInlineError(friendly);
+      show(friendly);                                           // toast as backup
     } finally { setBusy(false); }
   };
 
@@ -282,7 +310,7 @@ export default function Login() {
           <TextInput
             testID="login-identifier"
             value={identifier}
-            onChangeText={setIdentifier}
+            onChangeText={(v) => { setIdentifier(v); if (inlineError) setInlineError(null); }}
             placeholder="username or email"
             autoCapitalize="none"
             autoCorrect={false}
@@ -291,11 +319,49 @@ export default function Login() {
           />
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Password</Text>
-          <PasswordField testID="login-pw" value={pw} onChangeText={setPw} placeholder="Your password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
+          <PasswordField
+            testID="login-pw"
+            value={pw}
+            onChangeText={(v: string) => { setPw(v); if (inlineError) setInlineError(null); }}
+            placeholder="Your password"
+            placeholderTextColor={c.muted}
+            inputStyle={[styles.input, inputStyle]}
+            iconColor={c.brand}
+          />
 
           <Pressable testID="login-forgot" onPress={() => router.push("/auth/forgot")} hitSlop={8} style={{ alignSelf: "flex-end", paddingVertical: 6 }}>
             <Text style={{ color: c.brandSecondary, fontWeight: "700", fontSize: 15 * scale }}>Forgot password?</Text>
           </Pressable>
+
+          {/* iter234 (Neo, Oct 2026 — RED #5): inline error banner.
+              Sits right above the Log in button so wrong-password
+              attempts cannot be missed. Teal-free navy-red palette
+              matches the app's brand without screaming. Cleared the
+              moment either field is edited again. */}
+          {inlineError ? (
+            <View
+              testID="login-inline-error"
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 8,
+                backgroundColor: "#FEF2F2",
+                borderWidth: 1,
+                borderColor: "#FCA5A5",
+                borderRadius: 12,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                marginBottom: 10,
+              }}
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+            >
+              <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+              <Text style={{ color: "#991B1B", fontWeight: "700", fontSize: 14 * scale, flex: 1 }}>
+                {inlineError}
+              </Text>
+            </View>
+          ) : null}
 
           <Button testID="login-submit" label="Log in" onPress={submit} loading={busy} />
 

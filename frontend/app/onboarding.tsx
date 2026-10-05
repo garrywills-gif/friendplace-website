@@ -216,39 +216,46 @@ export default function OnboardingWizard() {
   // (Launch-polish 2026-08-14, follow-up to Session 2.)
   const { voice: savedVoice, setVoice } = useGeorgeVoice();
 
-  // ── Random tour host (TestFlight 1028, Garry, Sep 2026) ───────────
-  // The onboarding tour is delivered by a randomly chosen host — either
-  // George or Georgia — so first-time members don't always meet the
-  // same companion. The pick is made ONCE per onboarding session and
-  // kept in local state so every step of the tour uses the same voice.
-  // On the final "You're all set!" screen we then hand off to the
-  // member's saved companion when — and only when — they've explicitly
-  // chosen one already (see `hasChosenCompanion` in george-voice.ts).
-  const [tourHost] = useState<GeorgeVoice>(() =>
+  // ── Companion for the induction/tour ──────────────────────────────
+  // iter234 (Neo, Oct 2026 — RED #1): if the member has already chosen
+  // a companion in Settings (Georgia or George), the ENTIRE induction
+  // must speak as that companion — displayed name, bubble text, header
+  // chip, and TTS voice all match. Previous build picked a random tour
+  // host that could override the member's saved choice, causing
+  // "Georgia selected but screen shows GEORGE / says 'Hi, I'm George'".
+  // Random pick now only applies to first-time members with no saved
+  // preference.
+  const [chosenBefore, setChosenBefore] = useState<boolean | null>(null);
+  const [randomPick] = useState<GeorgeVoice>(() =>
     Math.random() < 0.5 ? 'george' : 'georgia',
   );
-  const [chosenBefore, setChosenBefore] = useState(false);
   useEffect(() => {
     void (async () => {
       const chosen = await hasChosenCompanion();
       setChosenBefore(chosen);
-      // Lock ONE companion for the whole journey (tour → induction → header →
-      // avatar → TTS voice → post-induction chat). If the member hasn't
-      // already chosen, persist the randomly-picked tour host immediately so
-      // the spoken TTS voice matches the on-screen name (fixes "started as
-      // Georgia but sounded like George").
-      if (!chosen) { try { await setVoice(tourHost); } catch { /* non-fatal */ } }
+      // If first-time (no saved pick), persist the random pick now so
+      // the spoken TTS voice matches the on-screen name.
+      if (!chosen) { try { await setVoice(randomPick); } catch { /* non-fatal */ } }
     })();
   }, []);
+  // Hard-lock the tour host to the saved voice when the member has
+  // chosen one; fall back to the random pick only for brand-new
+  // members. ``chosenBefore == null`` means we're still hydrating — in
+  // that split-second we trust the ``savedVoice`` from storage so the
+  // first render isn't visibly George for a Georgia-selected member.
+  const tourHost: GeorgeVoice = chosenBefore ? savedVoice : (chosenBefore === false ? randomPick : savedVoice);
   const voice = tourHost;                       // tour speaks as this
   const companionName = VOICE_LABELS[voice].short;             // "George" | "Georgia"
   const companionUpper = companionName.toUpperCase();           // "GEORGE" | "GEORGIA"
   const otherName = voice === 'george' ? 'Georgia' : 'George';
   const savedCompanionShort = VOICE_LABELS[savedVoice]?.short || 'George';
-  // Only announce a handoff when the tour host differs from the
-  // member's PRE-CHOSEN companion. Never invent a preference just to
-  // trigger a handoff (Garry's explicit rule).
-  const showHandoff = chosenBefore && savedVoice !== tourHost;
+  // With tourHost locked to savedVoice when chosen, a handoff on the
+  // final screen is only meaningful when the random pick ran AND it
+  // happens to differ from the saved voice — i.e. only for first-time
+  // flows where we just set the voice ourselves. In practice that
+  // means the final-screen handoff line is suppressed for members
+  // who entered induction with a prior choice.
+  const showHandoff = chosenBefore === true && savedVoice !== tourHost;
 
   // Spoken audio for the final "You're all set!" bubble MUST match the
   // words shown on screen, including the green handoff line when it's
@@ -728,6 +735,7 @@ function StepWelcome({ scale, c, companionName, companionUpper, otherName }: { s
               color="#0F766E"
               bg="rgba(255,255,255,0.85)"
               size={22}
+              prewarm
               testID="onb-welcome-speak"
             />
           </View>

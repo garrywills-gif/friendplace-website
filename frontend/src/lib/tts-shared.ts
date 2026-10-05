@@ -54,6 +54,39 @@ export function setCachedUri(voice: string, text: string, uri: string) {
   uriCache.set(cacheKey(voice, text), uri);
 }
 
+/**
+ * iter234 (Neo, Oct 2026 — POLISH #2): pre-warm the TTS pipeline for a
+ * piece of text so the first tap of the speaker button plays instantly
+ * instead of waiting for OpenAI's cold-start + network round-trip.
+ *
+ * Call this on screen mount with the text that's about to appear (e.g.
+ * George's opening onboarding line). The call races on a background
+ * fiber: it checks the in-memory cache first, then falls through to the
+ * disk cache (via georgeApi.speak), and finally hits the network. The
+ * result URI is written back into the in-memory cache so when the member
+ * eventually taps, the speaker goes from `idle` to `playing` without the
+ * usual "loading" ellipsis step.
+ *
+ * Idempotent — if the same text is pre-warmed twice, the second call
+ * returns immediately. Silent on failure (pre-warm is a courtesy, not a
+ * contract — a real tap will retry).
+ */
+export async function prewarmTts(text: string): Promise<void> {
+  const clean = (text || '').toString().trim();
+  if (!clean) return;
+  try {
+    const { getVoice, DEFAULT_VOICE } = await import('./george-voice');
+    const voice = (await getVoice()) ?? DEFAULT_VOICE;
+    if (getCachedUri(voice, clean)) return;      // already warm
+    const { georgeApi } = await import('./george-api');
+    const uri = await georgeApi.speak(clean);    // disk → network as needed
+    setCachedUri(voice, clean, uri);
+  } catch {
+    // Pre-warm is best-effort. A real tap will retry and surface the
+    // error through the usual phase('idle') path.
+  }
+}
+
 /** Called when the persona voice preference changes — the previously
  *  cached URIs point to files spoken in the OLD voice, so we must drop
  *  them. Files on disk are named by content-hash so they can safely

@@ -36,6 +36,7 @@ import {
   releaseActiveSpeaker,
   getCachedUri,
   setCachedUri,
+  prewarmTts,
 } from '@/src/lib/tts-shared';
 
 type Props = {
@@ -48,6 +49,12 @@ type Props = {
   rate?: number;
   /** Ignored — kept for backwards compatibility with old call sites. */
   pitch?: number;
+  /** iter234 — if `true`, kick off a background prewarm of this text's
+   *  TTS the first time the component mounts. Dramatically reduces
+   *  perceived latency on the first tap (OpenAI cold-start can be
+   *  several seconds). Opt-in because most speaker buttons live inside
+   *  rotating/lazy content where prewarming would be wasteful. */
+  prewarm?: boolean;
 };
 
 type Phase = 'idle' | 'loading' | 'playing';
@@ -58,10 +65,20 @@ export default function SpeakButton({
   color = '#1E3A7F',
   bg = 'transparent',
   testID,
+  prewarm,
 }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
   const activeCtrlRef = useRef<PlaybackController | null>(null);
   const stopRef = useRef<() => void>(() => {});
+
+  // iter234 (Neo, Oct 2026 — POLISH #2): opt-in prewarm. Kick off a
+  // background TTS fetch for this text on mount so the first tap plays
+  // instantly instead of waiting ~2–3s for OpenAI's cold-start. Safe
+  // to call across renders — `prewarmTts` is idempotent.
+  useEffect(() => {
+    if (!prewarm) return;
+    void prewarmTts(text);
+  }, [prewarm, text]);
 
   const stop = useCallback(() => {
     try { activeCtrlRef.current?.stop(); } catch { /* noop */ }

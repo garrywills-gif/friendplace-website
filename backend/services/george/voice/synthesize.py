@@ -45,9 +45,14 @@ _DEFAULT_VOICE: GeorgeVoiceKey = "george"
 # Georgia a touch under George. Warmth/expressiveness comes from the
 # tts-1-hd model above. Applied only when the caller hasn't set an
 # explicit non-default speed, so "Preview voice" style overrides win.
+# iter234 (Neo, Oct 2026 — POLISH #3): members reported Georgia
+# starting quickly and settling into a slower pace. The settled pace
+# is what we want for the full utterance, so her persona speed is
+# dropped a further step so the FIRST word already matches the pace
+# she naturally slows into. George stays at 1.0 (unchanged).
 _PERSONA_SPEED: dict[str, float] = {
     "george":  1.0,
-    "georgia": 0.98,
+    "georgia": 0.90,
 }
 
 

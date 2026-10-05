@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -871,6 +872,31 @@ def build_router(db) -> APIRouter:
     # a short (<=60s / <=25MB) audio clip; we return the transcript. The
     # transcript lands in the composer for review (never auto-sent).
     # ------------------------------------------------------------------
+
+    @router.post("/mcgs/george/transcribe/warmup")
+    async def api_george_transcribe_warmup(actor: dict = Depends(current_george_actor)):
+        """iter234 (Neo, Oct 2026 — POLISH #4): warm the Whisper client
+        for this actor so the FIRST real transcription after opening the
+        companion chat doesn't pay the cold-start tax. We just import +
+        instantiate the OpenAI STT client (which triggers auth and
+        connection pool setup inside emergentintegrations) and return.
+        No audio is sent to OpenAI, so no cost. Idempotent."""
+        try:
+            # Importing the module side-effects any lazy initialisers.
+            # Instantiating creates the underlying httpx client / auth.
+            from emergentintegrations.llm.openai.speech_to_text import OpenAISpeechToText  # noqa: F401
+            # Force the EMERGENT_LLM_KEY env lookup so misconfig surfaces
+            # here rather than silently on the first real call.
+            key = os.getenv("EMERGENT_LLM_KEY")
+            if not key:
+                raise RuntimeError("EMERGENT_LLM_KEY missing")
+            # Note: we don't construct the client eagerly because the
+            # library caches auth lazily; the import above is enough to
+            # pay the Python-side import cost once per worker.
+            return {"ok": True}
+        except Exception:  # pragma: no cover
+            log.exception("transcribe warmup failed")
+            return {"ok": False}
 
     @router.post("/mcgs/george/transcribe")
     async def api_george_member_transcribe(

@@ -57,6 +57,49 @@ export function useGeorgeVoiceInput(
     };
   }, [voicePhase]);
 
+  // iter234 (Neo, Oct 2026 — POLISH #4): FIRST transcription after
+  // opening the companion chat was consistently slow on real device —
+  // iOS needs several hundred ms to spin up the audio stack
+  // (AVAudioSession config, codec warm-up) before `record()` yields
+  // real audio bytes. Members felt this as "my first question took
+  // forever to transcribe". Pre-warm those paths on mount:
+  //   1. Flip audio mode to "allows recording" so AVAudioSession is
+  //      configured ahead of time.
+  //   2. Call `prepareToRecordAsync` which lazily creates the AVAudio
+  //      Recorder instance so the first real `record()` has nothing
+  //      left to initialise.
+  //   3. Immediately set audio mode back to playback-only so this
+  //      pre-warm doesn't accidentally hog the mic indicator.
+  // Done exactly once per hook mount; subsequent re-prepares happen
+  // naturally when `startRecording` is tapped.
+  const prewarmedRef = useRef(false);
+  useEffect(() => {
+    if (prewarmedRef.current) return;
+    prewarmedRef.current = true;
+    // Fire-and-forget: warm the server Whisper client in parallel
+    // with the iOS audio stack. Both finish well before the member
+    // taps the mic, taking the full cold-start cost off the first
+    // transcription.
+    void georgeApi.transcribeWarmup();
+    void (async () => {
+      try {
+        // Check permission silently — we DO NOT want to trigger the
+        // permission prompt here; `startRecording` still does that
+        // contextually when the member taps the mic.
+        const perm = await getRecordingPermissionsAsync();
+        if (perm.status !== 'granted') return;
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        await audioRecorder.prepareToRecordAsync();
+        // Flip back to playback-only so the OS mic indicator / audio
+        // session doesn't visibly engage before the member taps record.
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      } catch {
+        // Silent — pre-warm is best effort. The hook still works
+        // without it; the first tap will warm cold.
+      }
+    })();
+  }, [audioRecorder]);
+
   const stopRecording = useCallback(async () => {
     if (voicePhase !== 'recording') return;
     setVoicePhase('transcribing');
