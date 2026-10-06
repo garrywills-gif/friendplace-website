@@ -638,9 +638,17 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
          "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
         upsert=True,
     )
-    # Mark any due follow-ups we just surfaced, and learn from the exchange.
-    await _mark_followed_up(db, actor_id, due)
-    await _extract_memory(db, actor_id, name, user_text, reply)
+    # iter239 (Neo, Oct 2026 — UX #2): memory extraction and follow-up
+    # bookkeeping were awaited inline, adding a second LLM round-trip
+    # to every reply before the response returned to the member. On
+    # the FIRST message of a session (where the model also has a cold
+    # cache) this could stack to 4-6 seconds of visible latency. They
+    # are both best-effort side-effects — the member doesn't need to
+    # wait for them — so we fire them as background tasks and return
+    # the reply as soon as the primary LLM call lands.
+    import asyncio as _asyncio
+    _asyncio.create_task(_mark_followed_up(db, actor_id, due))
+    _asyncio.create_task(_extract_memory(db, actor_id, name, user_text, reply))
     # #5 (Sep 2026): when George's own reply says he's taking the member to
     # Find Friends (the honest "I'll take you to Find Friends" wording after
     # they agree), actually navigate there — so the affirmative "yes" flow

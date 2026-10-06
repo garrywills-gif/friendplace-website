@@ -19,6 +19,15 @@ import { playAudioUri, type PlaybackController } from './george-playback';
 import type { GeorgeVoice } from './george-voice';
 
 let activeCtrl: PlaybackController | null = null;
+// iter239 (Neo, Oct 2026 — UX #1): we also need to flag the WINDOW
+// between a caller invoking `speakGeorgeAloud` and the cloud TTS fetch
+// actually resolving. During those few hundred ms `activeCtrl` is
+// still null, so a poller that races the fetch would read "not
+// speaking", start the nav fuse, and cut George off before the clip
+// even began. `pendingCount` lets `isGeorgeAutoReadActive()` return
+// true from the first instant speech is requested until the clip
+// finishes playing or is cancelled.
+let pendingCount = 0;
 let generation = 0;
 
 /** Cancel any active auto-read playback. */
@@ -26,6 +35,7 @@ export function stopGeorgeAutoRead(): void {
   // Bump the generation so any in-flight `speakGeorgeAloud` awaiting
   // network response knows to abort BEFORE it starts playback.
   generation += 1;
+  pendingCount = 0;
   try { activeCtrl?.stop(); } catch { /* noop */ }
   activeCtrl = null;
 }
@@ -34,9 +44,12 @@ export function stopGeorgeAutoRead(): void {
  *  currently being fetched or played by the auto-read path. The
  *  companion chat polls this to delay the 2-second "Opening X…" fuse
  *  until speech has finished, so navigation never cuts George off
- *  mid-sentence. */
+ *  mid-sentence. iter239 extends the check to include the fetch
+ *  window — if we only looked at `activeCtrl`, a poller racing a
+ *  slow network could read "idle" during the ~200-800ms the clip is
+ *  being generated and start navigating too early. */
 export function isGeorgeAutoReadActive(): boolean {
-  return activeCtrl !== null;
+  return activeCtrl !== null || pendingCount > 0;
 }
 
 /** Speak a fresh George message using the cloud persona voice (via
@@ -61,6 +74,11 @@ export async function speakGeorgeAloud(text: string, persona?: GeorgeVoice): Pro
   const myGen = generation;
   try { activeCtrl?.stop(); } catch { /* noop */ }
   activeCtrl = null;
+  // Mark the auto-read as "pending" the moment we're requested — this
+  // closes the race window where a poller could see no active clip
+  // during the fetch and start navigating before speech begins. Paired
+  // with a `finally` so an exception can never leak the pending count.
+  pendingCount += 1;
   try {
     const uri = await georgeApi.speak(trimmed, persona);
     if (myGen !== generation) return;             // superseded while fetching
@@ -77,5 +95,7 @@ export async function speakGeorgeAloud(text: string, persona?: GeorgeVoice): Pro
       // eslint-disable-next-line no-console
       console.warn('[speakGeorgeAloud] cloud TTS failed:', (e as any)?.message || e);
     }
+  } finally {
+    pendingCount = Math.max(0, pendingCount - 1);
   }
 }

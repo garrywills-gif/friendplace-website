@@ -137,12 +137,17 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               // finish before starting the fuse. `speakGeorgeAloud`
               // now resolves on whenDone (iter238), and the
               // sendMessage handler kicks it off before we get here.
-              // Give the microtask queue a tick so the auto-read
-              // effect has a chance to run first.
-              await new Promise((r) => setTimeout(r, 50));
+              // iter239: give the render + auto-read useEffect enough
+              // time to actually fire and bump `pendingCount` — a 50ms
+              // tick wasn't always long enough on slower devices, so
+              // the poll would read "not speaking" during the TTS
+              // fetch and start the fuse before speech began. 300ms
+              // is still invisible to the member but comfortably
+              // longer than the auto-read effect's first render.
+              await new Promise((r) => setTimeout(r, 300));
               // There's no public "await active" API; the auto-read
-              // module tracks a single `activeCtrl` internally and
-              // resolves its promise on finish. We poll briefly here
+              // module tracks pending + active state internally and
+              // resolves `whenDone` on finish. We poll briefly here
               // instead of plumbing a new signal through, because the
               // auto-read lifetime is short (seconds, not minutes).
               const { isGeorgeAutoReadActive } = await import('@/src/lib/george-auto-read');

@@ -798,12 +798,26 @@ async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[
         {"_id": 0},
     )
     today = _xword_daily_date()
+    # iter239 (Neo, Oct 2026 — UX #3): format the date as "6 Oct 2026"
+    # in the member-facing description. The raw ISO stamp is still used
+    # for the `daily_date` field (so rollover comparisons stay cheap and
+    # locale-free), but the human copy switches to short-month style so
+    # the Café card doesn't read "(2026-10-06, Hard)" in production.
+    def _pretty_date(iso: str) -> str:
+        try:
+            from datetime import date as _date
+            y, m, d = (int(x) for x in iso.split("-"))
+            months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+            return f"{d} {months[m-1]} {y}"
+        except Exception:
+            return iso
+    today_pretty = _pretty_date(today)
     # Friendly difficulty label — bumped to "challenging" copy on purpose:
     # the daily puzzle now alternates between Hard and Expert pools so the
     # table feels like a community brain-teaser, not a warm-up.
     level_label = (puzzle.get("level") or "hard").title()
     desc = (
-        f"Today's brain-teaser — {puzzle.get('theme', level_label)} ({today}, {level_label}). "
+        f"Today's brain-teaser — {puzzle.get('theme', level_label)} ({today_pretty}, {level_label}). "
         f"It's a tough one on purpose. Ask the table for hints, share clues you've cracked, "
         f"and celebrate every finish together. Everyone's solving the same puzzle today."
     )
