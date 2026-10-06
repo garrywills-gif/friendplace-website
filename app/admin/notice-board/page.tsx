@@ -82,6 +82,34 @@ export default function AdminNoticeBoardPage() {
     }
   };
 
+  const toggleHide = async (row: NoticeBoardRow) => {
+    const title = row.title?.trim() || '(untitled)';
+    const author = row.author_name || 'Someone';
+    const confirmMsg = row.hidden
+      ? `Restore this notice so members can see it again?\n\n` +
+        `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
+        `by ${author}\n\n` +
+        `It will reappear on the member Notice Board on the next refresh.`
+      : `Hide this notice from members?\n\n` +
+        `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
+        `by ${author}\n\n` +
+        `Members stop seeing it immediately. The notice stays here with a Hidden badge so you can Restore it later. This action is logged.`;
+    if (!window.confirm(confirmMsg)) return;
+    setBusyId(row.id);
+    try {
+      if (row.hidden) await noticeBoardApi.restore(row.id);
+      else            await noticeBoardApi.hide(row.id);
+      await load();
+      setToast(row.hidden ? 'Notice restored' : 'Notice hidden');
+      setTimeout(() => setToast(null), 2200);
+    } catch (e: any) {
+      setToast(e?.message || 'Action failed');
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <AdminShell title="Notice Board">
       <div style={intro}>
@@ -173,6 +201,7 @@ export default function AdminNoticeBoardPage() {
               busy={busyId === n.id}
               expanded={openCommentsFor === n.id}
               onToggleComments={() => setOpenCommentsFor(openCommentsFor === n.id ? null : n.id)}
+              onToggleHide={() => toggleHide(n)}
               onDelete={() => remove(n)}
             />
           ))}
@@ -188,19 +217,20 @@ export default function AdminNoticeBoardPage() {
 // Sub-components
 // ──────────────────────────────────────────────────────────────────────
 
-function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
+function NoticeRow({ row, busy, expanded, onToggleComments, onToggleHide, onDelete }: {
   row: NoticeBoardRow;
   busy: boolean;
   expanded: boolean;
   onToggleComments: () => void;
+  onToggleHide: () => void;
   onDelete: () => void;
 }) {
   const activeStatus = computeActiveStatus(row.active_from, row.active_to);
   return (
     <div style={{
-      background: '#FFFFFF',
+      background: row.hidden ? '#F8FAFC' : '#FFFFFF',
       borderRadius: 16,
-      border: `1px solid ${row.reports_count > 0 ? '#FCA5A5' : '#E2E8F0'}`,
+      border: `1px solid ${row.hidden ? '#CBD5E1' : (row.reports_count > 0 ? '#FCA5A5' : '#E2E8F0')}`,
       padding: 16,
       opacity: busy ? 0.6 : 1,
       transition: 'opacity 160ms ease',
@@ -216,6 +246,7 @@ function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
             <Pill tone="slate">{row.category}</Pill>
             {row.has_image ? <Pill tone="slate">📷 Photo</Pill> : null}
             {row.solved ? <Pill tone="amber">Solved</Pill> : null}
+            {row.hidden ? <Pill tone="slate">👁️‍🗨️ Hidden</Pill> : null}
             {activeStatus === 'scheduled' ? <Pill tone="slate">Scheduled</Pill> : null}
             {activeStatus === 'expired' ? <Pill tone="danger">Expired</Pill> : null}
             {row.reports_count > 0 ? (
@@ -267,6 +298,24 @@ function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
           <button
             type="button"
+            onClick={onToggleHide}
+            disabled={busy}
+            className="cms-btn-ghost"
+            style={{
+              background: row.hidden ? '#DCFCE7' : '#FFFBEB',
+              color: row.hidden ? '#166534' : '#92400E',
+              border: `1px solid ${row.hidden ? '#86EFAC' : '#F59E0B'}`,
+              borderRadius: 8,
+              padding: '8px 14px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            {row.hidden ? 'Restore' : 'Hide'}
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             disabled={busy}
             className="cms-btn-danger"
@@ -276,6 +325,14 @@ function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
           </button>
         </div>
       </div>
+      {row.hidden && row.hidden_by ? (
+        <div style={{
+          marginTop: 10, padding: '8px 12px', background: '#F1F5F9',
+          borderRadius: 10, fontSize: 12, color: '#475569',
+        }}>
+          Hidden by <b>{row.hidden_by}</b>{row.hidden_at ? ` · ${fmtDate(row.hidden_at)}` : ''}
+        </div>
+      ) : null}
     </div>
   );
 }
