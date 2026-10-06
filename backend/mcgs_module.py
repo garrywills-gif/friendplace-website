@@ -890,6 +890,30 @@ def build_router(db) -> APIRouter:
             log.exception("transcribe warmup failed")
             return {"ok": False}
 
+    @router.post("/mcgs/george/companion/warmup")
+    async def api_george_companion_warmup(actor: dict = Depends(current_george_actor)):
+        """iter240 (Neo, Oct 2026 — TestFlight #2): warm the Anthropic
+        connection pool so the first companion turn after opening the
+        chat screen doesn't pay the TLS + session-init cost. We fire a
+        1-token "ok" prompt that costs effectively nothing and discard
+        the reply. Fully idempotent and non-blocking from the client's
+        point of view — the member can start typing before this
+        returns. Preserves memory + follow-up behaviour because no
+        turn is written to the chat log."""
+        try:
+            # Keep the prompt + response TINY so we don't burn tokens
+            # on a warmup. The point is to establish the Anthropic
+            # connection, authenticate, and page the model cache in.
+            from services.george.companion.service import _llm, COMPANION_MODEL
+            import asyncio as _asyncio
+            # Fire-and-forget: the client doesn't need to wait for
+            # the LLM to actually respond before it can start typing.
+            _asyncio.create_task(_llm("Reply with 'ok' only.", "ok", COMPANION_MODEL))
+            return {"ok": True}
+        except Exception:  # pragma: no cover
+            log.exception("companion warmup failed")
+            return {"ok": False}
+
     @router.post("/mcgs/george/transcribe")
     async def api_george_member_transcribe(
         file: UploadFile = File(...),

@@ -87,8 +87,16 @@ export default function GlobalBottomNav() {
   // iter226 followup (Garry, Oct 2026): hide during active Solitaire play
   // too. On a small iPhone the tab bar was covering the bottom row of the
   // tableau; the back button in the header is the dedicated exit so no
-  // member can get stranded.
+  // Hide on immersive gameplay screens where every pixel of keyboard /
+  // board real estate counts. The custom crossword + wordsearch letter
+  // keyboards both sit at the bottom of the screen above the home
+  // indicator — a persistent 5-tab bar would steal half the key rows,
+  // so we drop the global bar for those routes. The games stack still
+  // has its own back navigation so the member is never stranded.
+  // iter240 (Neo, Oct 2026 — TestFlight #1).
   if (top === "games" && segments[1] === "solitaire" && segments[2] === "play") return null;
+  if (top === "games" && segments[1] === "crossword" && segments[2] === "play") return null;
+  if (top === "games" && segments[1] === "wordsearch" && segments[2] === "play") return null;
 
   const bottomPad = Math.max(insets.bottom, 10);
 

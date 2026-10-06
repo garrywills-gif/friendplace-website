@@ -498,10 +498,18 @@ async def _mark_followed_up(db: Any, actor_id: str, texts: List[str]) -> None:
 
 async def _build_user_prompt(db: Any, actor_id: str, turns: List[dict],
                              user_text: Optional[str]) -> tuple[str, List[str]]:
-    mem = await _memory_doc(db, actor_id)
+    # iter240 (TestFlight #2): three independent DB lookups → run them
+    # in parallel. On a cold Mongo pool these were serialised and each
+    # 20-80ms added up to a ~200ms wait before the LLM call could even
+    # start. `asyncio.gather` cuts the pre-flight to the slowest of
+    # the three.
+    import asyncio as _asyncio
+    mem, prof_block, name = await _asyncio.gather(
+        _memory_doc(db, actor_id),
+        _profile_block(db, actor_id),
+        _confirmed_name(db, actor_id),
+    )
     mem_block, due = _memory_block(mem.get("items") or [])
-    prof_block = await _profile_block(db, actor_id)
-    name = await _confirmed_name(db, actor_id)
     parts: List[str] = []
     if name:
         parts.append(
@@ -593,11 +601,22 @@ def _build_memory_due(mem: dict) -> tuple[str, List[str]]:
 
 
 async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str) -> dict:
+    # iter240 (Neo, Oct 2026 — TestFlight #2): instrument end-to-end
+    # timings so we can tell at a glance whether a slow reply came
+    # from Mongo lookups, prompt-building, or the LLM round-trip. The
+    # client never sees these — they go to the backend log so we can
+    # grep and see "companion.turn phase=llm ms=18623" when needed.
+    import time as _time
+    _t0 = _time.perf_counter()
+    def _ms(start: float) -> int:
+        return int((_time.perf_counter() - start) * 1000)
+
     name = _persona_name(persona)
     pkey = _persona_key(persona)
     doc = await db[COLL_CHAT].find_one(_chat_filter(actor_id, persona), {"_id": 0})
     turns = list((doc or {}).get("turns") or [])
     turns.append({"role": "user", "content": user_text, "at": _now_iso()})
+    _t_lookup = _ms(_t0)
 
     # Item 4: handle navigation intent deterministically BEFORE the LLM so
     # "take me to Find Friends" always works and never loops on a fallback.
@@ -617,6 +636,8 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
                 "navigate_to": nr.get("navigate_to")}
 
     prompt, due = await _build_user_prompt(db, actor_id, turns[:-1], user_text)
+    _t_prompt = _ms(_t0) - _t_lookup
+    _llm_start = _time.perf_counter()
     try:
         reply = (await _llm(_system_prompt(name), prompt, COMPANION_MODEL)).strip()
     except Exception as e:
@@ -629,6 +650,7 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
             "I didn't quite catch that one. Tell me a little more, or ask me where something is in the app and I'll point you there.",
             "My wires crossed for a second there! Carry on — I'm listening.",
         ])
+    _t_llm = _ms(_llm_start)
 
     turns.append({"role": "george", "content": reply, "at": _now_iso()})
     await db[COLL_CHAT].update_one(
@@ -649,6 +671,11 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     import asyncio as _asyncio
     _asyncio.create_task(_mark_followed_up(db, actor_id, due))
     _asyncio.create_task(_extract_memory(db, actor_id, name, user_text, reply))
+    _t_total = _ms(_t0)
+    log.info(
+        "companion.turn actor=%s persona=%s total=%dms lookup=%dms prompt=%dms llm=%dms msg_in=%d msg_out=%d",
+        actor_id, pkey, _t_total, _t_lookup, _t_prompt, _t_llm, len(user_text or ""), len(reply or ""),
+    )
     # #5 (Sep 2026): when George's own reply says he's taking the member to
     # Find Friends (the honest "I'll take you to Find Friends" wording after
     # they agree), actually navigate there — so the affirmative "yes" flow

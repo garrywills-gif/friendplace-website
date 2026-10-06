@@ -397,6 +397,21 @@ export const georgeApi = {
     } catch { /* silent — pre-warm is best effort */ }
   },
 
+  // iter240 (Neo, Oct 2026 — TestFlight #2): warm the Anthropic
+  // connection pool so the first companion turn doesn't pay the
+  // TLS + model cold-start cost. Fire-and-forget on screen mount.
+  companionWarmup: async (): Promise<void> => {
+    try {
+      const tok = await _token();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+      await fetch(`${BASE}/api/mcgs/george/companion/warmup`, {
+        method: 'POST',
+        headers,
+      });
+    } catch { /* silent — pre-warm is best effort */ }
+  },
+
   // C1 Voice Phase 2 — Text-to-speech. Fetches MP3 audio for George's
   // reply text and returns a local file URI (native) or blob URL (web)
   // ready for `expo-audio` playback. The frontend renders a speaker

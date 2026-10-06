@@ -121,6 +121,15 @@ async def transcribe_audio_bytes(
             ext = candidate
 
     stt = _get_stt()
+    # iter240 (Neo, Oct 2026 — TestFlight #2): time the Whisper
+    # round-trip separately from the HTTP + Mongo bookkeeping so we
+    # can tell whether "slow transcription" means a slow upload or a
+    # slow Whisper call. Printed to the backend log as e.g.
+    # "voice.transcribe bytes=42312 ms=1183".
+    import time as _time
+    _t_start = _time.perf_counter()
+    import logging as _logging
+    _tlog = _logging.getLogger("friendplace.voice")
 
     # Write to a temp file so Whisper can validate + stream it as a
     # proper file object. We pass an OPEN binary file handle rather
@@ -148,6 +157,8 @@ async def transcribe_audio_bytes(
             text = response
         else:
             text = getattr(response, "text", None) or str(response)
+        _ms = int((_time.perf_counter() - _t_start) * 1000)
+        _tlog.info("voice.transcribe bytes=%d ms=%d chars=%d", len(audio), _ms, len(text or ""))
         return (text or "").strip()
     finally:
         try:

@@ -74,6 +74,17 @@ export function GeorgeCompanionChat({ onClose }: Props) {
 
   useEffect(() => () => { stopGeorgeAutoRead(); }, []);
 
+  // iter240 (Neo, Oct 2026 — TestFlight #2): on screen mount, kick off
+  // the companion LLM warmup in parallel with the session fetch. The
+  // backend fires a tiny "ok" prompt that establishes the Anthropic
+  // TLS session + pages the model cache in, cutting ~5-10 seconds
+  // off the FIRST turn's reply time without changing any user-visible
+  // behaviour. Idempotent; the server short-circuits if already warm.
+  useEffect(() => {
+    void georgeApi.companionWarmup();
+    void georgeApi.transcribeWarmup();
+  }, []);
+
   useEffect(() => {
     // Wait for the persona preference to hydrate before loading the
     // session, and reload if the persona changes — otherwise a cold

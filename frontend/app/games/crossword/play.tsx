@@ -25,6 +25,7 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -65,6 +66,8 @@ export default function CrosswordPlay() {
   const { user } = useAuth();
   const { show } = useToast();
   const { width: winW, height: winH } = useWindowDimensions();
+  // iter240 (TestFlight #1): keyboard sits above the iPhone home-indicator.
+  const safeInsets = useSafeAreaInsets();
 
   // ── data
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -769,8 +772,11 @@ export default function CrosswordPlay() {
       {/* Bottom keyboard — QWERTY (3 rows). The middle row is offset
           by half a key on each side and the bottom row has a wider
           backspace on the right, matching the universal phone-keyboard
-          layout people already know by feel. */}
-      <View style={[styles.kb, { backgroundColor: c.surfaceSecondary, borderTopColor: c.border }]}>
+          layout people already know by feel.
+          iter240 (TestFlight #1): paddingBottom reserves the iPhone
+          home-indicator inset so the last row of keys always sits
+          above the safe area. */}
+      <View style={[styles.kb, { backgroundColor: c.surfaceSecondary, borderTopColor: c.border, paddingBottom: 8 + Math.max(safeInsets.bottom, 0) }]}>
         <KbRow letters={KB_ROW_1} onPress={onKeyPress} c={c} scale={scale} />
         <View style={{ marginTop: 4, paddingHorizontal: 14 }}>
           <KbRow letters={KB_ROW_2} onPress={onKeyPress} c={c} scale={scale} />
