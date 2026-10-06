@@ -946,6 +946,13 @@ def build_router(db) -> APIRouter:
                 status_code=502,
                 detail="I couldn't quite hear that. Mind trying again?",
             )
+        # iter245: same silence-hallucination guards as the legacy voice
+        # endpoint — a silent clip must not drop "you" / "Thank you." or
+        # non-Latin filler into the composer. Empty → app shows
+        # "I couldn't quite catch that".
+        if text and (stt_transcript_looks_hallucinated(text) or stt_transcript_is_known_english_hallucination(text)):
+            log.info("STT guard dropped transcript on /mcgs/george/transcribe: %r", text[:80])
+            text = ""
         return {"text": text}
 
     @router.post("/mcgs/george/speak")

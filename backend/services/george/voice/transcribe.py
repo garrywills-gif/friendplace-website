@@ -153,10 +153,16 @@ async def transcribe_audio_bytes(
 
         # `response_format='text'` returns a plain string; other formats
         # return objects. Belt-and-braces normalisation for both.
+        # iter245 (TestFlight): an EMPTY transcript (silent / very short
+        # clip) must stay empty — never fall back to str(response),
+        # which leaked "TranscriptionResponse(text='', ...)" into the
+        # member's composer.
         if isinstance(response, str):
             text = response
+        elif isinstance(response, dict):
+            text = response.get("text") or ""
         else:
-            text = getattr(response, "text", None) or str(response)
+            text = getattr(response, "text", None) or ""
         _ms = int((_time.perf_counter() - _t_start) * 1000)
         _tlog.info("voice.transcribe bytes=%d ms=%d chars=%d", len(audio), _ms, len(text or ""))
         return (text or "").strip()
