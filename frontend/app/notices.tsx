@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard, ActivityIndicator, AppState } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import BeTheFirst from "@/src/components/BeTheFirst";
@@ -172,7 +172,30 @@ export default function Notices() {
       setNoticesLoaded(true);
     }
   };
-  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
+  useFocusEffect(useCallback(() => {
+    // On mount / each focus: fetch once, then keep the list fresh while
+    // the screen is open. Members shouldn't have to leave and come back
+    // to see an admin Hide / Delete take effect — a quiet 30s refresh
+    // picks up moderation changes with no visible UI churn. Cleanup
+    // cancels the interval the moment the screen loses focus so we
+    // never poll in the background. Also re-fetch the instant the app
+    // itself comes back to the foreground (eg. phone unlocks after a
+    // long sleep) so the first paint is always current.
+    load();
+    const handle = setInterval(() => {
+      // Only refresh if the user hasn't started a search — polling
+      // mid-keystroke would clobber the active query.
+      if (!query.trim()) load();
+    }, 30000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && !query.trim()) load();
+    });
+    return () => {
+      clearInterval(handle);
+      sub.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, category, query, radiusKm]));
 
   const memberLocality = () => (user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null);
   // ── Notice active-period helpers (item 9) ───────────────────────────

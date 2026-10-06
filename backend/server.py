@@ -7499,7 +7499,12 @@ async def _require_group_member(group_id: str, user_id: str, is_admin: bool = Fa
 
 @api.get("/groups/{group_id}/posts")
 async def group_posts(group_id: str):
-    docs = await db.group_posts.find({"group_id": group_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # `hidden` is the reversible-moderation flag set by MCGS. Hidden
+    # posts stay in the DB for audit but never show in the group feed.
+    docs = await db.group_posts.find(
+        {"group_id": group_id, "hidden": {"$ne": True}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
     await _attach_founder_flags(docs, "user_id")
     return docs
 
@@ -7545,7 +7550,10 @@ async def list_events(user_id: Optional[str] = None, q: Optional[str] = None,
     """Local Events list. Local Discovery: pass `radius_km` (5/10/25/50)
     with a `user_id` to only return events within that distance of the
     member's suburb (each with `distance_km`); omit radius_km for All."""
-    query: dict = {"archived": {"$ne": True}}
+    # `hidden` is the reversible-moderation flag set by MCGS. A hidden
+    # event stays in the DB (for audit + Restore) but drops out of the
+    # member-facing Upcoming/All feeds immediately.
+    query: dict = {"archived": {"$ne": True}, "hidden": {"$ne": True}}
     if q:
         safe = re.escape(q)
         query["$or"] = [
@@ -9494,7 +9502,11 @@ REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
 async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None,
                        radius_km: Optional[float] = None,
                        near_lat: Optional[float] = None, near_lng: Optional[float] = None):
-    query: Dict = {"removed": {"$ne": True}}
+    # `hidden` is the new reversible-moderation flag set by MCGS Hide
+    # action — mirrors Moments' soft-hide so a notice is kept in the DB
+    # (for audit + possible Restore) but is invisible to every member
+    # including its own author.
+    query: Dict = {"removed": {"$ne": True}, "hidden": {"$ne": True}}
     if category and category != "All":
         query["category"] = category
     if q:
@@ -9568,7 +9580,7 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     # freshest of these at the top so a new post is immediately visible.
     if user_id:
         own_raw = await db.notices.find(
-            {"user_id": user_id, "removed": {"$ne": True}}, {"_id": 0}
+            {"user_id": user_id, "removed": {"$ne": True}, "hidden": {"$ne": True}}, {"_id": 0}
         ).to_list(300)
         own_raw = [d for d in own_raw if _within_active_period(d)]
         own_raw.sort(key=lambda d: -_created_ts(d))

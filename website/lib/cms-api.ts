@@ -1348,6 +1348,9 @@ export type NoticeBoardRow = {
   has_image: boolean;
   reports_count: number;
   solved: boolean;
+  hidden: boolean;
+  hidden_at: string;
+  hidden_by: string;
 };
 
 export type NoticeBoardListResponse = {
@@ -1367,7 +1370,9 @@ export const noticeBoardApi = {
     const qs = p.toString();
     return req<NoticeBoardListResponse>('GET', `/cms/notice-board${qs ? `?${qs}` : ''}`);
   },
-  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/notice-board/${id}`),
+  hide:    (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/notice-board/${id}/hide`),
+  restore: (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/notice-board/${id}/restore`),
+  remove:  (id: string) => req<{ ok: boolean }>('DELETE', `/cms/notice-board/${id}`),
 };
 
 export type LocalEventRow = {
@@ -1386,7 +1391,10 @@ export type LocalEventRow = {
   rsvps_count: number;
   recurrence: string;
   created_at: string;
-  status: 'active' | 'cancelled' | 'archived';
+  status: 'active' | 'cancelled' | 'archived' | 'hidden';
+  hidden: boolean;
+  hidden_at: string;
+  hidden_by: string;
 };
 
 export type LocalEventsListResponse = {
@@ -1406,7 +1414,9 @@ export const localEventsApi = {
     const qs = p.toString();
     return req<LocalEventsListResponse>('GET', `/cms/local-events${qs ? `?${qs}` : ''}`);
   },
-  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/local-events/${id}`),
+  hide:    (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/local-events/${id}/hide`),
+  restore: (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/local-events/${id}/restore`),
+  remove:  (id: string) => req<{ ok: boolean }>('DELETE', `/cms/local-events/${id}`),
 };
 
 // ============================================================================
@@ -1455,6 +1465,9 @@ export type GroupPostRow = {
   likes_count: number;
   comments_count: number;
   created_at: string;
+  hidden: boolean;
+  hidden_at: string;
+  hidden_by: string;
 };
 
 export type GroupPostsListResponse = {
@@ -1477,7 +1490,9 @@ export const groupPostsApi = {
     return req<GroupPostsListResponse>('GET', `/cms/groups/posts${qs ? `?${qs}` : ''}`);
   },
   groups: () => req<{ rows: GroupOption[] }>('GET', `/cms/groups/list`),
-  remove: (id: string) =>
+  hide:    (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/groups/posts/${id}/hide`),
+  restore: (id: string) => req<{ ok: boolean; hidden: boolean }>('POST', `/cms/groups/posts/${id}/restore`),
+  remove:  (id: string) =>
     req<{ ok: boolean; comments_removed: number }>('DELETE', `/cms/groups/posts/${id}`),
   comments: (postId: string) =>
     req<{ post_text: string; comments: CommentRow[] }>('GET', `/cms/groups/posts/${postId}/comments`),

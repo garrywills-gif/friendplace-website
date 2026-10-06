@@ -4890,6 +4890,9 @@ def build_router(db) -> APIRouter:
             "has_image":    bool(n.get("image")),
             "reports_count": len(reports),
             "solved":       bool(n.get("solved")),
+            "hidden":       bool(n.get("hidden")),
+            "hidden_at":    n.get("hidden_at") or "",
+            "hidden_by":    n.get("hidden_by") or "",
         }
 
     @router.get("/notice-board")
@@ -4974,6 +4977,71 @@ def build_router(db) -> APIRouter:
             pass
         return {"ok": True}
 
+    @router.post("/notice-board/{notice_id}/hide")
+    async def cms_notices_hide(
+        notice_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Soft-hide a notice. Marks it `hidden=True` so every
+        member-facing surface drops it on next fetch, while the row
+        stays in the DB so admins can Restore. Mirrors Moments'
+        reversible hide so the operator shape is identical."""
+        n = await db.notices.find_one(
+            {"id": notice_id},
+            {"_id": 0, "id": 1, "title": 1},
+        )
+        if not n:
+            raise HTTPException(404, "Notice not found")
+        await db.notices.update_one(
+            {"id": notice_id},
+            {"$set": {
+                "hidden":    True,
+                "hidden_at": _now_iso(),
+                "hidden_by": admin.get("email"),
+            }},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "notice.hide",
+                "target": notice_id,
+                "detail": (n.get("title") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": True}
+
+    @router.post("/notice-board/{notice_id}/restore")
+    async def cms_notices_restore(
+        notice_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Un-hide a notice. Clears the `hidden` flag so the row
+        reappears on member-facing feeds on next fetch."""
+        n = await db.notices.find_one(
+            {"id": notice_id},
+            {"_id": 0, "id": 1, "title": 1},
+        )
+        if not n:
+            raise HTTPException(404, "Notice not found")
+        await db.notices.update_one(
+            {"id": notice_id},
+            {"$set": {"hidden": False},
+             "$unset": {"hidden_at": "", "hidden_by": ""}},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "notice.restore",
+                "target": notice_id,
+                "detail": (n.get("title") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": False}
+
 
     # ═══════════════════════════════════════════════════════════════════
     # Local Events moderation (admin-only).
@@ -4988,7 +5056,9 @@ def build_router(db) -> APIRouter:
     def _local_event_row(e: Dict[str, Any]) -> Dict[str, Any]:
         """Flatten a community Event doc into the CMS admin shape."""
         rsvps_count = len(e.get("rsvps") or [])
-        if e.get("cancelled"):
+        if e.get("hidden"):
+            status = "hidden"
+        elif e.get("cancelled"):
             status = "cancelled"
         elif e.get("archived"):
             status = "archived"
@@ -5010,6 +5080,9 @@ def build_router(db) -> APIRouter:
             "recurrence":   e.get("recurrence") or "",
             "created_at":   e.get("created_at") or "",
             "status":       status,
+            "hidden":       bool(e.get("hidden")),
+            "hidden_at":    e.get("hidden_at") or "",
+            "hidden_by":    e.get("hidden_by") or "",
         }
 
     @router.get("/local-events")
@@ -5111,6 +5184,64 @@ def build_router(db) -> APIRouter:
         except Exception:
             pass
         return {"ok": True}
+
+    @router.post("/local-events/{event_id}/hide")
+    async def cms_local_events_hide(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Soft-hide a local event. Keeps the row in `events` so RSVPs
+        and admin history are preserved, but every member-facing feed
+        drops it on next fetch."""
+        ev = await db.events.find_one({"id": event_id}, {"_id": 0, "id": 1, "title": 1})
+        if not ev:
+            raise HTTPException(404, "Event not found")
+        await db.events.update_one(
+            {"id": event_id},
+            {"$set": {
+                "hidden":    True,
+                "hidden_at": _now_iso(),
+                "hidden_by": admin.get("email"),
+            }},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "local_event.hide",
+                "target": event_id,
+                "detail": (ev.get("title") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": True}
+
+    @router.post("/local-events/{event_id}/restore")
+    async def cms_local_events_restore(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Un-hide a local event. Clears the `hidden` flag so the row
+        reappears on the member-facing lounge on next fetch."""
+        ev = await db.events.find_one({"id": event_id}, {"_id": 0, "id": 1, "title": 1})
+        if not ev:
+            raise HTTPException(404, "Event not found")
+        await db.events.update_one(
+            {"id": event_id},
+            {"$set": {"hidden": False},
+             "$unset": {"hidden_at": "", "hidden_by": ""}},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "local_event.restore",
+                "target": event_id,
+                "detail": (ev.get("title") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": False}
 
 
     # ═══════════════════════════════════════════════════════════════════
@@ -5272,6 +5403,9 @@ def build_router(db) -> APIRouter:
             "likes_count":  len(p.get("likes") or []),
             "comments_count": len(p.get("comments") or []),
             "created_at":   p.get("created_at") or "",
+            "hidden":       bool(p.get("hidden")),
+            "hidden_at":    p.get("hidden_at") or "",
+            "hidden_by":    p.get("hidden_by") or "",
         }
 
     @router.get("/groups/posts")
@@ -5373,6 +5507,64 @@ def build_router(db) -> APIRouter:
         except Exception:
             pass
         return {"ok": True, "comments_removed": comment_count}
+
+    @router.post("/groups/posts/{post_id}/hide")
+    async def cms_group_post_hide(
+        post_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Soft-hide a group post. Keeps the row + its embedded
+        comments so admins can Restore; the member group feed drops
+        it on next fetch."""
+        p = await db.group_posts.find_one({"id": post_id}, {"_id": 0, "id": 1, "text": 1})
+        if not p:
+            raise HTTPException(404, "Post not found")
+        await db.group_posts.update_one(
+            {"id": post_id},
+            {"$set": {
+                "hidden":    True,
+                "hidden_at": _now_iso(),
+                "hidden_by": admin.get("email"),
+            }},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "group_post.hide",
+                "target": post_id,
+                "detail": (p.get("text") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": True}
+
+    @router.post("/groups/posts/{post_id}/restore")
+    async def cms_group_post_restore(
+        post_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Un-hide a group post. Clears the `hidden` flag so the row
+        reappears on the member-facing group feed on next fetch."""
+        p = await db.group_posts.find_one({"id": post_id}, {"_id": 0, "id": 1, "text": 1})
+        if not p:
+            raise HTTPException(404, "Post not found")
+        await db.group_posts.update_one(
+            {"id": post_id},
+            {"$set": {"hidden": False},
+             "$unset": {"hidden_at": "", "hidden_by": ""}},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "group_post.restore",
+                "target": post_id,
+                "detail": (p.get("text") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "hidden": False}
 
     @router.get("/groups/posts/{post_id}/comments")
     async def cms_group_post_comments(
