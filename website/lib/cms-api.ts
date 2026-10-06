@@ -1327,6 +1327,204 @@ export const momentsApi = {
   remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/moments/${id}`),
 };
 
+// ============================================================================
+// Notice Board + Local Events moderation (admin-only).
+// Mirrors `momentsApi`'s lean shape: list → delete-with-confirm. Admins never
+// edit a member's words; if copy is problematic the only action is remove.
+// ============================================================================
+
+export type NoticeBoardRow = {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  author_id: string;
+  author_name: string;
+  author_avatar: string;
+  locality: string;
+  created_at: string;
+  active_from: string;
+  active_to: string;
+  has_image: boolean;
+  reports_count: number;
+  solved: boolean;
+};
+
+export type NoticeBoardListResponse = {
+  count: number;
+  total: number;
+  reported: number;
+  active: number;
+  rows: NoticeBoardRow[];
+};
+
+export const noticeBoardApi = {
+  list: (opts: { q?: string; category?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set('q', opts.q);
+    if (opts.category) p.set('category', opts.category);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<NoticeBoardListResponse>('GET', `/cms/notice-board${qs ? `?${qs}` : ''}`);
+  },
+  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/notice-board/${id}`),
+};
+
+export type LocalEventRow = {
+  id: string;
+  title: string;
+  emoji: string;
+  description: string;
+  location: string;
+  date: string;       // YYYY-MM-DD
+  time: string;       // HH:MM
+  end_time: string;   // HH:MM (optional)
+  host_id: string;
+  host_name: string;
+  locality: string;
+  capacity: number | null;
+  rsvps_count: number;
+  recurrence: string;
+  created_at: string;
+  status: 'active' | 'cancelled' | 'archived';
+};
+
+export type LocalEventsListResponse = {
+  count: number;
+  total: number;
+  upcoming: number;
+  cancelled: number;
+  rows: LocalEventRow[];
+};
+
+export const localEventsApi = {
+  list: (opts: { q?: string; status?: 'upcoming' | 'past' | 'all'; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set('q', opts.q);
+    if (opts.status) p.set('status', opts.status);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<LocalEventsListResponse>('GET', `/cms/local-events${qs ? `?${qs}` : ''}`);
+  },
+  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/local-events/${id}`),
+};
+
+// ============================================================================
+// Comment-level moderation (Notice Board + Moments).
+// Scalpel endpoints so admins can delete a single bad comment without
+// yanking the entire parent post.
+// ============================================================================
+
+export type CommentRow = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  text: string;
+  created_at: string;
+  replies?: CommentRow[];
+};
+
+export const noticeCommentsApi = {
+  list: (noticeId: string) =>
+    req<{ notice_title: string; comments: CommentRow[] }>('GET', `/cms/notice-board/${noticeId}/comments`),
+  remove: (noticeId: string, commentId: string) =>
+    req<{ ok: boolean }>('DELETE', `/cms/notice-board/${noticeId}/comments/${commentId}`),
+};
+
+export const momentCommentsApi = {
+  list: (momentId: string) =>
+    req<{ author_name: string; comments: CommentRow[] }>('GET', `/cms/moments/${momentId}/comments`),
+  remove: (momentId: string, commentId: string) =>
+    req<{ ok: boolean }>('DELETE', `/cms/moments/${momentId}/comments/${commentId}`),
+};
+
+// ============================================================================
+// Community Groups — group post moderation + inline comment delete.
+// ============================================================================
+
+export type GroupPostRow = {
+  id: string;
+  group_id: string;
+  group_name: string;
+  author_id: string;
+  author_name: string;
+  author_avatar: string;
+  text: string;
+  image: string;
+  likes_count: number;
+  comments_count: number;
+  created_at: string;
+};
+
+export type GroupPostsListResponse = {
+  count: number;
+  total_posts: number;
+  total_comments: number;
+  total_groups: number;
+  rows: GroupPostRow[];
+};
+
+export type GroupOption = { id: string; name: string };
+
+export const groupPostsApi = {
+  list: (opts: { q?: string; group_id?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set('q', opts.q);
+    if (opts.group_id) p.set('group_id', opts.group_id);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<GroupPostsListResponse>('GET', `/cms/groups/posts${qs ? `?${qs}` : ''}`);
+  },
+  groups: () => req<{ rows: GroupOption[] }>('GET', `/cms/groups/list`),
+  remove: (id: string) =>
+    req<{ ok: boolean; comments_removed: number }>('DELETE', `/cms/groups/posts/${id}`),
+  comments: (postId: string) =>
+    req<{ post_text: string; comments: CommentRow[] }>('GET', `/cms/groups/posts/${postId}/comments`),
+  removeComment: (postId: string, commentId: string) =>
+    req<{ ok: boolean }>('DELETE', `/cms/groups/posts/${postId}/comments/${commentId}`),
+};
+
+// ============================================================================
+// FP Café — table message moderation.
+// ============================================================================
+
+export type CafeMessageRow = {
+  id: string;
+  table_id: string;
+  table_name: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  text: string;
+  image: string;
+  created_at: string;
+};
+
+export type CafeMessagesListResponse = {
+  count: number;
+  window_days: number;
+  total_window: number;
+  tables_active: number;
+  rows: CafeMessageRow[];
+};
+
+export type CafeTableOption = { id: string; name: string };
+
+export const cafeMessagesApi = {
+  list: (opts: { q?: string; table_id?: string; days?: number; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set('q', opts.q);
+    if (opts.table_id) p.set('table_id', opts.table_id);
+    if (opts.days) p.set('days', String(opts.days));
+    if (opts.limit) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<CafeMessagesListResponse>('GET', `/cms/cafe/messages${qs ? `?${qs}` : ''}`);
+  },
+  tables: () => req<{ rows: CafeTableOption[] }>('GET', `/cms/cafe/tables`),
+  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/cafe/messages/${id}`),
+};
+
 // CSV export lives on the CRM URL for symmetry — this is a browser
 // download so we just build the URL and let the browser fetch it
 // with the standard auth header via a hidden fetch + blob dance.

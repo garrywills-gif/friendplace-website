@@ -4863,6 +4863,713 @@ def build_router(db) -> APIRouter:
         return {"ok": True}
 
 
+    # ═══════════════════════════════════════════════════════════════════
+    # Notice Board moderation (admin-only).
+    #
+    # Member-facing data lives in the `notices` collection (see
+    # `server.py` → `Notice`). The CMS surface stays intentionally light:
+    # list + search + delete-with-confirm. Admins never edit a member's
+    # words — if copy is problematic the only option is remove.
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _notice_row(n: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten a Notice doc into the shape consumed by the CMS table."""
+        reports = n.get("reports") or []
+        return {
+            "id":           n.get("id"),
+            "title":        n.get("title") or "",
+            "body":         (n.get("body") or "")[:400],
+            "category":     n.get("category") or "Announcement",
+            "author_id":    n.get("user_id") or "",
+            "author_name":  n.get("user_name") or "Someone",
+            "author_avatar": n.get("avatar") or "",
+            "locality":     n.get("locality") or "",
+            "created_at":   n.get("created_at") or "",
+            "active_from":  n.get("active_from") or "",
+            "active_to":    n.get("active_to") or "",
+            "has_image":    bool(n.get("image")),
+            "reports_count": len(reports),
+            "solved":       bool(n.get("solved")),
+        }
+
+    @router.get("/notice-board")
+    async def cms_notices_list(
+        q: Optional[str] = None,
+        category: Optional[str] = None,
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List notices for the CMS Notice Board moderation page.
+
+        Newest first. `q` is a case-insensitive substring match over
+        title + body + author name; `category` narrows to one of the
+        member-facing categories (Announcement, Question, Event, …).
+        """
+        query: Dict[str, Any] = {}
+        if category and category.strip() and category.strip().lower() != "all":
+            query["category"] = category.strip()
+        if q and q.strip():
+            import re as _re
+            safe = _re.escape(q.strip())
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [
+                {"title":     rx},
+                {"body":      rx},
+                {"user_name": rx},
+            ]
+        limit = max(1, min(int(limit or 200), 500))
+        rows = (
+            await db.notices.find(query, {"_id": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+            .to_list(limit)
+        )
+        total     = await db.notices.count_documents({})
+        reported  = await db.notices.count_documents({"reports.0": {"$exists": True}})
+        # Build a quick "currently active" count — notices whose
+        # active window either isn't set or spans "now". Mirrors the
+        # member-facing visibility rule so admins see at a glance how
+        # much of the board is actually live right now.
+        from datetime import datetime, timezone as _tz
+        _now = datetime.now(_tz.utc).isoformat()
+        active = await db.notices.count_documents({
+            "$and": [
+                {"$or": [{"active_from": {"$exists": False}}, {"active_from": None}, {"active_from": ""}, {"active_from": {"$lte": _now}}]},
+                {"$or": [{"active_to":   {"$exists": False}}, {"active_to": None},   {"active_to": ""},   {"active_to":   {"$gte": _now}}]},
+            ]
+        })
+        return {
+            "count":    len(rows),
+            "total":    total,
+            "reported": reported,
+            "active":   active,
+            "rows":     [_notice_row(r) for r in rows],
+        }
+
+    @router.delete("/notice-board/{notice_id}")
+    async def cms_notices_delete(
+        notice_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Hard-delete a notice from the board (admin confirm on the
+        client side)."""
+        n = await db.notices.find_one(
+            {"id": notice_id},
+            {"_id": 0, "id": 1, "title": 1, "user_id": 1, "user_name": 1},
+        )
+        if not n:
+            raise HTTPException(404, "Notice not found")
+        await db.notices.delete_one({"id": notice_id})
+        # Light audit breadcrumb — same shape as other moderation
+        # deletes so the Audit log page can group them. Non-fatal.
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":   admin.get("email"),
+                "action":  "notice.delete",
+                "target":  notice_id,
+                "detail":  (n.get("title") or "")[:140],
+                "at":      _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Local Events moderation (admin-only).
+    #
+    # Member-hosted community events live in the `events` collection
+    # (see `server.py` → `Event`). FriendPlace-curated events on the
+    # website live in `cms_events` and are managed by the existing
+    # `/cms/events` surface — kept separate on purpose so one admin
+    # action can't accidentally delete a curator-authored row.
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _local_event_row(e: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten a community Event doc into the CMS admin shape."""
+        rsvps_count = len(e.get("rsvps") or [])
+        if e.get("cancelled"):
+            status = "cancelled"
+        elif e.get("archived"):
+            status = "archived"
+        else:
+            status = "active"
+        return {
+            "id":           e.get("id"),
+            "title":        e.get("title") or "",
+            "emoji":        e.get("emoji") or "",
+            "description":  (e.get("description") or "")[:400],
+            "location":     e.get("location") or "",
+            "date":         e.get("date") or "",
+            "time":         e.get("time") or "",
+            "end_time":     e.get("end_time") or "",
+            "host_id":      e.get("host_id") or "",
+            "locality":     e.get("locality") or "",
+            "capacity":     e.get("capacity"),
+            "rsvps_count":  rsvps_count,
+            "recurrence":   e.get("recurrence") or "",
+            "created_at":   e.get("created_at") or "",
+            "status":       status,
+        }
+
+    @router.get("/local-events")
+    async def cms_local_events_list(
+        q: Optional[str] = None,
+        status: str = "upcoming",
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List community events for the CMS Local Events moderation page.
+
+        Status filter mirrors the member-facing Upcoming cutover —
+        "upcoming" shows events whose date is today or in the future,
+        "past" shows events whose event-day has ended, and "all" shows
+        everything regardless of date. Hosts' display names are
+        attached in a second batched query so the table can show
+        "Started by Frank" without an N+1 round-trip.
+        """
+        query: Dict[str, Any] = {"archived": {"$ne": True}}
+        if q and q.strip():
+            import re as _re
+            safe = _re.escape(q.strip())
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [
+                {"title":       rx},
+                {"description": rx},
+                {"location":    rx},
+            ]
+        limit = max(1, min(int(limit or 200), 500))
+        # Pull a generous slice sorted by date descending so the admin
+        # view defaults to "most recent first", then narrow by status
+        # in Python (dates on this collection are plain YYYY-MM-DD
+        # strings — comparable lexically but we also need "today or
+        # later" with locale-safe semantics).
+        rows = (
+            await db.events.find(query, {"_id": 0})
+            .sort([("date", -1), ("created_at", -1)])
+            .limit(limit * 2 if status != "all" else limit)
+            .to_list(limit * 2 if status != "all" else limit)
+        )
+        from datetime import date as _date
+        today_iso = _date.today().isoformat()
+        if status == "upcoming":
+            rows = [r for r in rows if (r.get("date") or "") >= today_iso]
+        elif status == "past":
+            rows = [r for r in rows if (r.get("date") or "") < today_iso]
+        rows = rows[:limit]
+        # Batch-attach host display names so the table can read
+        # "Started by Frank" without an N+1.
+        host_ids = sorted({r.get("host_id") for r in rows if r.get("host_id")})
+        host_map: Dict[str, str] = {}
+        if host_ids:
+            async for u in db.users.find(
+                {"id": {"$in": list(host_ids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "username": 1},
+            ):
+                host_map[u["id"]] = u.get("first_name") or u.get("username") or "Someone"
+        out = []
+        for r in rows:
+            row = _local_event_row(r)
+            row["host_name"] = host_map.get(row["host_id"], "Someone")
+            out.append(row)
+        total     = await db.events.count_documents({"archived": {"$ne": True}})
+        upcoming  = await db.events.count_documents({"archived": {"$ne": True}, "date": {"$gte": today_iso}})
+        cancelled = await db.events.count_documents({"archived": {"$ne": True}, "cancelled": True})
+        return {
+            "count":     len(out),
+            "total":     total,
+            "upcoming":  upcoming,
+            "cancelled": cancelled,
+            "rows":      out,
+        }
+
+    @router.delete("/local-events/{event_id}")
+    async def cms_local_events_delete(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Hard-delete a community event (admin confirm on the client
+        side). Mirror of the Notice Board delete flow — the member
+        who posted the event will see it disappear from the lounge
+        immediately; RSVPs stay in the audit trail collection but
+        are no longer linked to a live event doc."""
+        ev = await db.events.find_one(
+            {"id": event_id},
+            {"_id": 0, "id": 1, "title": 1, "host_id": 1},
+        )
+        if not ev:
+            raise HTTPException(404, "Event not found")
+        await db.events.delete_one({"id": event_id})
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":   admin.get("email"),
+                "action":  "local_event.delete",
+                "target":  event_id,
+                "detail":  (ev.get("title") or "")[:140],
+                "at":      _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Comment-level moderation hooks for Notice Board + Moments.
+    #
+    # The post-level delete endpoints above already cascade comments
+    # because comments are embedded inside the parent doc. These two
+    # endpoints give admins a scalpel: remove a single bad comment
+    # without yanking the whole post.
+    # ═══════════════════════════════════════════════════════════════════
+
+    @router.get("/notice-board/{notice_id}/comments")
+    async def cms_notice_comments(
+        notice_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return the embedded comment array for a notice, flattened
+        into the shape the CMS table consumes. Replies are nested
+        under their parent — admins can delete a parent (which pulls
+        the whole thread) or a top-level comment id."""
+        n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "comments": 1, "title": 1})
+        if not n:
+            raise HTTPException(404, "Notice not found")
+        comments = []
+        for c in (n.get("comments") or []):
+            comments.append({
+                "id":          c.get("id"),
+                "user_id":     c.get("user_id") or "",
+                "user_name":   c.get("user_name") or "Someone",
+                "user_avatar": c.get("avatar") or "",
+                "text":        c.get("text") or "",
+                "created_at":  c.get("created_at") or "",
+                "replies": [
+                    {
+                        "id":         (r.get("id") or ""),
+                        "user_id":    (r.get("user_id") or ""),
+                        "user_name":  (r.get("user_name") or "Someone"),
+                        "user_avatar": (r.get("avatar") or ""),
+                        "text":       (r.get("text") or ""),
+                        "created_at": (r.get("created_at") or ""),
+                    }
+                    for r in (c.get("replies") or [])
+                ],
+            })
+        return {"notice_title": n.get("title") or "", "comments": comments}
+
+    @router.delete("/notice-board/{notice_id}/comments/{comment_id}")
+    async def cms_notice_comment_delete(
+        notice_id: str,
+        comment_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Delete a single notice comment (and any nested replies via
+        the parent-id match) without touching the parent notice."""
+        n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "comments": 1, "title": 1})
+        if not n:
+            raise HTTPException(404, "Notice not found")
+        target = next((c for c in (n.get("comments") or []) if c.get("id") == comment_id), None)
+        if not target:
+            # Try nested reply match — ($pull on replies.$.id)
+            res = await db.notices.update_one(
+                {"id": notice_id, "comments.replies.id": comment_id},
+                {"$pull": {"comments.$.replies": {"id": comment_id}}},
+            )
+            if res.matched_count == 0:
+                raise HTTPException(404, "Comment not found")
+        else:
+            await db.notices.update_one(
+                {"id": notice_id},
+                {"$pull": {"comments": {"id": comment_id}}},
+            )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "notice.comment.delete",
+                "target": f"{notice_id}:{comment_id}",
+                "detail": (n.get("title") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+    @router.get("/moments/{moment_id}/comments")
+    async def cms_moment_comments(
+        moment_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return the embedded comment array for a moment, flattened
+        into the shape the CMS drawer consumes."""
+        m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "comments": 1, "author_name": 1})
+        if not m:
+            raise HTTPException(404, "Moment not found")
+        comments = []
+        for c in (m.get("comments") or []):
+            comments.append({
+                "id":          c.get("id"),
+                "user_id":     c.get("user_id") or "",
+                "user_name":   c.get("user_name") or "Someone",
+                "user_avatar": c.get("user_avatar") or "",
+                "text":        c.get("body") or c.get("text") or "",
+                "created_at":  c.get("created_at") or "",
+            })
+        return {"author_name": m.get("author_name") or "", "comments": comments}
+
+    @router.delete("/moments/{moment_id}/comments/{comment_id}")
+    async def cms_moment_comment_delete(
+        moment_id: str,
+        comment_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Delete a single moment comment without touching the parent
+        moment."""
+        m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "comments": 1})
+        if not m:
+            raise HTTPException(404, "Moment not found")
+        target = next((c for c in (m.get("comments") or []) if c.get("id") == comment_id), None)
+        if not target:
+            raise HTTPException(404, "Comment not found")
+        await db.moments.update_one(
+            {"id": moment_id},
+            {"$pull": {"comments": {"id": comment_id}}},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "moment.comment.delete",
+                "target": f"{moment_id}:{comment_id}",
+                "detail": (target.get("body") or target.get("text") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Community Groups — group-post moderation.
+    #
+    # Posts live in `group_posts`; comments are embedded inside the post
+    # (see server.Groupost). Admins can delete a whole post (which
+    # cascades its comments) or scrub a single comment while leaving
+    # the post standing. Images aren't currently stored on group posts
+    # (the model has no `image` field) so there's no media-cascade to
+    # worry about — if that ever changes the delete already removes the
+    # parent doc so attachments disappear with it.
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _group_post_row(p: Dict[str, Any], group_name: str, author_name: str) -> Dict[str, Any]:
+        return {
+            "id":           p.get("id"),
+            "group_id":     p.get("group_id") or "",
+            "group_name":   group_name,
+            "author_id":    p.get("user_id") or "",
+            "author_name":  author_name or (p.get("user_name") or "Someone"),
+            "author_avatar": p.get("avatar") or "",
+            "text":         (p.get("text") or "")[:500],
+            "image":        p.get("image") or "",
+            "likes_count":  len(p.get("likes") or []),
+            "comments_count": len(p.get("comments") or []),
+            "created_at":   p.get("created_at") or "",
+        }
+
+    @router.get("/groups/posts")
+    async def cms_group_posts_list(
+        q: Optional[str] = None,
+        group_id: Optional[str] = None,
+        limit: int = 100,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List community group posts for admin moderation.
+
+        Newest first. Attaches `group_name` and `author_name` via
+        batched lookups so the table never shows raw IDs.
+        """
+        query: Dict[str, Any] = {}
+        if group_id and group_id.strip():
+            query["group_id"] = group_id.strip()
+        if q and q.strip():
+            import re as _re
+            safe = _re.escape(q.strip())
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [
+                {"text":      rx},
+                {"user_name": rx},
+            ]
+        limit = max(1, min(int(limit or 100), 500))
+        rows = (
+            await db.group_posts.find(query, {"_id": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+            .to_list(limit)
+        )
+        # Batched lookups for group names + author display names.
+        gids = sorted({r.get("group_id") for r in rows if r.get("group_id")})
+        gmap: Dict[str, str] = {}
+        if gids:
+            async for g in db.groups.find({"id": {"$in": list(gids)}}, {"_id": 0, "id": 1, "name": 1}):
+                gmap[g["id"]] = g.get("name") or "Group"
+        uids = sorted({r.get("user_id") for r in rows if r.get("user_id")})
+        umap: Dict[str, str] = {}
+        if uids:
+            async for u in db.users.find(
+                {"id": {"$in": list(uids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "username": 1},
+            ):
+                umap[u["id"]] = u.get("first_name") or u.get("username") or "Someone"
+        out = [_group_post_row(r, gmap.get(r.get("group_id", ""), ""), umap.get(r.get("user_id", ""), "")) for r in rows]
+        # Headline totals for the stats row.
+        total_posts    = await db.group_posts.count_documents({})
+        total_comments = 0
+        async for p in db.group_posts.aggregate([
+            {"$project": {"n": {"$size": {"$ifNull": ["$comments", []]}}}},
+            {"$group":   {"_id": None, "n": {"$sum": "$n"}}},
+        ]):
+            total_comments = int(p.get("n") or 0)
+        groups_count = await db.groups.count_documents({})
+        return {
+            "count":          len(out),
+            "total_posts":    total_posts,
+            "total_comments": total_comments,
+            "total_groups":   groups_count,
+            "rows":           out,
+        }
+
+    @router.get("/groups/list")
+    async def cms_groups_list(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return every group with its name — powers the admin filter
+        chip on the Groups moderation page. Deliberately lightweight,
+        does NOT include membership rolls."""
+        rows = await db.groups.find({}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(500)
+        return {"rows": [{"id": r.get("id"), "name": r.get("name") or "Group"} for r in rows]}
+
+    @router.delete("/groups/posts/{post_id}")
+    async def cms_group_post_delete(
+        post_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Hard-delete a group post (and all embedded comments / media
+        via the parent-doc removal). Confirm on client."""
+        p = await db.group_posts.find_one(
+            {"id": post_id},
+            {"_id": 0, "id": 1, "text": 1, "user_id": 1, "group_id": 1, "comments": 1},
+        )
+        if not p:
+            raise HTTPException(404, "Post not found")
+        comment_count = len(p.get("comments") or [])
+        await db.group_posts.delete_one({"id": post_id})
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "group_post.delete",
+                "target": post_id,
+                "detail": (p.get("text") or "")[:140],
+                "comments_removed": comment_count,
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "comments_removed": comment_count}
+
+    @router.get("/groups/posts/{post_id}/comments")
+    async def cms_group_post_comments(
+        post_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return the embedded comment array for a group post."""
+        p = await db.group_posts.find_one({"id": post_id}, {"_id": 0, "comments": 1, "text": 1})
+        if not p:
+            raise HTTPException(404, "Post not found")
+        comments = []
+        # Hydrate commenter display names in a batched lookup so the
+        # moderation drawer always shows friendly names.
+        uids = sorted({(c.get("user_id") or "") for c in (p.get("comments") or []) if c.get("user_id")})
+        umap: Dict[str, Dict[str, str]] = {}
+        if uids:
+            async for u in db.users.find(
+                {"id": {"$in": list(uids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1},
+            ):
+                umap[u["id"]] = {
+                    "name":   u.get("first_name") or u.get("username") or "Someone",
+                    "avatar": u.get("avatar") or "",
+                }
+        for c in (p.get("comments") or []):
+            uid = c.get("user_id") or ""
+            udisplay = umap.get(uid, {})
+            comments.append({
+                "id":          c.get("id"),
+                "user_id":     uid,
+                "user_name":   udisplay.get("name") or c.get("user_name") or "Someone",
+                "user_avatar": udisplay.get("avatar") or "",
+                "text":        c.get("text") or "",
+                "created_at":  c.get("created_at") or "",
+            })
+        return {"post_text": p.get("text") or "", "comments": comments}
+
+    @router.delete("/groups/posts/{post_id}/comments/{comment_id}")
+    async def cms_group_post_comment_delete(
+        post_id: str,
+        comment_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Delete a single comment from a group post."""
+        p = await db.group_posts.find_one({"id": post_id}, {"_id": 0, "comments": 1})
+        if not p:
+            raise HTTPException(404, "Post not found")
+        target = next((c for c in (p.get("comments") or []) if c.get("id") == comment_id), None)
+        if not target:
+            raise HTTPException(404, "Comment not found")
+        await db.group_posts.update_one(
+            {"id": post_id},
+            {"$pull": {"comments": {"id": comment_id}}},
+        )
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "group_post.comment.delete",
+                "target": f"{post_id}:{comment_id}",
+                "detail": (target.get("text") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+
+    # ═══════════════════════════════════════════════════════════════════
+    # FP Café — table message moderation.
+    #
+    # Table chat messages live in the `messages` collection. The admin
+    # view shows the last 30 days by default, with the member display
+    # name, table name, message text, attached image if any, and
+    # timestamp. Deleting a single message leaves the table and every
+    # other message untouched.
+    # ═══════════════════════════════════════════════════════════════════
+
+    @router.get("/cafe/messages")
+    async def cms_cafe_messages_list(
+        q: Optional[str] = None,
+        days: int = 30,
+        table_id: Optional[str] = None,
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List recent FP Café messages for admin moderation.
+
+        Defaults to the last 30 days, newest first. `q` matches text
+        or author display name; `table_id` scopes to one table. The
+        response hydrates `table_name` + `user_name` from the parent
+        docs so the UI never shows raw IDs.
+        """
+        from datetime import datetime, timedelta, timezone as _tz
+        cutoff = (datetime.now(_tz.utc) - timedelta(days=max(1, min(int(days or 30), 180)))).isoformat()
+        query: Dict[str, Any] = {
+            "table_id": {"$ne": None, "$exists": True},
+            "created_at": {"$gte": cutoff},
+        }
+        if table_id and table_id.strip():
+            query["table_id"] = table_id.strip()
+        if q and q.strip():
+            import re as _re
+            safe = _re.escape(q.strip())
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [
+                {"text":      rx},
+                {"user_name": rx},
+            ]
+        limit = max(1, min(int(limit or 200), 500))
+        rows = (
+            await db.messages.find(query, {"_id": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+            .to_list(limit)
+        )
+        # Batched table + author name lookups.
+        tids = sorted({r.get("table_id") for r in rows if r.get("table_id")})
+        tmap: Dict[str, str] = {}
+        if tids:
+            async for t in db.tables.find(
+                {"id": {"$in": list(tids)}},
+                {"_id": 0, "id": 1, "name": 1},
+            ):
+                tmap[t["id"]] = t.get("name") or "Table"
+        uids = sorted({r.get("user_id") for r in rows if r.get("user_id")})
+        umap: Dict[str, str] = {}
+        if uids:
+            async for u in db.users.find(
+                {"id": {"$in": list(uids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "username": 1},
+            ):
+                umap[u["id"]] = u.get("first_name") or u.get("username") or "Someone"
+        out = []
+        for r in rows:
+            out.append({
+                "id":          r.get("id"),
+                "table_id":    r.get("table_id") or "",
+                "table_name":  tmap.get(r.get("table_id", ""), "Table"),
+                "user_id":     r.get("user_id") or "",
+                # Prefer the current users-collection display name over
+                # the stored snapshot so admins never see stale names.
+                "user_name":   umap.get(r.get("user_id", ""), r.get("user_name") or "Someone"),
+                "user_avatar": r.get("avatar") or "",
+                "text":        r.get("text") or "",
+                "image":       r.get("image") or "",
+                "created_at":  r.get("created_at") or "",
+            })
+        # Headline totals.
+        total_last_window = await db.messages.count_documents({
+            "table_id": {"$ne": None, "$exists": True},
+            "created_at": {"$gte": cutoff},
+        })
+        tables_active = await db.messages.distinct("table_id", {"created_at": {"$gte": cutoff}})
+        return {
+            "count":        len(out),
+            "window_days":  days,
+            "total_window": total_last_window,
+            "tables_active": len([t for t in tables_active if t]),
+            "rows":         out,
+        }
+
+    @router.get("/cafe/tables")
+    async def cms_cafe_tables_list(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return every FP Café table — powers the admin filter chip on
+        the Café Messages moderation page."""
+        rows = await db.tables.find({}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(500)
+        return {"rows": [{"id": r.get("id"), "name": r.get("name") or "Table"} for r in rows]}
+
+    @router.delete("/cafe/messages/{message_id}")
+    async def cms_cafe_message_delete(
+        message_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Hard-delete a single FP Café message. The parent table and
+        every sibling message are untouched."""
+        m = await db.messages.find_one(
+            {"id": message_id},
+            {"_id": 0, "id": 1, "table_id": 1, "user_id": 1, "text": 1},
+        )
+        if not m:
+            raise HTTPException(404, "Message not found")
+        await db.messages.delete_one({"id": message_id})
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email"),
+                "action": "cafe_message.delete",
+                "target": message_id,
+                "detail": (m.get("text") or "")[:140],
+                "at":     _now_iso(),
+            })
+        except Exception:
+            pass
+        return {"ok": True}
+
+
     # ─── CRM CSV export (2D) ────────────────────────────────────────
     @router.get("/crm/founding-members.csv")
     async def crm_founding_members_csv(
