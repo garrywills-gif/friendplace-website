@@ -73,7 +73,7 @@ export default function BlockedMembers() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Blocked members" showGeorge={false} />
+      <Header title="Blocked members" />
       {loading && list.length === 0 ? (
         <View style={{ paddingTop: 60, alignItems: "center" }}>
           <ActivityIndicator color={c.brand} />

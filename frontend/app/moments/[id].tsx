@@ -25,6 +25,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
 import TappableImage from "@/src/components/TappableImage";
+import { GeorgeCornerButton } from "@/src/components/Header";
 
 type Comment = {
   id: string;
@@ -262,6 +263,7 @@ export default function MomentDetail() {
           <Ionicons name="chevron-back" size={26} color={c.onSurface} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: c.onSurface, fontSize: 17 * scale }]}>Moment</Text>
+        <GeorgeCornerButton />
         {isMine ? (
           <Pressable
             testID="moment-detail-delete"
@@ -612,7 +614,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerBtn: { padding: 6, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontWeight: "900", letterSpacing: 0.2 },
+  headerTitle: { fontWeight: "900", letterSpacing: 0.2, flex: 1, textAlign: "center" },
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   featureBadge: {
     flexDirection: "row",

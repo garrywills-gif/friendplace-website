@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
+import { GeorgeCornerButton } from "@/src/components/Header";
 
 /**
  * More — Wave B. The 6-tab bottom bar surfaces Home · My Friends · FP Café ·
@@ -52,8 +53,9 @@ export default function MoreScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface, paddingTop: insets.top }}>
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
+      <View style={[styles.header, { borderBottomColor: c.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}>
         <Text style={[styles.headerTitle, { color: c.onSurface, fontSize: 22 * scale }]}>More</Text>
+        <GeorgeCornerButton />
       </View>
       <ScrollView {...navScroll} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
         {GROUPS.map((g) => (

@@ -25,6 +25,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import { GeorgeCornerButton } from "@/src/components/Header";
 
 // Extensive stage-by-stage logging so we can diagnose iOS picker hangs
 // from the device console. Prefix chosen so it's easy to grep in
@@ -321,6 +322,7 @@ export default function NewMoment() {
         <Text style={[styles.headerTitle, { color: c.onSurface, fontSize: 18 * scale }]}>
           Share a Moment
         </Text>
+        <GeorgeCornerButton />
         <Pressable
           testID="moment-new-share"
           disabled={!canShare}
@@ -713,7 +715,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerBtn: { flexDirection: "row", alignItems: "center", padding: 6, height: 40 },
-  headerTitle: { fontWeight: "900", letterSpacing: 0.2 },
+  headerTitle: { fontWeight: "900", letterSpacing: 0.2, flex: 1, textAlign: "center" },
   shareBtn: {
     paddingHorizontal: 20,
     height: 40,

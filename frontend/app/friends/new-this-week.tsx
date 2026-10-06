@@ -24,6 +24,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import { GeorgeCornerButton } from "@/src/components/Header";
 
 type NewMember = {
   id: string;
@@ -111,10 +112,13 @@ export default function NewThisWeek() {
       {/* Page banner matches the consistent top-level banner pattern used
           across the rest of the app — keeps navigation predictable. */}
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: c.surface, borderBottomColor: c.border }]}>
-        <Pressable testID="ntw-back" onPress={() => router.back()} hitSlop={8} style={[styles.backBtn, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
-          <Ionicons name="chevron-back" size={22} color={c.onSurface} />
-          <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Pressable testID="ntw-back" onPress={() => router.back()} hitSlop={8} style={[styles.backBtn, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
+            <Ionicons name="chevron-back" size={22} color={c.onSurface} />
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
+          </Pressable>
+          <GeorgeCornerButton />
+        </View>
         <View style={{ alignItems: "center", marginTop: 8 }}>
           <Text style={{ fontSize: 30 }}>👋</Text>
           <Text style={[styles.title, { color: c.onSurface, fontSize: 22 * scale }]}>New this week</Text>

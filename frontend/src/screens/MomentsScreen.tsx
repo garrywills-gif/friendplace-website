@@ -24,6 +24,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import AppHeader from "@/src/components/AppHeader";
+import { GeorgeCornerButton } from "@/src/components/Header";
 
 /**
  * Share a Moment — feed screen.
@@ -129,6 +130,7 @@ export default function MomentsScreen() {
         <AppHeader
           testID="moments-header"
           showTagline={true}
+          rightAction={<GeorgeCornerButton />}
         />
       </View>
       <View style={styles.momentsTitleRow}>

@@ -81,6 +81,15 @@ const HIDDEN_SCREENS: ReadonlySet<GeorgeScreenKey> = new Set<GeorgeScreenKey>([
   'auth', 'onboarding', 'landing',
 ]);
 
+/** Primary tab screens that show the FLOATING resting butterfly. Every
+ *  other member screen shows the inline corner butterfly instead
+ *  (`<Header />` / `<GeorgeCornerButton />`) — exactly one George each. */
+const FLOATING_SCREENS: readonly GeorgeScreenKey[] = ['home', 'chats', 'friends', 'lounge', 'profile'];
+export function isFloatingButterflyScreen(screen: GeorgeScreenKey, pathname: string | null | undefined): boolean {
+  const isSecondaryUserRoute = typeof pathname === 'string' && /^\/user(\/|$)/.test(pathname);
+  return FLOATING_SCREENS.includes(screen) && !isSecondaryUserRoute;
+}
+
 // ---- Context --------------------------------------------------------------
 
 interface GeorgeCtx {

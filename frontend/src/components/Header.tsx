@@ -8,7 +8,7 @@ import Reanimated, {
   withRepeat, withSequence, withTiming,
 } from "react-native-reanimated";
 import { useTheme } from "../lib/theme";
-import { useGeorge } from "../lib/george-context";
+import { useGeorge, isFloatingButterflyScreen } from "../lib/george-context";
 import { GeorgeButterflyMark } from "./george/GeorgeButterflyMark";
 
 // Teal FriendPlace butterfly — REPLACED with George in C1 Slice 3 v5
@@ -42,7 +42,7 @@ export default function Header({
   backHref,
   onBack,
   titleAccessory,
-  showGeorge = false,
+  showGeorge,
 }: {
   title: string;
   subtitle?: string;
@@ -58,18 +58,19 @@ export default function Header({
    * Batch B iter157 (Garry, Aug 2026 — P0 #2 fix for Notice Board). */
   onBack?: () => void;
   titleAccessory?: React.ReactNode;
-  /** Show the inline George butterfly on the right of the banner
-   * row. Defaults to `false` because the app has a global floating
-   * `<GeorgeGlobalHost />` mounted at the root, and rendering both
-   * produces the "2 Georges" bug reported by Garry (Aug 2026).
-   * Explicitly set `showGeorge={true}` on the handful of screens
-   * where the global host is hidden — the auth flows (`/`,
-   * `/auth/*`), `/onboarding`, and `/waitlist`. */
+  /** Inline corner George butterfly on the right of the banner row.
+   * iter248 (TestFlight): default is AUTO — shown on every member
+   * screen where the floating resting butterfly isn't (Notice Board,
+   * Groups, Events, Games, Settings, …) so George is always one tap
+   * away and there's never two. `true` forces it (auth/waitlist),
+   * `false` hides it. */
   showGeorge?: boolean;
 }) {
   const router = useRouter();
   const { c, scale } = useTheme();
   const insets = useSafeAreaInsets();
+  const { currentScreen, currentPathname, butterflyVisible } = useGeorge();
+  const showMark = showGeorge ?? (butterflyVisible && !isFloatingButterflyScreen(currentScreen, currentPathname));
 
   /**
    * Smart Back handler — see commit history for the rationale. The TL;DR:
@@ -173,7 +174,7 @@ export default function Header({
             </Text>
           ) : null}
         </View>
-        <GeorgeHeaderMark hidden={!showGeorge} />
+        <GeorgeHeaderMark hidden={!showMark} />
       </View>
     </View>
   );
@@ -191,6 +192,15 @@ export default function Header({
  * short flutter-in (~800ms) triggered by the `landedFrom` context
  * flag matching the current screen.
  */
+/** iter248: the same corner butterfly for screens with a custom header
+ *  (Share a Moment, Moment detail, More, New this week). Renders nothing
+ *  where the floating butterfly is already showing, so never two. */
+export function GeorgeCornerButton() {
+  const { currentScreen, currentPathname, butterflyVisible } = useGeorge();
+  if (!butterflyVisible || isFloatingButterflyScreen(currentScreen, currentPathname)) return null;
+  return <GeorgeHeaderMark />;
+}
+
 function GeorgeHeaderMark({ hidden = false }: { hidden?: boolean }) {
   const { openGeorge, landedFrom, currentScreen, consumeLanded } = useGeorge();
   const scale = useSharedValue(1);
@@ -311,10 +321,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   brandMark: {
-    width: 40,
-    height: 40,
-    marginLeft: 10,
-    borderRadius: 10,
+    // 48pt tap target (+10pt hitSlop) — comfortably above Apple's 44pt.
+    width: 48,
+    height: 48,
+    marginLeft: 8,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

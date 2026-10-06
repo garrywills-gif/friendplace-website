@@ -15,7 +15,7 @@ import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { GeorgeCompanionChat } from './GeorgeCompanionChat';
 import CompanionNudge, { setCompanionOpenForNudges } from '@/src/components/CompanionNudge';
-import { useGeorge } from '@/src/lib/george-context';
+import { useGeorge, isFloatingButterflyScreen } from '@/src/lib/george-context';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 
@@ -538,9 +538,8 @@ export function GeorgeButterfly() {
   // extra butterfly hovers above the profile hero and has no
   // purpose there. Suppress the overlay whenever we're on a
   // secondary user profile route.
-  const FLOATING_OK: readonly string[] = ['home', 'chats', 'friends', 'lounge', 'profile'];
-  const isSecondaryUserRoute = typeof currentPathname === 'string' && /^\/user(\/|$)/.test(currentPathname);
-  const showFloatingButterfly = FLOATING_OK.includes(currentScreen) && !isSecondaryUserRoute;
+  // iter248: single source of truth shared with Header's corner butterfly.
+  const showFloatingButterfly = isFloatingButterflyScreen(currentScreen, currentPathname);
 
   return (
     <>
