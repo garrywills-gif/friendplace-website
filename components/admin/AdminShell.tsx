@@ -40,7 +40,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'App Mission Control',
     items: [
-      { href: '/admin/moments',          label: 'Share a Moment',       icon: '✨' },
+      { href: '/admin/moments',          label: 'SAM',                  icon: '✨' },
       { href: '/admin/notice-board',     label: 'Notice Board',         icon: '📰' },
       { href: '/admin/local-events',     label: 'Local Events',         icon: '📍' },
       { href: '/admin/events',           label: 'Events',               icon: '📅' },
