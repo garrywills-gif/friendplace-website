@@ -288,13 +288,40 @@ def _detect_nav_intent(text: str) -> Optional[dict]:
     return {"mode": "navigate", "dest": dest}
 
 
+_AFFIRM_RE = None
+_NEGATE_RE = None
+
+
+def _is_affirmative(text: str) -> bool:
+    """True for a short "yes" reply to George's "Want me to take you
+    now?" offer — e.g. "Ok", "Yes please", "Sure", "Go on", "Take me"."""
+    global _AFFIRM_RE, _NEGATE_RE
+    import re
+    if _AFFIRM_RE is None:
+        _AFFIRM_RE = re.compile(
+            r"^\s*(ok(ay)?|k|yes|yeah|yea|yep|yup|sure|please|go on|go ahead|"
+            r"let'?s go|let'?s do it|do it|take me( there)?|sounds good|"
+            r"alright|all right|absolutely|definitely|of course|why not|great|perfect|lovely)\b",
+            re.I,
+        )
+        _NEGATE_RE = re.compile(r"\b(no|not|don'?t|nope|nah|later|wait|stop)\b", re.I)
+    t = (text or "").strip()
+    if not t or len(t) > 60:
+        return False
+    return bool(_AFFIRM_RE.search(t)) and not _NEGATE_RE.search(re.sub(r"why not", "", t, flags=re.I))
+
+
 def _nav_reply(name: str, intent: dict) -> dict:
     dest = intent["dest"]
     label = dest["label"]
     if intent["mode"] == "explain":
+        offer_key = dest.get("key") or dest.get("route")
         return {
             "message": f"You'll find {label} at {dest['where']}. Have a tap there and it'll open right up. Want me to take you now?",
             "navigate_to": None,
+            # iter246: remembered so a follow-up "Ok" / "Yes please"
+            # actually navigates (see companion_turn).
+            "nav_offer": {"key": offer_key, "label": label} if offer_key else None,
         }
     # navigate
     nav_key = dest.get("key") or dest.get("route")
@@ -621,13 +648,23 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     # Item 4: handle navigation intent deterministically BEFORE the LLM so
     # "take me to Find Friends" always works and never loops on a fallback.
     nav = _detect_nav_intent(user_text)
+    # iter246 (TestFlight): George asked "Want me to take you now?" and
+    # the member said "Ok" — honour the remembered offer instead of
+    # letting the LLM say "taking you there" without navigating.
+    prev_offer = (doc or {}).get("nav_offer")
+    nr = None
     if nav:
         nr = _nav_reply(name, nav)
+    elif prev_offer and prev_offer.get("key") and _is_affirmative(user_text):
+        nr = {"message": f"Of course — taking you to {prev_offer.get('label') or 'it'} now.",
+              "navigate_to": {"key": prev_offer["key"], "label": prev_offer.get("label")}}
+    if nr:
         reply = nr["message"]
         turns.append({"role": "george", "content": reply, "at": _now_iso()})
         await db[COLL_CHAT].update_one(
             _chat_filter(actor_id, persona),
             {"$set": {"actor_id": actor_id, "persona": pkey, "turns": turns[-200:],
+                      "nav_offer": nr.get("nav_offer"),
                       "updated_at": _now_iso(), "last_active_at": _now_iso()},
              "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
             upsert=True,
@@ -656,6 +693,7 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     await db[COLL_CHAT].update_one(
         _chat_filter(actor_id, persona),
         {"$set": {"actor_id": actor_id, "persona": pkey, "turns": turns[-200:],
+                  "nav_offer": None,
                   "updated_at": _now_iso(), "last_active_at": _now_iso()},
          "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
         upsert=True,
