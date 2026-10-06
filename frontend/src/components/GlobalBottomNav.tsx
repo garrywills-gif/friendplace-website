@@ -20,7 +20,6 @@ import { useBottomNavVisible, showBottomNav } from "@/src/lib/bottom-nav";
  * is never stranded. Active tab + My Chats unread badge mirror the real bar.
  */
 const NAVY = "#0D2A57";
-const TEAL_PILL = "rgba(45,212,191,0.26)";
 
 const TABS: { key: string; label: string; icon: any; route: string }[] = [
   { key: "home", label: "Home", icon: "home", route: "/home" },
@@ -103,19 +102,39 @@ export default function GlobalBottomNav() {
   return (
     <Animated.View style={[styles.bar, { paddingBottom: bottomPad, backgroundColor: NAVY, pointerEvents: "box-none", transform: [{ translateY: slide }] }]}>
       {TABS.map((t) => {
-        const active = t.key === "moments" && top === "moments";
-        const color = active ? "#FFFFFF" : "rgba(255,255,255,0.72)";
+        // iter242 (Neo, Oct 2026 — TestFlight #7): the active check was
+        // hard-coded to compare against "moments", so the teal pill
+        // only ever appeared on the Moments tab — and on screens
+        // under /moments it hovered over Home when the top-level route
+        // segment happened to collide. We now compare the tab key to
+        // the ACTUAL top-level segment, and swap the teal blob for a
+        // crisp white outline ring that reads as "selected" at a
+        // glance.
+        const activeTopKey =
+          top === "(tabs)" ? (segments[1] || "home") : top;
+        const active = t.key === activeTopKey;
+        const activeColor = "#FFFFFF";
+        const dimColor    = "rgba(255,255,255,0.68)";
+        const color = active ? activeColor : dimColor;
         return (
           <Pressable
             key={t.key}
             testID={`global-tab-${t.key}`}
             accessibilityRole="button"
             accessibilityLabel={t.label}
+            accessibilityState={{ selected: active }}
             onPress={() => router.navigate(t.route as any)}
             style={styles.item}
             android_ripple={{ borderless: true }}
           >
-            <View style={[styles.pill, active ? { backgroundColor: TEAL_PILL } : null]}>
+            <View style={[
+              styles.pill,
+              active ? {
+                borderColor: activeColor,
+                borderWidth: 1.5,
+                backgroundColor: "transparent",
+              } : null,
+            ]}>
               <Ionicons name={(t.key === "more" ? t.icon : (active ? t.icon : `${t.icon}-outline`)) as any} size={24} color={color} />
               {t.key === "chats" && unread > 0 ? (
                 <View style={[styles.badge, { backgroundColor: c.error, borderColor: NAVY }]}>
@@ -123,7 +142,7 @@ export default function GlobalBottomNav() {
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.label, { color, fontSize: 12 * scale }]} numberOfLines={1}>{t.label}</Text>
+            <Text style={[styles.label, { color, fontSize: 12 * scale, fontWeight: active ? "900" : "700" }]} numberOfLines={1}>{t.label}</Text>
           </Pressable>
         );
       })}
@@ -145,7 +164,7 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 2 },
-  pill: { paddingHorizontal: 16, paddingVertical: 3, borderRadius: 999 },
+  pill: { paddingHorizontal: 16, paddingVertical: 3, borderRadius: 999, borderWidth: 1.5, borderColor: "transparent" },
   label: { fontWeight: "800", marginTop: 2 },
   badge: {
     position: "absolute",

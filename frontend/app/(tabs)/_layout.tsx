@@ -145,7 +145,6 @@ export default function TabsLayout() {
   const BAR_TOTAL = TAB_HEIGHT + bottomPad;
   const navVisible = useBottomNavVisible();
   const NAVY = "#0D2A57";
-  const TEAL_PILL = "rgba(45,212,191,0.26)";
   return (
     <Tabs
       // Solid scene background — without this, tab transitions on iOS can
@@ -182,10 +181,16 @@ export default function TabsLayout() {
         tabBarIconStyle: { marginTop: 2 },
         tabBarAccessibilityLabel: route.name,
         tabBarIcon: ({ color, focused }) => {
-          // Active-tab shading: a soft-teal rounded pill behind the icon.
-          const pill = focused
-            ? { backgroundColor: TEAL_PILL, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 3 }
-            : { paddingHorizontal: 16, paddingVertical: 3 };
+          // iter243 (TestFlight #7): active tab = crisp white outline ring
+          // (no filled teal blob over the icon). Inactive keeps a
+          // transparent border of the same width so nothing shifts.
+          const pill = {
+            borderRadius: 999,
+            paddingHorizontal: 16,
+            paddingVertical: 3,
+            borderWidth: 1.5,
+            borderColor: focused ? "#FFFFFF" : "transparent",
+          };
           if (route.name === "chats") {
             return <View style={pill}><ChatsIcon focused={focused} color={color} /></View>;
           }

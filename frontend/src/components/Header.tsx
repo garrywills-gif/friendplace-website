@@ -167,7 +167,7 @@ export default function Header({
             <Text
               testID="header-subtitle"
               style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2, fontWeight: "600" }}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {subtitle}
             </Text>

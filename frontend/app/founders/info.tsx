@@ -167,7 +167,7 @@ export default function FounderInfo() {
             <View style={styles.counterPill}>
               <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.3 }}>
                 {status.open
-                  ? `${status.remaining.toLocaleString()} of ${status.cap.toLocaleString()} places left`
+                  ? `${status.remaining.toLocaleString()} of ${status.cap.toLocaleString()} ${status.remaining === 1 ? "place" : "places"} left`
                   : `${status.cap.toLocaleString()} Founding Members — cohort full`}
               </Text>
             </View>

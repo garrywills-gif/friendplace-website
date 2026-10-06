@@ -176,7 +176,7 @@ export default function InviteLanding() {
                   </Text>
                   {founder.taken > 0 ? (
                     <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                      <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.remaining.toLocaleString()}</Text> Founding Member places remaining.
+                      <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.remaining.toLocaleString()}</Text> Founding Member {founder.remaining === 1 ? "place" : "places"} remaining.
                     </Text>
                   ) : (
                     <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>

@@ -99,7 +99,9 @@ export default function ShareFriendPlace({
     if (founderUser) {
       const seats =
         typeof founderRemaining === "number" && founderRemaining > 0
-          ? ` There are ${founderRemaining.toLocaleString()} Founding Member spots left.`
+          ? founderRemaining === 1
+            ? ` There is 1 Founding Member spot left.`
+            : ` There are ${founderRemaining.toLocaleString()} Founding Member spots left.`
           : "";
       return `I'm one of the founding members of FriendPlace — a friendly community where you can meet people, join local events, chat in the FP Café and make new friends.${seats} Come join me 🦋`;
     }

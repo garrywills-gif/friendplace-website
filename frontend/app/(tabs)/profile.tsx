@@ -363,7 +363,7 @@ export default function Profile() {
           return (
             <View key={b} style={[styles.badgeCard, { backgroundColor: earned ? c.brandTertiary : c.surfaceTertiary, borderColor: earned ? c.brand : c.border }]}>
               <Text style={{ fontSize: 30 }}>{earned ? "🏆" : "🔒"}</Text>
-              <Text style={{ color: earned ? c.onBrandTertiary : c.muted, fontWeight: "700", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }}>{b}</Text>
+              <Text style={{ color: earned ? c.onBrandTertiary : c.muted, fontWeight: "700", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.75}>{b}</Text>
             </View>
           );
         })}
@@ -461,7 +461,7 @@ export default function Profile() {
           location. */}
       <Button
         label="Blocked members"
-        variant="ghost"
+        variant="outline"
         onPress={() => router.push("/settings/blocked" as any)}
         testID="profile-blocked-members"
       />
@@ -527,7 +527,7 @@ export default function Profile() {
               </Text>
               {founderRemaining != null ? (
                 <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 13 * scale, marginTop: 4 }}>
-                  {founderRemaining.toLocaleString()} of {founderCap?.toLocaleString() ?? 250} places remaining
+                  {founderRemaining.toLocaleString()} of {founderCap?.toLocaleString() ?? 250} {founderRemaining === 1 ? "place" : "places"} remaining
                 </Text>
               ) : (
                 <Text style={{ color: "#CBD5E1", fontWeight: "700", fontSize: 13 * scale, marginTop: 4 }}>
@@ -609,7 +609,7 @@ export default function Profile() {
       <View style={{ height: 12 }} />
       <Button label="Accessibility Settings" variant="outline" onPress={() => router.push("/settings?anchor=accessibility")} testID="profile-accessibility" />
       <View style={{ height: 12 }} />
-      <Button label="Settings" variant="ghost" onPress={() => router.push("/settings")} testID="profile-settings" />
+      <Button label="Settings" variant="outline" onPress={() => router.push("/settings")} testID="profile-settings" />
       {(user as any)?.is_admin && (
         <>
           <View style={{ height: 12 }} />
@@ -617,7 +617,7 @@ export default function Profile() {
         </>
       )}
       <View style={{ height: 12 }} />
-      <Button testID="logout" label="Log Out" variant="ghost" onPress={async () => { await logout(); router.replace("/"); }} />
+      <Button testID="logout" label="Log Out" variant="outline" onPress={async () => { await logout(); router.replace("/"); }} />
     </ScrollView>
   );
 }

@@ -15,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 import { useComposerLock } from '@/src/lib/composer-lock';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
-import GeorgeNavFuse from '@/src/components/george/GeorgeNavFuse';
 import { useGeorge } from '@/src/lib/george-context';
 import { useRouter } from 'expo-router';
 
@@ -46,7 +45,12 @@ export function GeorgeCompanionChat({ onClose }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
-  const [navFuse, setNavFuse] = useState<{ label: string; run: () => void } | null>(null);
+  // iter241 (Neo, Oct 2026 — TestFlight #1): navigation handoff is now
+  // OPT-IN rather than automatic. George finishes speaking → a
+  // "Go to {destination}" button fades into the chat → member taps
+  // when they're ready. Keeps the reply visible, never cuts speech.
+  const [pendingNav, setPendingNav] = useState<{ label: string; run: () => void } | null>(null);
+  const [navReady, setNavReady]   = useState<boolean>(false);
   const scrollRef = useRef<ScrollView | null>(null);
 
   const voiceIn = useGeorgeVoiceInput(setInput);
@@ -120,6 +124,10 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     const t = input.trim();
     if (!t || busy) return;
     setInput('');
+    // iter241: clear any previous handoff button so the member isn't
+    // staring at a stale "Go to X" while the next reply is composing.
+    setPendingNav(null);
+    setNavReady(false);
     setTurns((x) => [...x, { role: 'user', content: t }]);
     setBusy(true);
     try {
@@ -142,41 +150,29 @@ export function GeorgeCompanionChat({ onClose }: Props) {
           // or already finished), we fall through instantly and the
           // fuse starts right away.
           const target = resolved;
+          // iter241: show the handoff as a tap-ready button instead of
+          // an auto-firing fuse. We stage the button immediately so the
+          // member sees "coming next: Go to Friends", then flip it to
+          // "ready" once speech ends so they're never rushed.
+          setNavReady(false);
+          setPendingNav({
+            label: target.label,
+            run: () => {
+              try { markGeorgeLedNavigation(target.target.key as any); } catch { /* non-fatal */ }
+              try { router.push(target.target.href as any); } catch { /* non-fatal */ }
+              setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
+            },
+          });
           void (async () => {
             try {
-              // Wait for the auto-read of the final George bubble to
-              // finish before starting the fuse. `speakGeorgeAloud`
-              // now resolves on whenDone (iter238), and the
-              // sendMessage handler kicks it off before we get here.
-              // iter239: give the render + auto-read useEffect enough
-              // time to actually fire and bump `pendingCount` — a 50ms
-              // tick wasn't always long enough on slower devices, so
-              // the poll would read "not speaking" during the TTS
-              // fetch and start the fuse before speech began. 300ms
-              // is still invisible to the member but comfortably
-              // longer than the auto-read effect's first render.
               await new Promise((r) => setTimeout(r, 300));
-              // There's no public "await active" API; the auto-read
-              // module tracks pending + active state internally and
-              // resolves `whenDone` on finish. We poll briefly here
-              // instead of plumbing a new signal through, because the
-              // auto-read lifetime is short (seconds, not minutes).
               const { isGeorgeAutoReadActive } = await import('@/src/lib/george-auto-read');
               const t0 = Date.now();
-              // Hard cap of 30s so a stuck playback never prevents
-              // navigation from eventually running.
               while (isGeorgeAutoReadActive() && Date.now() - t0 < 30000) {
                 await new Promise((r) => setTimeout(r, 150));
               }
             } catch { /* non-fatal */ }
-            setNavFuse({
-              label: target.label,
-              run: () => {
-                try { markGeorgeLedNavigation(target.target.key as any); } catch { /* non-fatal */ }
-                try { router.push(target.target.href as any); } catch { /* non-fatal */ }
-                setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
-              },
-            });
+            setNavReady(true);
           })();
         }
       }
@@ -214,7 +210,9 @@ export function GeorgeCompanionChat({ onClose }: Props) {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={[styles.wrap, { paddingTop: insets.top + 20 }]}>
-      {navFuse && <GeorgeNavFuse label={navFuse.label} onDone={navFuse.run} />}
+      {/* iter241: no top overlay fuse — handoff is a tap-ready button
+          inline with the chat (see pendingNav render below). The old
+          overlay auto-navigated too fast and cut speech off. */}
       <View style={styles.header}>
         <View style={styles.identity}>
           <GeorgeButterflyMark size={30} />
@@ -230,12 +228,9 @@ export function GeorgeCompanionChat({ onClose }: Props) {
         </Pressable>
         <Pressable
           onPress={() => {
-            // iter233 (Neo, Oct 2026 — final polish #1): if a nav
-            // handoff is in flight when the member taps Close, fire
-            // it IMMEDIATELY so the handoff still lands rather than
-            // being cancelled by the dismiss. ``run`` is idempotent
-            // on the fuse side (``doneRef`` guards double-fire).
-            if (navFuse) { try { navFuse.run(); } catch { /* non-fatal */ } return; }
+            // iter241: Close no longer force-runs the handoff — the
+            // member taps the inline "Go to {destination}" button when
+            // they're ready. Close just dismisses the chat sheet.
             onClose();
           }}
           hitSlop={8}
@@ -289,6 +284,47 @@ export function GeorgeCompanionChat({ onClose }: Props) {
             </View>
           </View>
         )}
+
+        {/* iter241 (TestFlight #1): inline, tap-ready handoff button.
+            Appears after a George reply that suggested a destination,
+            waits for speech to finish before enabling, and only hands
+            off when the member taps. Preserves the reply on screen so
+            members have time to read AND hear the full response. */}
+        {pendingNav ? (
+          <View style={{ paddingHorizontal: 20, marginTop: 8, marginBottom: 12, alignItems: 'flex-start' }}>
+            <Pressable
+              testID="companion-nav-cta"
+              onPress={() => { try { pendingNav.run(); } catch { /* non-fatal */ } }}
+              disabled={!navReady}
+              style={({ pressed }) => ([
+                {
+                  paddingVertical: 12,
+                  paddingHorizontal: 20,
+                  borderRadius: 999,
+                  borderWidth: 1.5,
+                  borderColor: '#0A2540',
+                  backgroundColor: navReady ? '#0A2540' : '#CBD5E1',
+                  opacity: pressed ? 0.75 : 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  minHeight: 48,
+                },
+              ])}
+              accessibilityRole="button"
+              accessibilityLabel={navReady ? `Go to ${pendingNav.label}` : `Preparing to go to ${pendingNav.label}`}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 16 }}>
+                {navReady ? `Go to ${pendingNav.label} →` : `Finishing up… 🦋`}
+              </Text>
+            </Pressable>
+            {navReady ? (
+              <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6 }}>
+                Tap when you&apos;re ready — I&apos;ll take you there.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         <View style={{ height: 20 }} />
       </ScrollView>
 

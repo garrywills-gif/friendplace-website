@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  StyleSheet, Pressable, Modal, Dimensions, Platform,
+  StyleSheet, Pressable, Modal, Dimensions, Platform, View,
 } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withSequence, withRepeat,
@@ -14,6 +14,7 @@ import { GeorgeWelcomeBubble } from './GeorgeWelcomeBubble';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { GeorgeCompanionChat } from './GeorgeCompanionChat';
+import CompanionNudge, { setCompanionOpenForNudges } from '@/src/components/CompanionNudge';
 import { useGeorge } from '@/src/lib/george-context';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
@@ -90,6 +91,10 @@ export function GeorgeButterfly() {
   // Milestone B5 — event creation & its (now inline) celebration.
   const [showEvent, setShowEvent] = useState(false);
   const [showCompanion, setShowCompanion] = useState(false);
+  useEffect(() => {
+    setCompanionOpenForNudges(showCompanion);
+    return () => setCompanionOpenForNudges(false);
+  }, [showCompanion]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
 
   // ---- Reanimated values -------------------------------------------------
@@ -725,14 +730,27 @@ export function GeorgeButterfly() {
       </Modal>
 
       {/* Always-available companion chat — the default surface for
-          members who've finished onboarding. */}
+          members who've finished onboarding.
+          iter241 (TestFlight #2): `presentationStyle="overFullScreen"`
+          + `transparent` keeps the companion as a floating sheet so
+          global overlays (CompanionNudge for incoming DMs/game invites,
+          FlutterOverlay) continue to render ABOVE it. Previously the
+          default fullscreen modal hid every sibling, so members
+          missed incoming messages while chatting with George.
+          iter243: a native Modal still sits above root views on iOS,
+          so a companion-hosted CompanionNudge renders INSIDE the modal
+          (above the chat) while it's open. */}
       <Modal
         visible={showCompanion}
         animationType="slide"
-        transparent={false}
+        transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowCompanion(false)}
       >
-        <GeorgeCompanionChat onClose={() => setShowCompanion(false)} />
+        <View style={{ flex: 1 }}>
+          <GeorgeCompanionChat onClose={() => setShowCompanion(false)} />
+          <CompanionNudge host="companion" onBeforeOpen={() => setShowCompanion(false)} />
+        </View>
       </Modal>
     </>
   );

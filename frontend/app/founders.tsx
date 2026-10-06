@@ -165,7 +165,7 @@ export default function FoundersWall() {
                   Become one of our first {cap?.toLocaleString() ?? 250} Founding Members
                 </Text>
                 <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 14 * scale, marginTop: 4, letterSpacing: 0.3 }}>
-                  {remaining.toLocaleString()} places remaining
+                  {remaining.toLocaleString()} {remaining === 1 ? "place" : "places"} remaining
                 </Text>
               </View>
             </View>
@@ -206,13 +206,13 @@ export default function FoundersWall() {
             </Text>
             <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
               {cap != null
-                ? `${total} of ${cap.toLocaleString()} early members shaping FriendPlace together.`
-                : `${total} early members shaping FriendPlace together.`}
+                ? `${total} of ${cap.toLocaleString()} early ${total === 1 ? "member" : "members"} shaping FriendPlace together.`
+                : `${total} early ${total === 1 ? "member" : "members"} shaping FriendPlace together.`}
             </Text>
             {remaining != null && remaining > 0 ? (
               <View style={styles.remainingPill} testID="founders-remaining-pill">
                 <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.3 }}>
-                  🦋 {remaining.toLocaleString()} places remaining
+                  🦋 {remaining.toLocaleString()} {remaining === 1 ? "place" : "places"} remaining
                 </Text>
               </View>
             ) : null}
@@ -262,8 +262,8 @@ export default function FoundersWall() {
                   <AvatarBubble value={f.avatar} size={44} textSize={28} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }} numberOfLines={1}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale, flexShrink: 1 }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.75}>
                       {f.first_name || f.username || "Founding Member"}
                     </Text>
                     <FounderMark
@@ -273,7 +273,7 @@ export default function FoundersWall() {
                       testID={`wall-founder-mark-${f.id}`}
                     />
                   </View>
-                  <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }} numberOfLines={1}>
+                  <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }} numberOfLines={2}>
                     {f.suburb ? `📍 ${f.suburb}` : `@${f.username || ""}`}
                   </Text>
                 </View>

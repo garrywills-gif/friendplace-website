@@ -201,7 +201,7 @@ export default function WaitlistScreen() {
                   {founder && founder.cap > 0 ? (
                     <View style={[styles.statChip, { backgroundColor: c.brandTertiary, borderColor: "#D4A017" }]}>
                       <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 13 * scale }}>
-                        {founder.remaining.toLocaleString()} of {founder.cap.toLocaleString()} Founder spots left
+                        {founder.remaining.toLocaleString()} of {founder.cap.toLocaleString()} Founder {founder.remaining === 1 ? "spot" : "spots"} left
                       </Text>
                     </View>
                   ) : null}

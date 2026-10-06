@@ -55,6 +55,29 @@ const cleanText = (s: string): string => {
     .trim();
 };
 
+// iter243 (TestFlight #2): the George/Georgia companion chat is a native
+// <Modal>, and on iOS a presented modal sits above EVERY root-level view —
+// so a root CompanionNudge was invisible while the companion was open. We
+// now mount a second, "companion"-hosted nudge INSIDE the companion modal.
+// Only one instance is live at a time (root while closed, companion while
+// open) and both share the same dedup state, so nothing double-shows.
+const SHARED_SHOWN_IDS = new Set<string>();
+const SHARED_SEEN_MSG = new Map<string, number>();
+let companionOpen = false;
+const companionListeners = new Set<() => void>();
+export function setCompanionOpenForNudges(open: boolean) {
+  if (companionOpen === open) return;
+  companionOpen = open;
+  companionListeners.forEach((l) => l());
+}
+function useCompanionOpen(): boolean {
+  return React.useSyncExternalStore(
+    (l) => { companionListeners.add(l); return () => { companionListeners.delete(l); }; },
+    () => companionOpen,
+    () => companionOpen,
+  );
+}
+
 type Nudge = {
   key: string;
   ntype: string;
@@ -64,7 +87,13 @@ type Nudge = {
   payload?: any;
 };
 
-export default function CompanionNudge() {
+export default function CompanionNudge({ host = "root", onBeforeOpen }: { host?: "root" | "companion"; onBeforeOpen?: () => void } = {}) {
+  const isCompanionOpen = useCompanionOpen();
+  // Root instance stands down while the companion is open; the instance
+  // mounted inside the companion modal takes over (see iter243 above).
+  const active = host === "companion" ? true : !isCompanionOpen;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const { c, scale, prefs } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -92,7 +121,7 @@ export default function CompanionNudge() {
   // one message = one nudge, while genuinely NEW consecutive messages in
   // the same conversation each still nudge (Garry: "repeated consecutive
   // messages must remain reliable"). Keyed `${conv}:${msgId}`.
-  const seenMsg = useRef<Map<string, number>>(new Map());
+  const seenMsg = useRef<Map<string, number>>(SHARED_SEEN_MSG);
   const seenRecently = useCallback((key: string): boolean => {
     const now = Date.now();
     const m = seenMsg.current;
@@ -111,7 +140,7 @@ export default function CompanionNudge() {
   // Every notification id we've already surfaced (via socket OR poll) so the
   // reconciliation poll never double-shows an event the socket already
   // delivered, and never re-nudges after the member dismissed it.
-  const shownIds = useRef<Set<string>>(new Set());
+  const shownIds = useRef<Set<string>>(SHARED_SHOWN_IDS);
   // Mirror of `nudge` for the poll closure — so we never clobber a visible
   // (possibly persistent) nudge with a polled one.
   const nudgeRef = useRef<Nudge | null>(null);
@@ -148,6 +177,7 @@ export default function CompanionNudge() {
   };
 
   useInboxEvent("notification", (evt: any) => {
+    if (!activeRef.current) return;
     const n = evt?.notification;
     if (!n || !NUDGE_TYPES.has(n.type)) return;
     // Already surfaced (poll beat the socket, or vice-versa) → skip.
@@ -194,6 +224,7 @@ export default function CompanionNudge() {
   // ANY screen (Games, FP Café, Moments…). If the parallel `notification`
   // push is missed (socket timing), this still surfaces the live nudge.
   useInboxEvent("dm_update", (evt: any) => {
+    if (!activeRef.current) return;
     const conv = evt?.conv_id;
     const fromId = evt?.from_id;
     const fromName = evt?.from_name || "A friend";
@@ -228,7 +259,7 @@ export default function CompanionNudge() {
     if (!user?.id) return;
     let stopped = false;
     const tick = async () => {
-      if (stopped) return;
+      if (stopped || !activeRef.current) return;
       // Never clobber a nudge that's already on screen (esp. persistent
       // game/friend/table invites waiting on a choice).
       if (nudgeRef.current) return;
@@ -279,6 +310,15 @@ export default function CompanionNudge() {
   // Keep the poll's view of "is a nudge visible" fresh.
   useEffect(() => { nudgeRef.current = nudge; }, [nudge]);
 
+  // Root instance going inactive (companion opened) with a nudge on screen:
+  // release it so the companion-hosted instance's poll can re-surface it
+  // above the companion instead of it being hidden underneath.
+  useEffect(() => {
+    if (active || !nudgeRef.current) return;
+    shownIds.current.delete(nudgeRef.current.key);
+    setNudge(null);
+  }, [active]);
+
   // Animate in + arm auto-hide whenever a new nudge is set.
   useEffect(() => {
     if (!nudge) return;
@@ -301,7 +341,7 @@ export default function CompanionNudge() {
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [nudge, anim, hide, chime]);
 
-  if (!nudge) return null;
+  if (!nudge || !active) return null;
 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-140, 0] });
   const isGameInvite = nudge.ntype === "game_invite";
@@ -314,6 +354,9 @@ export default function CompanionNudge() {
   const open = () => {
     const target = nudge.route;
     hide();
+    // Inside the companion: the member chose to open the item, so close
+    // the companion sheet first so the destination is actually visible.
+    try { onBeforeOpen?.(); } catch { /* noop */ }
     // Navigate on the next tick so the hide animation isn't cut short.
     setTimeout(() => { try { router.push(target as any); } catch { /* noop */ } }, 40);
   };

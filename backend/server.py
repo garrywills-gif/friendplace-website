@@ -4523,24 +4523,34 @@ async def community_today(user_id: Optional[str] = None):
 
     # iter210 (Garry, Oct 2026 — RED #5): once a member has waved welcome or
     # sent birthday wishes to someone, that row must disappear from Home —
-    # the Home card shows PENDING actions only. We look up today's sent
-    # greetings for this viewer and strip the matching recipients below.
+    # the Home card shows PENDING actions only.
+    # iter242 (Neo, Oct 2026 — TestFlight #3): welcomes are now PERMANENT.
+    # Previously we only stripped greetings sent *today*, so a member
+    # who welcomed Jenny on Monday saw Jenny reappear in the "New
+    # neighbours" list on Tuesday. Welcome is a one-shot acknowledgement
+    # — once sent, it should stay sent across restarts and sign-outs.
+    # Birthday wishes stay same-day-only (they're inherently annual and
+    # resurface naturally on the next birthday).
     sent_today: set = set()
     sent_bday_today: set = set()
     if user_id:
         start_of_day = datetime.combine(today.date(), datetime.min.time(), tzinfo=timezone.utc).isoformat()
+        # All-time welcome greetings sent by this viewer (permanent).
+        async for n in db.notifications.find(
+            {"type": "welcome", "payload.from_id": user_id},
+            {"_id": 0, "user_id": 1},
+        ):
+            sent_today.add(n.get("user_id"))
+        # Birthday wishes stay same-day only.
         async for n in db.notifications.find(
             {
-                "type": {"$in": ["welcome", "birthday_wish"]},
+                "type": "birthday_wish",
                 "payload.from_id": user_id,
                 "created_at": {"$gte": start_of_day},
             },
-            {"_id": 0, "user_id": 1, "type": 1},
+            {"_id": 0, "user_id": 1},
         ):
-            if n.get("type") == "birthday_wish":
-                sent_bday_today.add(n.get("user_id"))
-            else:
-                sent_today.add(n.get("user_id"))
+            sent_bday_today.add(n.get("user_id"))
 
     birthdays_all = [u for u in birthdays_all if u.get("id") not in sent_bday_today]
     new_members = [u for u in new_members if u.get("id") not in sent_today]
@@ -4578,18 +4588,23 @@ async def greetings_sent_today(user_id: str, me: dict = Depends(owner_or_admin))
     start_of_day = datetime.combine(today.date(), datetime.min.time(), tzinfo=timezone.utc).isoformat()
     welcomes: List[str] = []
     birthdays: List[str] = []
+    # iter242 (Neo, Oct 2026 — TestFlight #3): welcomes are now ALL-TIME
+    # so a member you've already waved to never resurfaces in your
+    # "New neighbours" list. Birthday wishes stay same-day only.
+    async for n in db.notifications.find(
+        {"type": "welcome", "payload.from_id": user_id},
+        {"_id": 0, "user_id": 1},
+    ):
+        welcomes.append(n.get("user_id"))
     async for n in db.notifications.find(
         {
-            "type": {"$in": ["welcome", "birthday_wish"]},
+            "type": "birthday_wish",
             "payload.from_id": user_id,
             "created_at": {"$gte": start_of_day},
         },
-        {"_id": 0, "user_id": 1, "type": 1},
+        {"_id": 0, "user_id": 1},
     ):
-        if n.get("type") == "birthday_wish":
-            birthdays.append(n.get("user_id"))
-        else:
-            welcomes.append(n.get("user_id"))
+        birthdays.append(n.get("user_id"))
     return {"welcome": welcomes, "birthday": birthdays}
 
 
