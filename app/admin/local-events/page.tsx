@@ -80,6 +80,35 @@ export default function AdminLocalEventsPage() {
     }
   };
 
+  const toggleHide = async (row: LocalEventRow) => {
+    const title = row.title?.trim() || '(untitled)';
+    const host  = row.host_name || 'Someone';
+    const when  = formatEventWhen(row);
+    const confirmMsg = row.hidden
+      ? `Restore this local event so members can see it again?\n\n` +
+        `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
+        `by ${host}${when ? ` · ${when}` : ''}\n\n` +
+        `It will reappear on the member Events feed on the next refresh.`
+      : `Hide this local event from members?\n\n` +
+        `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
+        `by ${host}${when ? ` · ${when}` : ''}\n\n` +
+        `Members stop seeing it immediately. The event stays here with a Hidden badge and RSVPs are preserved so you can Restore it later. This action is logged.`;
+    if (!window.confirm(confirmMsg)) return;
+    setBusyId(row.id);
+    try {
+      if (row.hidden) await localEventsApi.restore(row.id);
+      else            await localEventsApi.hide(row.id);
+      await load();
+      setToast(row.hidden ? 'Event restored' : 'Event hidden');
+      setTimeout(() => setToast(null), 2200);
+    } catch (e: any) {
+      setToast(e?.message || 'Action failed');
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <AdminShell title="Local Events">
       <div style={intro}>
@@ -170,7 +199,7 @@ export default function AdminLocalEventsPage() {
       ) : (
         <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
           {rows.map((e) => (
-            <EventRow key={e.id} row={e} busy={busyId === e.id} onDelete={() => remove(e)} />
+            <EventRow key={e.id} row={e} busy={busyId === e.id} onToggleHide={() => toggleHide(e)} onDelete={() => remove(e)} />
           ))}
         </div>
       )}
@@ -184,16 +213,18 @@ export default function AdminLocalEventsPage() {
 // Sub-components
 // ──────────────────────────────────────────────────────────────────────
 
-function EventRow({ row, busy, onDelete }: { row: LocalEventRow; busy: boolean; onDelete: () => void }) {
+function EventRow({ row, busy, onToggleHide, onDelete }: { row: LocalEventRow; busy: boolean; onToggleHide: () => void; onDelete: () => void }) {
   const borderColour =
-    row.status === 'cancelled'
-      ? '#FCA5A5'
-      : row.status === 'archived'
-        ? '#CBD5E1'
-        : '#E2E8F0';
+    row.hidden
+      ? '#CBD5E1'
+      : row.status === 'cancelled'
+        ? '#FCA5A5'
+        : row.status === 'archived'
+          ? '#CBD5E1'
+          : '#E2E8F0';
   return (
     <div style={{
-      background: '#FFFFFF',
+      background: row.hidden ? '#F8FAFC' : '#FFFFFF',
       borderRadius: 16,
       border: `1px solid ${borderColour}`,
       padding: 16,
@@ -215,6 +246,7 @@ function EventRow({ row, busy, onDelete }: { row: LocalEventRow; busy: boolean; 
             </span>
             {row.status === 'cancelled' ? <Pill tone="danger">Cancelled</Pill> : null}
             {row.status === 'archived' ? <Pill tone="slate">Archived</Pill> : null}
+            {row.hidden ? <Pill tone="slate">👁️‍🗨️ Hidden</Pill> : null}
             {row.recurrence ? <Pill tone="slate">{row.recurrence}</Pill> : null}
           </div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
@@ -240,6 +272,24 @@ function EventRow({ row, busy, onDelete }: { row: LocalEventRow; busy: boolean; 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
           <button
             type="button"
+            onClick={onToggleHide}
+            disabled={busy}
+            className="cms-btn-ghost"
+            style={{
+              background: row.hidden ? '#DCFCE7' : '#FFFBEB',
+              color: row.hidden ? '#166534' : '#92400E',
+              border: `1px solid ${row.hidden ? '#86EFAC' : '#F59E0B'}`,
+              borderRadius: 8,
+              padding: '8px 14px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            {row.hidden ? 'Restore' : 'Hide'}
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             disabled={busy}
             className="cms-btn-danger"
@@ -249,6 +299,14 @@ function EventRow({ row, busy, onDelete }: { row: LocalEventRow; busy: boolean; 
           </button>
         </div>
       </div>
+      {row.hidden && row.hidden_by ? (
+        <div style={{
+          marginTop: 10, padding: '8px 12px', background: '#F1F5F9',
+          borderRadius: 10, fontSize: 12, color: '#475569',
+        }}>
+          Hidden by <b>{row.hidden_by}</b>{row.hidden_at ? ` · ${fmtPostedDate(row.hidden_at)}` : ''}
+        </div>
+      ) : null}
     </div>
   );
 }
