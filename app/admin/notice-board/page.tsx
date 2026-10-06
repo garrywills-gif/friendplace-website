@@ -206,12 +206,7 @@ function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
       transition: 'opacity 160ms ease',
     }}>
       <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr auto', gap: 14, alignItems: 'flex-start' }}>
-        <div style={{
-          width: 48, height: 48, borderRadius: 12, background: '#F1F5F9',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-        }}>
-          {row.author_avatar || '👤'}
-        </div>
+        <NoticeAvatar value={row.author_avatar} />
 
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -285,6 +280,36 @@ function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
   );
 }
 
+function NoticeAvatar({ value }: { value?: string }) {
+  const avatar = (value || '').trim();
+
+  // Mobile preset tokens such as "preset:portrait-4" are identifiers,
+  // not display text. Never let them leak into the admin card layout.
+  if (!avatar || avatar.startsWith('preset:')) {
+    return (
+      <div style={avatarPlaceholder} aria-label="Member avatar">
+        👤
+      </div>
+    );
+  }
+
+  if (/^https?:\/\//i.test(avatar) || avatar.startsWith('data:image/')) {
+    return (
+      <img
+        src={avatar}
+        alt="Member avatar"
+        style={avatarImage}
+      />
+    );
+  }
+
+  return (
+    <div style={avatarPlaceholder} aria-label="Member avatar">
+      {avatar}
+    </div>
+  );
+}
+
 function Pill({ children, tone }: { children: React.ReactNode; tone: 'amber' | 'danger' | 'slate' }) {
   const palettes: Record<string, { bg: string; ink: string; border: string }> = {
     amber:  { bg: '#FEF3C7', ink: '#92400E', border: '#F59E0B' },
@@ -348,6 +373,27 @@ function StatCard({ label, value, hint, tone = 'default' }: {
 // ──────────────────────────────────────────────────────────────────────
 // Styles
 // ──────────────────────────────────────────────────────────────────────
+const avatarPlaceholder: React.CSSProperties = {
+  width: 48,
+  height: 48,
+  borderRadius: 12,
+  background: '#F1F5F9',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 24,
+  overflow: 'hidden',
+  flexShrink: 0,
+};
+const avatarImage: React.CSSProperties = {
+  width: 48,
+  height: 48,
+  borderRadius: 12,
+  objectFit: 'cover',
+  background: '#F1F5F9',
+  display: 'block',
+  flexShrink: 0,
+};
 const intro: React.CSSProperties = { marginTop: -12, marginBottom: 20 };
 const statsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 };
 const controlsRow: React.CSSProperties = {
