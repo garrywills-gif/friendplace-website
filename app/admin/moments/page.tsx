@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
-import { momentsApi, type MomentRow, type MomentAdminAction } from '@/lib/cms-api';
+import { momentsApi, momentCommentsApi, type MomentRow, type MomentAdminAction } from '@/lib/cms-api';
+import CommentsDrawer from '@/components/admin/CommentsDrawer';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
@@ -45,6 +46,7 @@ export default function AdminMomentsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [expandedCommentsId, setExpandedCommentsId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -194,6 +196,8 @@ export default function AdminMomentsPage() {
               row={m}
               busy={busyId === m.id}
               expanded={expandedReportId === m.id}
+              commentsExpanded={expandedCommentsId === m.id}
+              onToggleComments={() => setExpandedCommentsId(expandedCommentsId === m.id ? null : m.id)}
               onToggleReports={() => setExpandedReportId(expandedReportId === m.id ? null : m.id)}
               onFeature={() => runAction(m.id, m.featured ? 'unfeature' : 'feature',
                 m.featured
@@ -247,12 +251,14 @@ function StatCard({ label, value, hint, tone = 'default' }: {
 }
 
 function MomentAdminRow({
-  row, busy, expanded, onToggleReports, onFeature, onHide, onClearReports, onDelete,
+  row, busy, expanded, commentsExpanded, onToggleReports, onToggleComments, onFeature, onHide, onClearReports, onDelete,
 }: {
   row: MomentRow;
   busy: boolean;
   expanded: boolean;
+  commentsExpanded: boolean;
   onToggleReports: () => void;
+  onToggleComments: () => void;
   onFeature: () => void;
   onHide: () => void;
   onClearReports: () => void;
@@ -305,9 +311,36 @@ function MomentAdminRow({
             {row.caption || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(no caption)</span>}
           </p>
           <div style={{ marginTop: 8, fontSize: 12, color: '#64748B' }}>
-            ❤ {row.likes_count} · 💬 {row.comments_count}
+            ❤ {row.likes_count} ·{' '}
+            <button
+              type="button"
+              onClick={onToggleComments}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#0A2540',
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: 0,
+                fontSize: 12,
+                textDecoration: 'underline',
+              }}
+            >
+              💬 {row.comments_count} comment{row.comments_count === 1 ? '' : 's'} · {commentsExpanded ? 'hide' : 'view'}
+            </button>
             {row.photos.length > 1 ? ` · 🖼 ${row.photos.length} photos` : null}
           </div>
+
+          {commentsExpanded ? (
+            <CommentsDrawer
+              parentLabel={row.caption}
+              loader={async () => {
+                const r = await momentCommentsApi.list(row.id);
+                return r.comments || [];
+              }}
+              deleter={(cid) => momentCommentsApi.remove(row.id, cid).then(() => undefined)}
+            />
+          ) : null}
 
           {expanded && row.reports.length > 0 ? (
             <div style={{
