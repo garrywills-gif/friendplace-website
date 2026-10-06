@@ -877,23 +877,15 @@ def build_router(db) -> APIRouter:
     async def api_george_transcribe_warmup(actor: dict = Depends(current_george_actor)):
         """iter234 (Neo, Oct 2026 — POLISH #4): warm the Whisper client
         for this actor so the FIRST real transcription after opening the
-        companion chat doesn't pay the cold-start tax. We just import +
-        instantiate the OpenAI STT client (which triggers auth and
-        connection pool setup inside emergentintegrations) and return.
+        companion chat doesn't pay the cold-start tax. iter238 (Neo —
+        PERF #4) extends this to CONSTRUCT the shared OpenAI STT
+        client so repeat transcriptions reuse the same auth +
+        connection pool rather than re-creating a client each time.
         No audio is sent to OpenAI, so no cost. Idempotent."""
         try:
-            # Importing the module side-effects any lazy initialisers.
-            # Instantiating creates the underlying httpx client / auth.
-            from emergentintegrations.llm.openai.speech_to_text import OpenAISpeechToText  # noqa: F401
-            # Force the EMERGENT_LLM_KEY env lookup so misconfig surfaces
-            # here rather than silently on the first real call.
-            key = os.getenv("EMERGENT_LLM_KEY")
-            if not key:
-                raise RuntimeError("EMERGENT_LLM_KEY missing")
-            # Note: we don't construct the client eagerly because the
-            # library caches auth lazily; the import above is enough to
-            # pay the Python-side import cost once per worker.
-            return {"ok": True}
+            from services.george.voice.transcribe import warm_stt_client
+            ok = warm_stt_client()
+            return {"ok": bool(ok)}
         except Exception:  # pragma: no cover
             log.exception("transcribe warmup failed")
             return {"ok": False}

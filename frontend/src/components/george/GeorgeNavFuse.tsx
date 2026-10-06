@@ -23,14 +23,14 @@ import { Animated, Easing, StyleSheet, Text, View, Platform } from 'react-native
 import { GeorgeButterflyMark } from '@/src/components/george/GeorgeButterflyMark';
 import { useTheme } from '@/src/lib/theme';
 
-// iter233 (Neo, Oct 2026 — final polish #1): user asked for a
-// generous read window on "Take me to…" handoffs. 7.5s leaves
-// comfortable time to finish reading George's final message AND
-// the "Opening [destination]… 🦋" banner before the screen changes.
-// The screen behind stays bright (no dim backdrop) and the fuse
-// is non-blocking. ``GeorgeCompanionChat`` fires the pending nav
-// from its Close button so an early tap never cancels the handoff.
-const DURATION_MS = 7500;
+// iter238 (Neo, Oct 2026 — UX #3): fuse shortened to 2s. Members
+// now hear the full TTS clip BEFORE the fuse starts (the companion
+// chat polls `isGeorgeAutoReadActive()` and only starts the fuse
+// once speech has finished). 2s is the visual handoff only — the
+// "Opening [destination]… 🦋" banner has time to register before
+// navigation fires. The parent's Close button still short-circuits
+// the fuse via `run()` so impatient taps always land.
+const DURATION_MS = 2000;
 
 export default function GeorgeNavFuse({
   label,

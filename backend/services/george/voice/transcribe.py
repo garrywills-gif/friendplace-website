@@ -42,6 +42,38 @@ def _emergent_key() -> str:
     return key
 
 
+# iter238 (Neo, Oct 2026 — PERF #4): cache the OpenAI STT client at
+# module level so repeated transcriptions reuse the same auth +
+# connection pool. The FIRST call ever still has to construct the
+# client, but every subsequent call (including every transcription
+# across every member) hits the cached instance. The /warmup endpoint
+# calls ``_warm_stt_client()`` on screen entry so the first REAL
+# transcription a member fires is already warm.
+_STT_CLIENT: Optional[OpenAISpeechToText] = None
+
+
+def _get_stt() -> OpenAISpeechToText:
+    """Return the shared, cached OpenAI STT client. Creates it on first
+    call."""
+    global _STT_CLIENT
+    if _STT_CLIENT is None:
+        _STT_CLIENT = OpenAISpeechToText(api_key=_emergent_key())
+    return _STT_CLIENT
+
+
+def warm_stt_client() -> bool:
+    """Idempotent helper that forces the shared STT client into existence
+    without doing a real transcription. Called from the ``/mcgs/george/
+    transcribe/warmup`` endpoint when the companion chat screen mounts.
+    Returns ``True`` on success, ``False`` if the key is missing (so the
+    warmup endpoint can surface a sensible status to the frontend)."""
+    try:
+        _get_stt()
+        return True
+    except Exception:
+        return False
+
+
 async def transcribe_audio_bytes(
     audio: bytes,
     *,
@@ -88,7 +120,7 @@ async def transcribe_audio_bytes(
         if candidate in _SUPPORTED_FORMATS:
             ext = candidate
 
-    stt = OpenAISpeechToText(api_key=_emergent_key())
+    stt = _get_stt()
 
     # Write to a temp file so Whisper can validate + stream it as a
     # proper file object. We pass an OPEN binary file handle rather

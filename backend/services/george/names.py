@@ -55,25 +55,41 @@ def name_field_value(field: Any) -> Optional[str]:
 async def scrub_invalid_member_names(db: Any) -> int:
     """One-pass cleanup: unset any stored member name that fails
     ``clean_name`` (e.g. an inferred "No" written by an older build).
-    Idempotent and safe to re-run. Only touches ``preferred_name``
-    (top-level and under ``george_profile``) — the field that could be
-    inferred. Returns the number of user docs cleaned."""
+    Also unsets any ``preferred_name``/``display_name`` that was polluted
+    with the companion's own names ("George" / "Georgia") — surfaces as
+    "Hello George — it's George" when the member is actually, say,
+    Margaret (iter238 Neo RED #1). ``first_name`` is NEVER touched
+    (signup-validated; a real member named George keeps their name).
+    Idempotent and safe to re-run. Returns the number of user docs cleaned."""
     cleaned = 0
+    companion_names = {"george", "georgia"}
+    def _is_companion(raw) -> bool:
+        n = raw.get("value") if isinstance(raw, dict) else raw
+        return isinstance(n, str) and n.strip().lower() in companion_names
     try:
         cursor = db.users.find(
             {"$or": [
                 {"george_profile.preferred_name": {"$exists": True}},
                 {"preferred_name": {"$exists": True}},
+                {"display_name": {"$exists": True}},
             ]},
-            {"_id": 0, "id": 1, "george_profile": 1, "preferred_name": 1},
+            {"_id": 0, "id": 1, "george_profile": 1, "preferred_name": 1, "display_name": 1},
         )
         async for u in cursor:
             unset: dict = {}
             prof = u.get("george_profile") or {}
-            if "preferred_name" in prof and clean_name(name_field_value(prof.get("preferred_name"))) is None:
+            if "preferred_name" in prof and (
+                clean_name(name_field_value(prof.get("preferred_name"))) is None
+                or _is_companion(prof.get("preferred_name"))
+            ):
                 unset["george_profile.preferred_name"] = ""
-            if "preferred_name" in u and clean_name(u.get("preferred_name")) is None:
+            if "preferred_name" in u and (
+                clean_name(u.get("preferred_name")) is None
+                or _is_companion(u.get("preferred_name"))
+            ):
                 unset["preferred_name"] = ""
+            if "display_name" in u and _is_companion(u.get("display_name")):
+                unset["display_name"] = ""
             if unset and u.get("id"):
                 await db.users.update_one({"id": u["id"]}, {"$unset": unset})
                 cleaned += 1

@@ -198,7 +198,19 @@ _NAV_DESTS: list[dict] = [
     # (not just a Home tile). Wording below reflects that so George
     # never points to a tab the member can't see.
     {"key": "friends",  "label": "Find Friends", "where": "the More tab at the bottom, then Friends \u2192 Find Friends",
-     "syn": ["find friends", "find a friend", "find some friends", "meet people", "meet new people", "discover people", "make friends"]},
+     # iter238 (Neo, Oct 2026 — RED #2): the previous synonyms missed
+     # natural phrases like "new friends in my area", "looking for
+     # friends" and "someone to chat with", so a very common ask fell
+     # through to the generic "Sorry I didn't catch that" fallback.
+     # Expanded to cover the real language members use.
+     "syn": ["find friends", "find a friend", "find some friends", "find new friends",
+             "find some new friends", "finding friends", "some new friends",
+             "new friends", "more friends", "meet people", "meet new people",
+             "meeting new people", "discover people", "make friends", "make new friends",
+             "looking for friends", "looking for new friends", "looking for people",
+             "people in my area", "friends in my area", "find friends near me",
+             "friends near me", "people near me", "nearby people", "someone to chat with",
+             "someone to talk to"]},
     {"key": None,       "label": "My Friends", "where": "the More tab at the bottom, then Friends \u2192 \u201cMy Friends\u201d",
      "route": "friends", "syn": ["my friends", "my friend list", "friends list", "my mates"]},
     {"key": "chats",    "label": "My Chats", "where": "the My Chats tab at the bottom",
@@ -253,7 +265,11 @@ def _detect_nav_intent(text: str) -> Optional[dict]:
     """Return {mode, dest} where mode ∈ {'navigate','explain'} when the
     member is clearly asking to reach a known destination, else None."""
     t = (text or "").strip().lower()
-    if not t or len(t) > 160:
+    # iter238 (Neo, Oct 2026 — RED #2): raised the max length from 160
+    # to 240 so natural sentences like "I'm looking for some new
+    # friends in my area, can you tell me how to do that?" still get
+    # parsed instead of silently falling through to the LLM fallback.
+    if not t or len(t) > 240:
         return None
     dest = None
     dest_match_len = 0
@@ -326,7 +342,16 @@ async def _confirmed_name(db: Any, actor_id: str) -> Optional[str]:
     """The member's CONFIRMED preferred/display name only. Uses a stated
     (not inferred) onboarding preferred_name first, then explicit profile
     fields, then the signup first name. Returns None if nothing is trustworthy
-    — the companion must then use no name rather than guessing."""
+    — the companion must then use no name rather than guessing.
+
+    iter238 (Neo, Oct 2026 — RED Margaret): defensively reject the
+    companion's OWN names ("George" / "Georgia") as the member's
+    preferred/display name. These fields can get polluted when a
+    member accidentally types the companion's name into an onboarding
+    prompt (or an earlier build mis-extracted it from chat). We never
+    strip it from ``first_name`` because the signup form IS a validated
+    name entry — a real member actually named George keeps their name.
+    """
     try:
         u = await db.users.find_one(
             {"id": actor_id},
@@ -335,16 +360,26 @@ async def _confirmed_name(db: Any, actor_id: str) -> Optional[str]:
         ) or {}
     except Exception:
         return None
+
+    def _not_companion(n: Optional[str]) -> Optional[str]:
+        if not n: return n
+        return None if n.strip().lower() in {"george", "georgia"} else n
+
     prof = u.get("george_profile") or {}
     pn = prof.get("preferred_name")
     if isinstance(pn, dict) and (pn.get("source") or "").lower() == "stated":
-        c = _clean_name(pn.get("value"))
+        c = _not_companion(_clean_name(pn.get("value")))
         if c:
             return c
-    for f in ("preferred_name", "display_name", "first_name"):
-        c = _clean_name(u.get(f))
+    for f in ("preferred_name", "display_name"):
+        c = _not_companion(_clean_name(u.get(f)))
         if c:
             return c
+    # Only fall through to first_name for a REAL member named George or
+    # Georgia — first_name is signup-validated, not derived from chat.
+    c = _clean_name(u.get("first_name"))
+    if c:
+        return c
     return None
 
 

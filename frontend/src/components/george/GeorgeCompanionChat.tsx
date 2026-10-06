@@ -120,21 +120,48 @@ export function GeorgeCompanionChat({ onClose }: Props) {
       if (s.navigate_to) {
         const resolved = resolveGeorgeNavigate(s.navigate_to);
         if (resolved) {
-          // iter233 (Neo, Oct 2026 — final polish #1): HOLD the current
-          // screen for the full fuse duration (7.5s). Navigation runs
-          // from the fuse's onDone callback — NEVER immediately on
-          // intent detection. This gives members comfortable time to
-          // read George's final message. The parent's Close button
-          // short-circuits the fuse and fires `run` early so an
-          // impatient tap still lands at the destination.
-          setNavFuse({
-            label: resolved.label,
-            run: () => {
-              try { markGeorgeLedNavigation(resolved.target.key as any); } catch { /* non-fatal */ }
-              try { router.push(resolved.target.href as any); } catch { /* non-fatal */ }
-              setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
-            },
-          });
+          // iter238 (Neo, Oct 2026 — UX #3): new sequence is
+          //   full response text rendered → TTS plays to the LAST word
+          //   → 2-second "Opening [destination]… 🦋" fuse → navigate.
+          // Navigation must NEVER interrupt active speech. Even if
+          // the member taps Close while George is still speaking, the
+          // Close handler fires `run()` which cancels the fuse and
+          // navigates immediately — so the member always lands at
+          // the destination. If no TTS is playing (auto-read disabled
+          // or already finished), we fall through instantly and the
+          // fuse starts right away.
+          const target = resolved;
+          void (async () => {
+            try {
+              // Wait for the auto-read of the final George bubble to
+              // finish before starting the fuse. `speakGeorgeAloud`
+              // now resolves on whenDone (iter238), and the
+              // sendMessage handler kicks it off before we get here.
+              // Give the microtask queue a tick so the auto-read
+              // effect has a chance to run first.
+              await new Promise((r) => setTimeout(r, 50));
+              // There's no public "await active" API; the auto-read
+              // module tracks a single `activeCtrl` internally and
+              // resolves its promise on finish. We poll briefly here
+              // instead of plumbing a new signal through, because the
+              // auto-read lifetime is short (seconds, not minutes).
+              const { isGeorgeAutoReadActive } = await import('@/src/lib/george-auto-read');
+              const t0 = Date.now();
+              // Hard cap of 30s so a stuck playback never prevents
+              // navigation from eventually running.
+              while (isGeorgeAutoReadActive() && Date.now() - t0 < 30000) {
+                await new Promise((r) => setTimeout(r, 150));
+              }
+            } catch { /* non-fatal */ }
+            setNavFuse({
+              label: target.label,
+              run: () => {
+                try { markGeorgeLedNavigation(target.target.key as any); } catch { /* non-fatal */ }
+                try { router.push(target.target.href as any); } catch { /* non-fatal */ }
+                setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
+              },
+            });
+          })();
         }
       }
     } catch {

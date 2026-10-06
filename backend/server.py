@@ -767,18 +767,30 @@ async def _ensure_founders_lounge() -> Optional[dict]:
 async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[dict]:
     """Create / refresh the persistent "Today's Crossword ✏️" Coffee Table.
 
-    Idempotent — safe to call on every `/games/crossword/daily` GET. The
-    table is `persistent=True` so the 24h idle prune never reaps it, and
-    open to every signed-in user (no `founder_only` gate). Each day the
-    title/description are refreshed so the card reflects today's puzzle.
+    Idempotent — safe to call on every `/games/crossword/daily` GET and
+    also from the lounge list/table-fetch endpoints so the card never
+    drifts even if nobody has visited the Crossword Hub for a few days.
+    The table is `persistent=True` so the 24h idle prune never reaps it,
+    and open to every signed-in user (no `founder_only` gate). Each day
+    the title/description/stamp are refreshed so the card reflects today's
+    puzzle and today's date.
 
     Why a fixed table?
       The "discuss today's puzzle" loop only works if everyone lands in
       the *same* room. A per-user table would shard the conversation and
       nobody would meet. One table per day, persistent forever, is the
       simplest correct shape.
+
+    Rollover correctness:
+      Previously we only refreshed when `daily_puzzle_id` changed. If the
+      Crossword Hub wasn't opened on day N but someone browsed the lounge
+      on day N+1, the stored description still showed day N's date. We
+      now compare against a `daily_date` stamp so the first viewer each
+      day triggers the refresh and the stale date can never leak.
     """
     if puzzle is None:
+        puzzle = _xword_daily()
+    if not puzzle:
         return None
     # Find by name (single source of truth for the daily table identity).
     t = await db.tables.find_one(
@@ -796,17 +808,24 @@ async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[
         f"and celebrate every finish together. Everyone's solving the same puzzle today."
     )
     if t:
-        # Refresh the metadata in case the day rolled over since last call.
-        if t.get("daily_puzzle_id") != puzzle.get("id"):
+        # Refresh when the day rolls over OR when the puzzle id changes OR
+        # when a legacy row is missing the `daily_date` stamp altogether.
+        if (
+            t.get("daily_date") != today
+            or t.get("daily_puzzle_id") != puzzle.get("id")
+            or t.get("description") != desc
+        ):
             await db.tables.update_one(
                 {"id": t["id"]},
                 {"$set": {
                     "daily_puzzle_id": puzzle.get("id"),
+                    "daily_date": today,
                     "description": desc,
                     "last_activity_at": now_iso(),
                 }},
             )
             t["daily_puzzle_id"] = puzzle.get("id")
+            t["daily_date"] = today
             t["description"] = desc
         return t
     # Pick a host: any active member; falls back to empty (visible card with
@@ -828,6 +847,7 @@ async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[
         "persistent": True,
         "daily_crossword": True,
         "daily_puzzle_id": puzzle.get("id"),
+        "daily_date": today,
     }
     try:
         await db.tables.insert_one(t)
@@ -6823,6 +6843,14 @@ async def list_tables(user_id: str | None = None):
     """
     await _migrate_table_metadata()
     await _prune_idle_tables()
+    # Keep the shared daily-crossword card in sync with today's puzzle
+    # before we read the lounge list. Idempotent and best-effort — if the
+    # refresh fails we still fall through to the stored row rather than
+    # 500-ing the whole lounge.
+    try:
+        await _ensure_daily_crossword_table()
+    except Exception:
+        pass
     docs = await db.tables.find({}, {"_id": 0}).sort("last_activity_at", -1).to_list(500)
     # TestFlight feedback (Garry 27 July 2026): the FP Café is the
     # community's obvious first door — always pin it at the very top.
@@ -7000,6 +7028,16 @@ async def get_table(table_id: str):
     t = await db.tables.find_one({"id": table_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Table not found")
+    # If this is the shared Daily Crossword room, make sure the stored
+    # title/description/puzzle stamp match today before returning. Best
+    # effort — never block the fetch on a refresh error.
+    if t.get("daily_crossword"):
+        try:
+            refreshed = await _ensure_daily_crossword_table()
+            if refreshed and refreshed.get("id") == t.get("id"):
+                t = refreshed
+        except Exception:
+            pass
     seated_users = await db.users.find({"id": {"$in": t.get("seated", [])}}, {"_id": 0}).to_list(50)
     t["seated_users"] = seated_users
     # Host-facing invitee roster: for each member the host invited, report
