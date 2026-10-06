@@ -63,11 +63,13 @@ export default function PrivacyPolicy() {
           <Bullet c={c} scale={scale}>You can ask us for a copy of the data we hold about you, or ask us to correct it, by writing to {CONTACT_EMAIL}.</Bullet>
         </Section>
 
-        <Section title="Children" c={c} scale={scale}>
+        <Section title="Adults only (18+)" c={c} scale={scale}>
           <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>
-            FriendPlace is not designed for children under 13 and we do not knowingly
-            collect data from them. If you believe a child has signed up, please
-            contact us and we will remove the account.
+            FriendPlace is an adults-only community. You must be at least 18
+            years old to create an account. The app is not designed for people
+            under 18 and we do not knowingly collect data from minors. If you
+            believe someone under 18 has signed up, please contact us and we
+            will remove the account.
           </Text>
         </Section>
 

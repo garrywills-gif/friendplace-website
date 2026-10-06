@@ -29,7 +29,7 @@ export default function Terms() {
         </Text>
 
         <Section title="Who can use FriendPlace" c={c} scale={scale}>
-          <Bullet c={c} scale={scale}>You must be at least 13 years old.</Bullet>
+          <Bullet c={c} scale={scale}>FriendPlace is an adults-only community — you must be at least 18 years old to create an account.</Bullet>
           <Bullet c={c} scale={scale}>You may only hold one personal account.</Bullet>
           <Bullet c={c} scale={scale}>Provide truthful information — pretending to be someone else is not allowed.</Bullet>
         </Section>

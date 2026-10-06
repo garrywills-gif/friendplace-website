@@ -276,15 +276,7 @@ export default function GamesHub() {
               </View>
               <Ionicons name="chevron-forward" size={20} color={c.muted} />
             </Pressable>
-          ) : (
-            <View style={[styles.dailyRow, styles.dailyDisabled, { borderColor: c.border, backgroundColor: c.surfaceTertiary }]}>
-              <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Word Search</Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale }}>Coming soon</Text>
-              </View>
-            </View>
-          )}
+          ) : null}
           <Pressable testID="daily-trivia" onPress={() => router.push("/games/trivia?daily=1" as any)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <View style={[styles.dailyIcon, { backgroundColor: "#DB277722" }]}><Ionicons name="help-circle" size={20} color={"#DB2777"} /></View>
             <View style={{ flex: 1, marginLeft: 12 }}>

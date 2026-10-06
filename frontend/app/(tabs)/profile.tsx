@@ -39,6 +39,12 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const navScroll = useNavHideScroll();
   const [friends, setFriends] = useState<any[]>([]);
+  // Loading flag for the per-user totals rendered in the stats card
+  // (Friends count + Invites count). Points and Badges come directly
+  // from the already-loaded `user` object so they don't need gating.
+  // Starts `true` so the first paint shows a muted "—" placeholder
+  // instead of a misleading "0" while the invite/friend fetches run.
+  const [totalsLoading, setTotalsLoading] = useState<boolean>(true);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
   const [inviteCount, setInviteCount] = useState<number>(0);
   // Recent invitees — used to render the "Your invites" panel further down
@@ -95,6 +101,7 @@ export default function Profile() {
     // arrives on pull-to-refresh or explicit actions. The initial load
     // still runs because `friends` starts empty.
     let cancelled = false;
+    setTotalsLoading(true);
     (async () => {
       // Bug fix (Garry, 24 Jun 2026): the previous flow fired
       // `refresh()` and then read `user.friends` from the closure's
@@ -139,6 +146,7 @@ export default function Profile() {
           } catch {}
         }
       }
+      if (!cancelled) setTotalsLoading(false);
     })();
     return () => { cancelled = true; };
   }, [user?.id]));
@@ -323,7 +331,11 @@ export default function Profile() {
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
             <View style={styles.statBox}>
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(friends.length)}>{friends.length}</Text>
+              {totalsLoading ? (
+                <Text style={[styles.statNum, { color: c.muted, fontSize: 32 * scale, lineHeight: 34 * scale }]}>—</Text>
+              ) : (
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(friends.length)}>{friends.length}</Text>
+              )}
               <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>Friends</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
@@ -333,7 +345,11 @@ export default function Profile() {
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
             <View style={styles.statBox} testID="profile-invites-stat">
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(inviteCount)}>{inviteCount}</Text>
+              {totalsLoading ? (
+                <Text style={[styles.statNum, { color: c.muted, fontSize: 32 * scale, lineHeight: 34 * scale }]}>—</Text>
+              ) : (
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(inviteCount)}>{inviteCount}</Text>
+              )}
               <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>Invites</Text>
             </View>
           </View>

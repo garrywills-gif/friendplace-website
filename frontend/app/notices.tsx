@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard, ActivityIndicator } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import BeTheFirst from "@/src/components/BeTheFirst";
@@ -105,6 +105,10 @@ export default function Notices() {
     return unsub;
   }, [navigation, router]);
   const [notices, setNotices] = useState<any[]>([]);
+  // Avoid flashing the "Be first to post" empty state before the first
+  // fetch resolves — show a quiet spinner instead until we actually know
+  // whether the board is empty.
+  const [noticesLoaded, setNoticesLoaded] = useState<boolean>(false);
   const [category, setCategory] = useState("All");
   const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   const [query, setQuery] = useState("");
@@ -164,7 +168,9 @@ export default function Notices() {
         } catch { /* non-fatal — primary already shown */ }
       }
       setNotices(merged);
-    } catch {}
+    } catch {} finally {
+      setNoticesLoaded(true);
+    }
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
 
@@ -563,7 +569,11 @@ export default function Notices() {
         contentContainerStyle={{ padding: 12, paddingBottom: 80, gap: 10 }}
         renderItem={renderItem}
         ListEmptyComponent={() => (
-          query || category !== "All" ? (
+          !noticesLoaded ? (
+            <View style={{ paddingVertical: 60, alignItems: "center" }}>
+              <ActivityIndicator color={c.brand} />
+            </View>
+          ) : query || category !== "All" ? (
             <View style={{ paddingVertical: 60, alignItems: "center" }}>
               <Ionicons name="newspaper-outline" size={42} color={c.muted} />
               <Text style={{ color: c.muted, fontWeight: "600", marginTop: 8, fontSize: 16 * scale }}>No notices match. Try another filter or post the first one!</Text>

@@ -128,7 +128,26 @@ export default function Events() {
     try {
       setFpLoading(true);
       const r: any = await api.fpEventsList();
-      setFpEvents((r?.events || []).filter((e: any) => e.status !== 'cancelled'));
+      setFpEvents((r?.events || []).filter((e: any) => {
+        if (e.status === 'cancelled') return false;
+        // Auto-expire past curated events from the Upcoming feed.
+        // Prefer the explicit `ends_at` ISO timestamp when the curator
+        // has set one; otherwise fall back to end-of-day of `starts_at`
+        // in the member's local timezone (same contract as community
+        // events). Events with no start info are kept so curators can
+        // still surface edge cases (e.g. ongoing weekly series).
+        const starts = e?.starts_at ? new Date(e.starts_at) : null;
+        const ends = e?.ends_at ? new Date(e.ends_at) : null;
+        const now = Date.now();
+        if (ends && !Number.isNaN(ends.getTime())) {
+          return ends.getTime() > now;
+        }
+        if (starts && !Number.isNaN(starts.getTime())) {
+          const endOfDay = new Date(starts.getFullYear(), starts.getMonth(), starts.getDate(), 23, 59, 59, 999);
+          return endOfDay.getTime() > now;
+        }
+        return true;
+      }));
       if (user?.id) {
         try {
           const mine: any = await api.fpEventMyRsvps(user.id);
@@ -181,7 +200,36 @@ export default function Events() {
 
   const visibleEvents = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = events;
+    // Auto-expire past events from the Upcoming list. Community events
+    // (`/api/events`) carry a `YYYY-MM-DD` `date` plus optional `time`;
+    // there is no end-time field today, so we keep each event visible
+    // until the END of its event day in the viewer's local timezone
+    // (last tick before next-day midnight). If an `end_time` field is
+    // ever added to the model it will be honoured transparently —
+    // "date + end_time" is checked first.
+    const now = Date.now();
+    let list = events.filter((e) => {
+      const rawDate = (e?.date || "").toString();
+      if (!rawDate) return true; // keep events with no date (shouldn't happen)
+      const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawDate);
+      if (!dateMatch) return true;
+      const y = parseInt(dateMatch[1], 10);
+      const m = parseInt(dateMatch[2], 10) - 1;
+      const d = parseInt(dateMatch[3], 10);
+      // Prefer an explicit end-time if the model ever provides one.
+      const endTime = (e?.end_time || "").toString();
+      const endMatch = /^(\d{2}):(\d{2})$/.exec(endTime);
+      let cutoff: number;
+      if (endMatch) {
+        cutoff = new Date(y, m, d, parseInt(endMatch[1], 10), parseInt(endMatch[2], 10), 0, 0).getTime();
+      } else {
+        // No end time → event is "over" at local midnight of the next
+        // day. Using 23:59:59.999 keeps the card visible until the
+        // very end of the event day in the member's own timezone.
+        cutoff = new Date(y, m, d, 23, 59, 59, 999).getTime();
+      }
+      return cutoff > now;
+    });
     if (filter !== "all") {
       list = list.filter((e) => matchesEventFilter(e, filter, user));
     }
