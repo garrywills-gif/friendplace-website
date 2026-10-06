@@ -110,7 +110,8 @@ MEMORY (be honest and modest about this)
 
 FRIENDPLACE FEATURES
 - Only bring up a FriendPlace feature (finding a group, an event, meeting people nearby) when it is genuinely relevant to what they're talking about. Otherwise, just chat. Never turn into a feature-routing bot.
-- HELPING THEM FIND FRIENDS: it's lovely to offer — "Would you like me to help you find some friends?" If they say yes, briefly explain Find Friends and then take them there. Use warm wording like: "Absolutely — I'll take you to Find Friends. You can search by name or interests, choose a suburb or town, or use Near Me to see people nearby." Keep it to a sentence or two, then they'll be taken straight to the Find Friends screen.
+- HELPING THEM FIND FRIENDS: it's lovely to offer — "Would you like me to take you to Find Friends?" The app itself opens the screen if they accept, so you never need to.
+- NAVIGATION: the app opens screens for the member automatically when they explicitly ask to go somewhere or accept your offer — you never need to announce it. In your own replies NEVER say "I'm taking you there", "opening it now", "let me take you" or similar, and never claim you can't take them places. You may OFFER: "Would you like me to take you there?". If a member asks what something is or how it works, answer the question — don't send them anywhere. If they've just been taken somewhere, simply carry on the chat.
 - BE HONEST about how this works. You do NOT search in the background, you do NOT keep looking after the chat, and you have NO personal recommendation engine or warm-introduction feature. NEVER say "I'll go and find some people for you", "I'll be back with matches", "leave it with me", "I'll introduce you", or "I'll have a look around" — none of that exists. You simply open the Find Friends screen so THEY can browse. If they'd rather you didn't navigate, tell them exactly where it is (the Friends tab).
 
 WHAT YOU CANNOT DO (honesty — never over-promise)
@@ -222,7 +223,7 @@ _NAV_DESTS: list[dict] = [
     {"key": "games",    "label": "Games", "where": "the Games tile on your Home screen",
      "syn": ["games", "play a game", "play games", "the games"]},
     {"key": "moments",  "label": "Moments", "where": "the Moments tab at the bottom",
-     "syn": ["moments", "share a moment", "a moment"]},
+     "syn": ["moments", "share a moment"]},
     {"key": "groups",   "label": "Groups", "where": "the Groups tile on your Home screen",
      "syn": ["groups", "community groups", "a group"]},
     {"key": "events",   "label": "Events", "where": "the Events tile on your Home screen",
@@ -234,36 +235,73 @@ _NAV_DESTS: list[dict] = [
     {"key": "notifications", "label": "Notifications", "where": "the bell icon at the top",
      "syn": ["notifications", "my notifications", "alerts"]},
     {"key": "help",     "label": "Help", "where": "the More tab at the bottom, then Profile \u2192 Help",
-     "syn": ["help", "support"]},
+     "syn": ["help page", "help section", "help centre", "help center", "the help screen", "support page"]},
     {"key": "home",     "label": "Home", "where": "the Home tab at the bottom",
      "syn": ["home", "the home screen", "main screen"]},
 ]
 
-# "Take me there" verbs → navigate; "where is / how do I find" → explain.
+# iter247 (TestFlight): accurate, plain-language descriptions used when a
+# member asks ABOUT a destination ("Tell me about the Notice Board").
+# Keyed by label. Keep in step with what the screens actually do.
+_NAV_ABOUT: dict = {
+    "Find Friends": "Find Friends is where you browse other FriendPlace members. You can search by name or interests, type a suburb or town, or switch on Near Me to see people close by, then send a friend request. Once they accept, you can chat any time.",
+    "My Friends": "My Friends is your list of people you're already friends with, so you can see their profiles or start a chat.",
+    "My Chats": "My Chats holds your private one-to-one conversations, so you can pick up any chat where you left off.",
+    "the FP Caf\u00e9": "The FP Caf\u00e9 is FriendPlace's virtual living room. You pull up a chair at a table and have a friendly group chat with other members, just like a real caf\u00e9, and you can start a table of your own too.",
+    "the Notice Board": "The Notice Board is where members share local notices and community updates: announcements, questions, events, kindness, buy & sell, help needed and giveaways. You can browse by category, react and comment, or post a notice of your own.",
+    "Games": "Games has puzzles and games to enjoy on your own or with friends, like Solitaire, Bingo, Crossword, Sudoku, Word Search, Jigsaws, Trivia and Memory Match. The daily challenges earn bonus Butterfly Points.",
+    "Moments": "Moments is where members share a photo and a few words about a little moment worth sharing, and others can react and comment. Every share earns Butterfly Points.",
+    "Groups": "Community Groups are interest-based groups you can join to meet people who share your hobbies. If there isn't one for you yet, you can suggest a new group.",
+    "Events": "Local Events shows what's happening near you. You can RSVP to events, and you can create your own event too, including regular meetups.",
+    "my Profile": "Your Profile shows your photo, details, interests and badges. It's how other members get to know you, and you can edit it any time.",
+    "Settings": "Settings is where you adjust your account, privacy, notifications and accessibility options such as text size and Read Aloud.",
+    "Notifications": "Notifications lists your latest alerts, like friend requests, messages, invites and replies, so you don't miss anything.",
+    "Help": "Help has answers to common questions about using FriendPlace and staying safe, plus how to contact support.",
+    "Home": "Home is your main screen, with quick tiles for Chats, Friends, the FP Caf\u00e9, Events, the Notice Board, Games, Groups and more.",
+}
+
+_OFFER_LINE = "Would you like me to take you there?"
+
+# iter247: three distinct intents (checked in this order):
+#   explain  — WHERE is it / how do I GET to it   → directions + offer
+#   info     — WHAT is it / tell me about / how does it work → answer + offer
+#   navigate — explicit "take me / open / go to"  → navigate
+# A destination name on its own is NOT enough to navigate.
 _NAV_GO_RE = None
 _NAV_WHERE_RE = None
+_NAV_INFO_RE = None
+_NAV_NEG_RE = None
 
 
 def _nav_regexes():
-    global _NAV_GO_RE, _NAV_WHERE_RE
+    global _NAV_GO_RE, _NAV_WHERE_RE, _NAV_INFO_RE, _NAV_NEG_RE
     if _NAV_GO_RE is None:
         import re
         _NAV_GO_RE = re.compile(
-            r"\b(take me|go to|open|show me|bring me|head to|jump to|navigate|let'?s go|i want to|i'?d like to|can you open|can you take|help me find|looking for)\b",
+            r"\b(take me|bring me|go to|goto|go into|open|show me|head to|jump to|navigate|"
+            r"let'?s go|can you take|could you take|can you open|could you open|help me find)\b",
             re.I,
         )
-        # A question-word phrasing ("where is…", "how do I get to…") means
-        # the member wants to be TOLD where it is, not taken there.
         _NAV_WHERE_RE = re.compile(
-            r"\bwhere\b|\bhow (?:do|can) i\b|\bhow to\b",
+            r"\bwhere\b|\bwhich tab\b|"
+            r"\bhow (?:do|can|would|should) i (?:get to|get into|find|reach|open|go to|access)\b|"
+            r"\bhow to (?:get to|get into|find|reach|open|access)\b",
             re.I,
         )
-    return _NAV_GO_RE, _NAV_WHERE_RE
+        _NAV_INFO_RE = re.compile(
+            r"\b(tell me|tell us|what(?:'s| is| are| does| do|s)?\b|explain|describe|"
+            r"how (?:does|do|can|would|should|is)\b|more about|info(?:rmation)?\b|"
+            r"is there|are there|can i|could i|do i need|what happens|meaning of|purpose)",
+            re.I,
+        )
+        _NAV_NEG_RE = re.compile(r"\b(don'?t|do not|not now|not yet|no thanks|never mind)\b", re.I)
+    return _NAV_GO_RE, _NAV_WHERE_RE, _NAV_INFO_RE, _NAV_NEG_RE
 
 
 def _detect_nav_intent(text: str) -> Optional[dict]:
-    """Return {mode, dest} where mode ∈ {'navigate','explain'} when the
-    member is clearly asking to reach a known destination, else None."""
+    """Return {mode, dest} where mode ∈ {'navigate','explain','info'} when
+    the member mentions a known destination with a clear intent, else
+    None (plain conversation — the LLM answers and never navigates)."""
     t = (text or "").strip().lower()
     # iter238 (Neo, Oct 2026 — RED #2): raised the max length from 160
     # to 240 so natural sentences like "I'm looking for some new
@@ -279,13 +317,61 @@ def _detect_nav_intent(text: str) -> Optional[dict]:
             dest, dest_match_len = d, hit
     if not dest:
         return None
-    _, where_re = _nav_regexes()
-    # Question phrasing → explain where to tap; anything else that names a
-    # destination → navigate there. This keeps it deterministic (no LLM) so
-    # it can never fall into the "say that once more" loop.
+    go_re, where_re, info_re, neg_re = _nav_regexes()
     if where_re.search(t):
         return {"mode": "explain", "dest": dest}
-    return {"mode": "navigate", "dest": dest}
+    if info_re.search(t):
+        return {"mode": "info", "dest": dest}
+    if go_re.search(t) and not neg_re.search(t):
+        return {"mode": "navigate", "dest": dest}
+    if t.endswith("?"):
+        return {"mode": "info", "dest": dest}
+    # Destination named with no clear intent → ordinary conversation.
+    return None
+
+
+_PROMISE_RE = None
+
+
+def _promises_navigation(text: str) -> bool:
+    """True if a reply claims George is taking/opening something NOW
+    (ignoring polite offers like "Would you like me to take you there?")."""
+    global _PROMISE_RE
+    import re
+    if _PROMISE_RE is None:
+        _PROMISE_RE = re.compile(
+            r"\b(taking you|take you (?:there|to|over)|i'?ll take you|i will take you|"
+            r"opening (?:it|that|this|up|the|find|games|events|groups|moments|settings|help)|"
+            r"let me (?:take|open|bring)|heading (?:there|over)|bringing you)\b",
+            re.I,
+        )
+    sentences = re.split(r"(?<=[.!?])\s+", text or "")
+    keep = [s for s in sentences if not re.search(r"\b(would you like|do you want|want me to|shall i|should i|like me to)\b", s, re.I)]
+    return bool(_PROMISE_RE.search(" ".join(keep)))
+
+
+def _offer_from_reply(reply: str) -> Optional[dict]:
+    """If George's own (LLM) reply OFFERS to take the member somewhere,
+    return that destination so a following "Ok" can accept it."""
+    import re
+    r = (reply or "").lower()
+    if not re.search(r"\b(would you like|do you want|want me to|shall i|like me to)\b[^.?!]*\b(take|bring|show|help you find)\b", r):
+        return None
+    if "find some friends" in r or "find friends" in r or "find new friends" in r:
+        return {"key": "friends", "label": "Find Friends"}
+    best, best_len = None, 0
+    for d in _NAV_DESTS:
+        hit = max((len(s) for s in d["syn"] if s in r), default=0)
+        if hit > best_len and (d.get("key") or d.get("route")):
+            best, best_len = d, hit
+    if not best:
+        return None
+    return {"key": best.get("key") or best.get("route"), "label": best["label"]}
+
+
+def _info_fallback(dest: dict) -> str:
+    about = _NAV_ABOUT.get(dest["label"]) or f"{dest['label']} is part of FriendPlace."
+    return f"{about} You'll find it at {dest['where']}. {_OFFER_LINE}"
 
 
 _AFFIRM_RE = None
@@ -317,7 +403,7 @@ def _nav_reply(name: str, intent: dict) -> dict:
     if intent["mode"] == "explain":
         offer_key = dest.get("key") or dest.get("route")
         return {
-            "message": f"You'll find {label} at {dest['where']}. Have a tap there and it'll open right up. Want me to take you now?",
+            "message": f"You'll find {label} at {dest['where']}. Have a tap there and it'll open right up. {_OFFER_LINE}",
             "navigate_to": None,
             # iter246: remembered so a follow-up "Ok" / "Yes please"
             # actually navigates (see companion_turn).
@@ -627,6 +713,41 @@ def _build_memory_due(mem: dict) -> tuple[str, List[str]]:
     return _memory_block(mem.get("items") or [])
 
 
+async def _info_reply(db: Any, actor_id: str, name: str, turns: List[dict],
+                      user_text: str, dest: dict) -> dict:
+    """Answer a question ABOUT a destination using accurate app facts,
+    then offer to take them there. Never returns a navigation action."""
+    offer_key = dest.get("key") or dest.get("route")
+    about = _NAV_ABOUT.get(dest["label"]) or ""
+    msg = None
+    try:
+        prompt, _ = await _build_user_prompt(db, actor_id, turns[:-1], user_text)
+        prompt += (
+            f"\n\nAPP FACTS — {dest['label']}: {about} Location: {dest['where']}.\n"
+            "The member is asking ABOUT this part of FriendPlace. Answer their actual question "
+            "warmly in 1-3 short sentences using ONLY the facts above — never invent features. "
+            "Do NOT say you are taking them, opening it or navigating anywhere, and do NOT ask "
+            "whether to take them there (that offer is added for you)."
+        )
+        raw = (await _llm(_system_prompt(name), prompt, COMPANION_MODEL)).strip()
+        if raw and not _promises_navigation(raw):
+            # Drop any trailing offer the model added anyway, then add ours.
+            import re
+            raw = re.sub(r"\s*[^.!?]*\b(would you like|do you want|want me to|shall i)\b[^.!?]*\?\s*$", "", raw, flags=re.I).strip()
+            msg = f"{raw} {_OFFER_LINE}" if offer_key else raw
+    except Exception as e:
+        log.info("companion info reply LLM failed: %s", str(e)[:160])
+    if not msg:
+        msg = _info_fallback(dest) if offer_key else (about or dest["where"])
+    if offer_key and _OFFER_LINE.lower() not in msg.lower():
+        msg = f"{msg.rstrip()} {_OFFER_LINE}"
+    return {
+        "message": msg,
+        "navigate_to": None,
+        "nav_offer": {"key": offer_key, "label": dest["label"]} if offer_key else None,
+    }
+
+
 async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str) -> dict:
     # iter240 (Neo, Oct 2026 — TestFlight #2): instrument end-to-end
     # timings so we can tell at a glance whether a slow reply came
@@ -651,9 +772,14 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     # iter246 (TestFlight): George asked "Want me to take you now?" and
     # the member said "Ok" — honour the remembered offer instead of
     # letting the LLM say "taking you there" without navigating.
+    # iter247: a NEW destination question always wins over an earlier
+    # offer; "info" answers via the LLM grounded in _NAV_ABOUT and ends
+    # with an offer — it NEVER navigates.
     prev_offer = (doc or {}).get("nav_offer")
     nr = None
-    if nav:
+    if nav and nav["mode"] == "info":
+        nr = await _info_reply(db, actor_id, name, turns, user_text, nav["dest"])
+    elif nav:
         nr = _nav_reply(name, nav)
     elif prev_offer and prev_offer.get("key") and _is_affirmative(user_text):
         nr = {"message": f"Of course — taking you to {prev_offer.get('label') or 'it'} now.",
@@ -693,7 +819,10 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     await db[COLL_CHAT].update_one(
         _chat_filter(actor_id, persona),
         {"$set": {"actor_id": actor_id, "persona": pkey, "turns": turns[-200:],
-                  "nav_offer": None,
+                  # iter247: remember an offer the model made itself
+                  # ("Would you like me to help you find some friends?")
+                  # so "Ok" can accept it; otherwise any old offer clears.
+                  "nav_offer": _offer_from_reply(reply),
                   "updated_at": _now_iso(), "last_active_at": _now_iso()},
          "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
         upsert=True,
@@ -720,9 +849,12 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     # opens the screen instead of just talking about it.
     out: dict = {"message": reply, "persona": pkey, "at": _now_iso()}
     rl = reply.lower()
-    if ("take you to find friends" in rl or "taking you to find friends" in rl
-            or "open find friends" in rl or "opening find friends" in rl):
+    # iter247: only a real PROMISE counts — an offer such as "Would you
+    # like me to take you to Find Friends?" must NOT navigate.
+    if "find friends" in rl and _promises_navigation(reply):
         out["navigate_to"] = {"key": "friends", "label": "Find Friends"}
+    elif _promises_navigation(reply):
+        log.warning("companion reply promised navigation without an action: %r", reply[:120])
     return out
 
 

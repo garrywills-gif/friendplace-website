@@ -131,7 +131,7 @@ RULES
   9. NAMES: Address the member ONLY by the CONFIRMED NAME given in the context. If CONFIRMED NAME is empty, use NO name at all — a warm sentence with no name is always fine. NEVER guess or invent a name, and NEVER reuse a word the member just said (e.g. "No", "Yes", "My", "Me", "Us", "Hi") as if it were their name. Do not treat any KNOWN field value as a name.
   10. ANSWER DIRECT QUESTIONS FIRST. If the member asks you a direct question (about FriendPlace, how something works, about you, or anything else), ANSWER it fully and warmly BEFORE anything else. Do NOT ignore their question to push a getting-to-know-you question, and NEVER switch to state="ready_to_summarise" while a question of theirs is unanswered. Only after you've genuinely answered may you gently continue the conversation.
   11. FINDING FRIENDS — BE HONEST, NEVER FAKE IT. You may warmly OFFER to help them find friends ("Would you like me to help you find some friends?"). But you have NO ability to search for people, run matchmaking, generate suggestions, or make introductions, and you do NOT do anything "in the background". You must NEVER say things like "I was just about to find some people near <area>", "let me do that now", "I'll have some suggestions for you in a moment", "leave it with me", "I'll introduce you", or imply you're searching or will come back with results. NONE of that exists. What you CAN do is take them to the Find Friends screen, where THEY browse. If the member agrees (says yes / "help me" / "please" after you offer, or asks to find friends), reply with a short, honest, warm message that briefly names the real tools and set "navigate_to": "friends" — e.g. *"Absolutely — I'll take you to Find Friends now. You can search by name or interests, pick a suburb or town, or use Near Me to see people nearby."* Then STOP (no fake follow-up, keep state "needs_reply"). If they'd rather not be taken there, just tell them it's on the Friends tab.
-  12. TAKING THEM PLACES — "Take me to X" vs "Where is X?". When the member clearly asks to be TAKEN somewhere ("take me to Games", "open the Café", "go to the Notice Board", "I want to see Events"), set "navigate_to" to the matching key below AND reply with ONE short honest line that names where they're going (e.g. *"Of course — opening Games for you now."*). Only promise to take them somewhere when you ALSO set navigate_to — never say "I'll take you there" with navigate_to null. When they instead ask WHERE something is ("where is the Notice Board?", "how do I get to Events?"), DON'T navigate (navigate_to null); briefly EXPLAIN where to tap (the bottom bar has Home, My Chats, FP Café, Moments and More — Friends/Profile/Settings/Help live inside the More menu, and the remaining destinations like Notice Board, Games, Groups and Events are tiles on the Home screen). Valid navigate_to keys: "home", "chats", "friends", "lounge" (the FP Café), "profile", "games", "groups", "notices" (Notice Board), "events", "moments" (Share a Moment), "settings", "help", "notifications". Use "friends" for Find Friends. If you're unsure which screen they mean, ask a short clarifying question rather than guessing — do NOT navigate on a vague request.
+  12. TAKING THEM PLACES — "Take me to X" vs "Where is X?". When the member clearly asks to be TAKEN somewhere ("take me to Games", "open the Café", "go to the Notice Board", "I want to see Events"), set "navigate_to" to the matching key below AND reply with ONE short honest line that names where they're going (e.g. *"Of course — opening Games for you now."*). Only promise to take them somewhere when you ALSO set navigate_to — never say "I'll take you there" with navigate_to null. When they instead ask WHERE something is ("where is the Notice Board?", "how do I get to Events?") OR ask ABOUT it ("tell me about the Notice Board", "what is the FP Café?", "how does Find Friends work?"), DON'T navigate (navigate_to null) — answer their question first, then you may offer "Would you like me to take you there?"; briefly EXPLAIN where to tap (the bottom bar has Home, My Chats, FP Café, Moments and More — Friends/Profile/Settings/Help live inside the More menu, and the remaining destinations like Notice Board, Games, Groups and Events are tiles on the Home screen). Valid navigate_to keys: "home", "chats", "friends", "lounge" (the FP Café), "profile", "games", "groups", "notices" (Notice Board), "events", "moments" (Share a Moment), "settings", "help", "notifications". Use "friends" for Find Friends. If you're unsure which screen they mean, ask a short clarifying question rather than guessing — do NOT navigate on a vague request.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -430,6 +430,27 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
     composed = await _compose(known, turns, skipped, is_first=False, kb_block=_kb_block,
                               first_name=await _user_first_name(db, session.get("actor_id")),
                               persona=session.get("persona") or "george")
+    # iter247 (TestFlight): same intent rules as the companion — a
+    # question ABOUT or WHERE a destination is must never navigate, and
+    # gets the companion's accurate info/directions reply (+ offer).
+    from services.george.companion.service import (
+        _detect_nav_intent, _info_fallback, _nav_reply, _promises_navigation, _is_affirmative,
+    )
+    _intent = _detect_nav_intent(user_text)
+    _prev_offer = session.get("nav_offer")
+    _new_offer = None
+    if _intent and _intent["mode"] in ("info", "explain"):
+        composed["navigate_to"] = None
+        composed["message"] = (
+            _info_fallback(_intent["dest"]) if _intent["mode"] == "info"
+            else _nav_reply("George", _intent)["message"]
+        )
+        _k = _intent["dest"].get("key") or _intent["dest"].get("route")
+        _new_offer = {"key": _k, "label": _intent["dest"]["label"]} if _k else None
+    elif not _intent and _prev_offer and _prev_offer.get("key") and _is_affirmative(user_text):
+        # Accepting the offer George just made → navigate to THAT place.
+        composed["navigate_to"] = _prev_offer["key"]
+        composed["message"] = f"Of course — taking you to {_prev_offer.get('label') or 'it'} now."
     # Conversation-first (Garry, Sep 2026): onboarding no longer force-
     # advances to a summary once N fields are gathered. Getting-to-know-you
     # questions are conversation starters, not a questionnaire — George
@@ -451,6 +472,7 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
         "confirm_hints": composed.get("confirm_hints") or [],
         "field_being_asked": composed.get("field_being_asked"),
         "status": status,
+        "nav_offer": _new_offer,
         "updated_at": _now_iso(),
     }
     await db[COLL_ONBOARDING].update_one({"session_id": session_id}, {"$set": updated})
@@ -468,7 +490,9 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
         nav = None
     if not nav:
         _ml = (composed.get("message") or "").lower()
-        if "take you to find friends" in _ml or "taking you to find friends" in _ml:
+        # iter247: an OFFER ("Would you like me to take you to Find
+        # Friends?") is not a promise — only navigate on a real promise.
+        if "find friends" in _ml and _promises_navigation(composed.get("message") or ""):
             nav = "friends"
     # Persist the merged facts durably on the user doc so they survive a
     # sign-out/in or a lost session — memory is independent of whether
