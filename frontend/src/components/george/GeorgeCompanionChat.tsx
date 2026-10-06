@@ -10,7 +10,7 @@ import { georgeApi } from '@/src/lib/george-api';
 import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { useTheme } from '@/src/lib/theme';
-import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
+import { speakGeorgeAloud, stopGeorgeAutoRead, isGeorgeAutoReadActive } from '@/src/lib/george-auto-read';
 import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 import { useComposerLock } from '@/src/lib/composer-lock';
@@ -35,6 +35,8 @@ interface Props {
 
 type Turn = { role: 'user' | 'george'; content: string };
 
+const NAV_COUNTDOWN_SECS = 5;
+
 export function GeorgeCompanionChat({ onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { voice, hydrated } = useGeorgeVoice();
@@ -45,13 +47,37 @@ export function GeorgeCompanionChat({ onClose }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
-  // iter241 (Neo, Oct 2026 — TestFlight #1): navigation handoff is now
-  // OPT-IN rather than automatic. George finishes speaking → a
-  // "Go to {destination}" button fades into the chat → member taps
-  // when they're ready. Keeps the reply visible, never cuts speech.
+  // iter244 (Neo, Oct 2026): automatic navigation handoff restored.
+  // Once the reply is visible a "Taking you there in 5…4…3…2…1"
+  // countdown runs; at zero we wait for any loading/playing speech to
+  // finish, then open the page. Sending another message, closing the
+  // companion, or unmounting cancels the pending navigation.
   const [pendingNav, setPendingNav] = useState<{ label: string; run: () => void } | null>(null);
-  const [navReady, setNavReady]   = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number>(NAV_COUNTDOWN_SECS);
   const scrollRef = useRef<ScrollView | null>(null);
+
+  useEffect(() => {
+    if (!pendingNav) return;
+    let cancelled = false;
+    let n = NAV_COUNTDOWN_SECS;
+    setCountdown(n);
+    const iv = setInterval(() => {
+      n -= 1;
+      setCountdown(n);
+      if (n > 0) return;
+      clearInterval(iv);
+      void (async () => {
+        // Never cut George off: hold at zero while speech is still
+        // being fetched or played (safety cap so it can't hang).
+        const t0 = Date.now();
+        while (!cancelled && isGeorgeAutoReadActive() && Date.now() - t0 < 60000) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        if (!cancelled) pendingNav.run();
+      })();
+    }, 1000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [pendingNav]);
 
   const voiceIn = useGeorgeVoiceInput(setInput);
   const isRecording = voiceIn.voicePhase === 'recording';
@@ -124,10 +150,8 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     const t = input.trim();
     if (!t || busy) return;
     setInput('');
-    // iter241: clear any previous handoff button so the member isn't
-    // staring at a stale "Go to X" while the next reply is composing.
+    // iter244: a new message cancels any pending navigation countdown.
     setPendingNav(null);
-    setNavReady(false);
     setTurns((x) => [...x, { role: 'user', content: t }]);
     setBusy(true);
     try {
@@ -139,22 +163,9 @@ export function GeorgeCompanionChat({ onClose }: Props) {
       if (s.navigate_to) {
         const resolved = resolveGeorgeNavigate(s.navigate_to);
         if (resolved) {
-          // iter238 (Neo, Oct 2026 — UX #3): new sequence is
-          //   full response text rendered → TTS plays to the LAST word
-          //   → 2-second "Opening [destination]… 🦋" fuse → navigate.
-          // Navigation must NEVER interrupt active speech. Even if
-          // the member taps Close while George is still speaking, the
-          // Close handler fires `run()` which cancels the fuse and
-          // navigates immediately — so the member always lands at
-          // the destination. If no TTS is playing (auto-read disabled
-          // or already finished), we fall through instantly and the
-          // fuse starts right away.
+          // iter244: staging pendingNav starts the countdown effect
+          // above (same render as the reply, so it's already visible).
           const target = resolved;
-          // iter241: show the handoff as a tap-ready button instead of
-          // an auto-firing fuse. We stage the button immediately so the
-          // member sees "coming next: Go to Friends", then flip it to
-          // "ready" once speech ends so they're never rushed.
-          setNavReady(false);
           setPendingNav({
             label: target.label,
             run: () => {
@@ -163,17 +174,6 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               setTimeout(() => { try { onClose(); } catch { /* non-fatal */ } }, 0);
             },
           });
-          void (async () => {
-            try {
-              await new Promise((r) => setTimeout(r, 300));
-              const { isGeorgeAutoReadActive } = await import('@/src/lib/george-auto-read');
-              const t0 = Date.now();
-              while (isGeorgeAutoReadActive() && Date.now() - t0 < 30000) {
-                await new Promise((r) => setTimeout(r, 150));
-              }
-            } catch { /* non-fatal */ }
-            setNavReady(true);
-          })();
         }
       }
     } catch {
@@ -210,9 +210,6 @@ export function GeorgeCompanionChat({ onClose }: Props) {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={[styles.wrap, { paddingTop: insets.top + 20 }]}>
-      {/* iter241: no top overlay fuse — handoff is a tap-ready button
-          inline with the chat (see pendingNav render below). The old
-          overlay auto-navigated too fast and cut speech off. */}
       <View style={styles.header}>
         <View style={styles.identity}>
           <GeorgeButterflyMark size={30} />
@@ -228,9 +225,8 @@ export function GeorgeCompanionChat({ onClose }: Props) {
         </Pressable>
         <Pressable
           onPress={() => {
-            // iter241: Close no longer force-runs the handoff — the
-            // member taps the inline "Go to {destination}" button when
-            // they're ready. Close just dismisses the chat sheet.
+            // iter244: closing the companion cancels pending navigation.
+            setPendingNav(null);
             onClose();
           }}
           hitSlop={8}
@@ -285,44 +281,27 @@ export function GeorgeCompanionChat({ onClose }: Props) {
           </View>
         )}
 
-        {/* iter241 (TestFlight #1): inline, tap-ready handoff button.
-            Appears after a George reply that suggested a destination,
-            waits for speech to finish before enabling, and only hands
-            off when the member taps. Preserves the reply on screen so
-            members have time to read AND hear the full response. */}
+        {/* iter244: automatic handoff countdown (no tap needed). */}
         {pendingNav ? (
           <View style={{ paddingHorizontal: 20, marginTop: 8, marginBottom: 12, alignItems: 'flex-start' }}>
-            <Pressable
-              testID="companion-nav-cta"
-              onPress={() => { try { pendingNav.run(); } catch { /* non-fatal */ } }}
-              disabled={!navReady}
-              style={({ pressed }) => ([
-                {
-                  paddingVertical: 12,
-                  paddingHorizontal: 20,
-                  borderRadius: 999,
-                  borderWidth: 1.5,
-                  borderColor: '#0A2540',
-                  backgroundColor: navReady ? '#0A2540' : '#CBD5E1',
-                  opacity: pressed ? 0.75 : 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                  minHeight: 48,
-                },
-              ])}
-              accessibilityRole="button"
-              accessibilityLabel={navReady ? `Go to ${pendingNav.label}` : `Preparing to go to ${pendingNav.label}`}
+            <View
+              testID="companion-nav-countdown"
+              accessibilityRole="text"
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={countdown > 0 ? `Taking you to ${pendingNav.label} in ${countdown}` : `Taking you to ${pendingNav.label}`}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                borderRadius: 999,
+                backgroundColor: '#0A2540',
+                minHeight: 48,
+                justifyContent: 'center',
+              }}
             >
               <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 16 }}>
-                {navReady ? `Go to ${pendingNav.label} →` : `Finishing up… 🦋`}
+                {countdown > 0 ? `Taking you there in ${countdown}…` : 'Taking you there… 🦋'}
               </Text>
-            </Pressable>
-            {navReady ? (
-              <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6 }}>
-                Tap when you&apos;re ready — I&apos;ll take you there.
-              </Text>
-            ) : null}
+            </View>
           </View>
         ) : null}
         <View style={{ height: 20 }} />
