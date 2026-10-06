@@ -8,6 +8,7 @@ import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
 import { useTheme } from "@/src/lib/theme";
 import { useBottomNavVisible, showBottomNav } from "@/src/lib/bottom-nav";
+import { TabRing, TAB_ACTIVE, TAB_INACTIVE } from "@/src/components/TabRing";
 
 /**
  * GlobalBottomNav — the 5-tab navy bar, mirrored onto every MAIN screen that
@@ -113,9 +114,7 @@ export default function GlobalBottomNav() {
         const activeTopKey =
           top === "(tabs)" ? (segments[1] || "home") : top;
         const active = t.key === activeTopKey;
-        const activeColor = "#FFFFFF";
-        const dimColor    = "rgba(255,255,255,0.68)";
-        const color = active ? activeColor : dimColor;
+        const color = active ? TAB_ACTIVE : TAB_INACTIVE;
         return (
           <Pressable
             key={t.key}
@@ -127,21 +126,14 @@ export default function GlobalBottomNav() {
             style={styles.item}
             android_ripple={{ borderless: true }}
           >
-            <View style={[
-              styles.pill,
-              active ? {
-                borderColor: activeColor,
-                borderWidth: 1.5,
-                backgroundColor: "transparent",
-              } : null,
-            ]}>
+            <TabRing focused={active}>
               <Ionicons name={(t.key === "more" ? t.icon : (active ? t.icon : `${t.icon}-outline`)) as any} size={24} color={color} />
               {t.key === "chats" && unread > 0 ? (
                 <View style={[styles.badge, { backgroundColor: c.error, borderColor: NAVY }]}>
                   <Text style={styles.badgeTxt}>{unread > 9 ? "9+" : unread}</Text>
                 </View>
               ) : null}
-            </View>
+            </TabRing>
             <Text style={[styles.label, { color, fontSize: 12 * scale, fontWeight: active ? "900" : "700" }]} numberOfLines={1}>{t.label}</Text>
           </Pressable>
         );
@@ -164,7 +156,6 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 2 },
-  pill: { paddingHorizontal: 16, paddingVertical: 3, borderRadius: 999, borderWidth: 1.5, borderColor: "transparent" },
   label: { fontWeight: "800", marginTop: 2 },
   badge: {
     position: "absolute",

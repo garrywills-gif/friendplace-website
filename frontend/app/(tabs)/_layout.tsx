@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
 import { useBottomNavVisible } from "@/src/lib/bottom-nav";
+import { TabRing, TAB_INACTIVE } from "@/src/components/TabRing";
 
 /**
  * Custom tab button — replaces the default expo-router/react-navigation tab
@@ -158,7 +159,7 @@ export default function TabsLayout() {
         headerShown: false,
         // Navy bar, white icons/labels, soft-teal active pill (mockup).
         tabBarActiveTintColor: "#FFFFFF",
-        tabBarInactiveTintColor: "rgba(255,255,255,0.72)",
+        tabBarInactiveTintColor: TAB_INACTIVE,
         tabBarHideOnKeyboard: true,
         tabBarButton: (props) => <TabBtn {...props} />,
         tabBarStyle: {
@@ -181,18 +182,16 @@ export default function TabsLayout() {
         tabBarIconStyle: { marginTop: 2 },
         tabBarAccessibilityLabel: route.name,
         tabBarIcon: ({ color, focused }) => {
-          // iter243 (TestFlight #7): active tab = crisp white outline ring
-          // (no filled teal blob over the icon). Inactive keeps a
-          // transparent border of the same width so nothing shifts.
-          const pill = {
-            borderRadius: 999,
-            paddingHorizontal: 16,
-            paddingVertical: 3,
-            borderWidth: 1.5,
-            borderColor: focused ? "#FFFFFF" : "transparent",
-          };
+          // iter249 (TestFlight): ROOT CAUSE of missing icons on tab
+          // screens — react-navigation renders tabBarIcon inside a fixed
+          // ~28pt icon box. The old ring wrapper had paddingHorizontal 16
+          // but no explicit size, so inside that box it collapsed and
+          // squeezed the glyph to zero width: only the ring (Home) or
+          // nothing showed. My Chats survived because its icon sits in an
+          // explicit 28×28 box. TabRing now has an explicit size, so it
+          // can never be compressed (same ring as GlobalBottomNav).
           if (route.name === "chats") {
-            return <View style={pill}><ChatsIcon focused={focused} color={color} /></View>;
+            return <TabRing focused={focused}><ChatsIcon focused={focused} color={color} /></TabRing>;
           }
           const map: Record<string, any> = {
             home: "home",
@@ -206,9 +205,9 @@ export default function TabsLayout() {
           const base = map[route.name] || "ellipse";
           const iconName = route.name === "more" ? base : (focused ? base : `${base}-outline`);
           return (
-            <View style={pill}>
+            <TabRing focused={focused}>
               <Ionicons name={iconName as any} size={24} color={color} />
-            </View>
+            </TabRing>
           );
         },
       })}

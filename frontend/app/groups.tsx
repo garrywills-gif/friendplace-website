@@ -150,7 +150,7 @@ export default function Groups() {
                   </View>
                   <Text style={[styles.desc, { color: c.muted, fontSize: 14 * scale }]} numberOfLines={2}>{item.description}</Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4 }}>
-                    👥 {(item.members || []).length} members
+                    👥 {(item.members || []).length} {(item.members || []).length === 1 ? "member" : "members"}
                     {item.locality ? `   ·   📍 ${item.locality}` : ""}
                     {item.distance_km != null ? `  ·  ${item.distance_km} km` : ""}
                   </Text>

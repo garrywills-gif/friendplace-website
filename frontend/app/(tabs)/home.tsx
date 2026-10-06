@@ -863,7 +863,9 @@ export default function Home() {
                   </Text>
                 )}
                 {t.sub ? (
-                  <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale }]} numberOfLines={2}>
+                  // iter249 (TestFlight): full description wraps (no 2-line
+                  // clamp); lineHeight scales so large text isn't clipped.
+                  <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale, lineHeight: 16 * scale }]}>
                     {t.sub}
                   </Text>
                 ) : null}
