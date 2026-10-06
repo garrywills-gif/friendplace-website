@@ -15,7 +15,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL",
-                          "https://live-nudges-deploy.preview.emergentagent.com").rstrip("/")
+                          "https://friendplace-stable.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 MEMBER_EMAIL = "member@friendplace.com.au"

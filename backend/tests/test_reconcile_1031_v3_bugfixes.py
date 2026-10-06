@@ -13,7 +13,7 @@ import requests
 import pytest
 
 # conftest sets a stale default; force to the current preview URL
-BASE_URL = "https://live-nudges-deploy.preview.emergentagent.com"
+BASE_URL = "https://friendplace-stable.preview.emergentagent.com"
 API = f"{BASE_URL}/api"
 
 MEMBER_EMAIL = "member@friendplace.com.au"

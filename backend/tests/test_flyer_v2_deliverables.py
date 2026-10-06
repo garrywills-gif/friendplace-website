@@ -14,7 +14,7 @@ import pytest
 import requests
 from PIL import Image
 
-BASE_URL = "https://live-nudges-deploy.preview.emergentagent.com"
+BASE_URL = "https://friendplace-stable.preview.emergentagent.com"
 FLYER_PATH = "/flyer-mockups"
 
 # (filename, expected_content_type_prefix, expected_size_min_bytes)

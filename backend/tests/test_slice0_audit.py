@@ -26,7 +26,7 @@ load_dotenv(os.path.join(BACKEND_DIR, ".env"))
 
 BASE_URL = os.environ.get(
     "EXPO_PUBLIC_BACKEND_URL",
-    "https://live-nudges-deploy.preview.emergentagent.com",
+    "https://friendplace-stable.preview.emergentagent.com",
 ).rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

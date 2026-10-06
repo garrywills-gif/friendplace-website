@@ -43,7 +43,7 @@ if BACKEND_DIR not in sys.path:
 
 BASE_URL = (
     os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://live-nudges-deploy.preview.emergentagent.com"
+    or "https://friendplace-stable.preview.emergentagent.com"
 ).rstrip("/")
 
 APPLE_URL = f"{BASE_URL}/api/auth/apple"

@@ -31,7 +31,7 @@ load_dotenv("/app/frontend/.env")
 BASE_URL = (
     os.getenv("EXPO_BACKEND_URL")
     or os.getenv("EXPO_PUBLIC_BACKEND_URL")
-    or "https://live-nudges-deploy.preview.emergentagent.com"
+    or "https://friendplace-stable.preview.emergentagent.com"
 ).rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

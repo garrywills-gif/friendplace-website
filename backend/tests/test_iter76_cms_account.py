@@ -18,7 +18,7 @@ import re
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://live-nudges-deploy.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://friendplace-stable.preview.emergentagent.com").rstrip("/")
 BOOTSTRAP_EMAIL = "hello@friendplace.com.au"
 BOOTSTRAP_PASSWORD = "TestPass2026!"
 

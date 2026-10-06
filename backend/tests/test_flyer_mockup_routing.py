@@ -11,7 +11,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = "https://live-nudges-deploy.preview.emergentagent.com"
+BASE_URL = "https://friendplace-stable.preview.emergentagent.com"
 
 
 # ---------------- Flyer mockup PNG routing (the fix) ----------------

@@ -23,8 +23,8 @@ import websockets
 # NOTE: hardcoded to the *current* preview URL per the review request.
 # conftest.py pre-sets EXPO_PUBLIC_BACKEND_URL to a stale host, so relying on
 # the env var here yields 404s. The main agent test-runner explicitly
-# specifies https://live-nudges-deploy.preview.emergentagent.com.
-BASE_URL = "https://live-nudges-deploy.preview.emergentagent.com".rstrip("/")
+# specifies https://friendplace-stable.preview.emergentagent.com.
+BASE_URL = "https://friendplace-stable.preview.emergentagent.com".rstrip("/")
 API = f"{BASE_URL}/api"
 WS_BASE = BASE_URL.replace("https://", "wss://").replace("http://", "ws://")
 

@@ -14,7 +14,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("EXPO_BACKEND_URL") or os.environ.get(
-    "EXPO_PUBLIC_BACKEND_URL", "https://live-nudges-deploy.preview.emergentagent.com"
+    "EXPO_PUBLIC_BACKEND_URL", "https://friendplace-stable.preview.emergentagent.com"
 )
 BASE_URL = BASE_URL.rstrip("/")
 

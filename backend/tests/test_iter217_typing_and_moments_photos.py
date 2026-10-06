@@ -19,7 +19,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://live-nudges-deploy.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://friendplace-stable.preview.emergentagent.com").rstrip("/")
 
 
 def _demo_login(username: str) -> dict:
