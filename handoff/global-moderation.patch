@@ -1,0 +1,1915 @@
+diff --git a/app/admin/cafe/page.tsx b/app/admin/cafe/page.tsx
+new file mode 100644
+index 00000000..c890470c
+--- /dev/null
++++ b/app/admin/cafe/page.tsx
+@@ -0,0 +1,353 @@
++'use client';
++
++/**
++ * FP Café — Mission Control message moderation.
++ *
++ * Lists recent FP Café (table) messages across every table in the
++ * last 30 days by default. Each row shows the member display name,
++ * table name, message text, attached photo (if any) and timestamp.
++ *
++ * Admin can delete an individual message with a confirm prompt. The
++ * parent table and every other message stay untouched — this is a
++ * scalpel, not a hammer. DMs / Flutters are intentionally OUT of
++ * scope: they are 1:1 private conversations and are only moderated
++ * through the existing member-report flow.
++ */
++
++import { useCallback, useEffect, useState } from 'react';
++import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
++import {
++  cafeMessagesApi,
++  type CafeMessageRow,
++  type CafeTableOption,
++} from '@/lib/cms-api';
++import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
++
++const DAYS_OPTIONS: { key: number; label: string }[] = [
++  { key: 7,   label: 'Last 7 days' },
++  { key: 30,  label: 'Last 30 days' },
++  { key: 90,  label: 'Last 90 days' },
++];
++
++export default function AdminCafeMessagesPage() {
++  const [days, setDays] = useState<number>(30);
++  const [tableId, setTableId] = useState<string>('');
++  const [tables, setTables] = useState<CafeTableOption[]>([]);
++  const [q, setQ] = useState('');
++  const [rows, setRows] = useState<CafeMessageRow[]>([]);
++  const [stats, setStats] = useState({ total_window: 0, tables_active: 0 });
++  const [loading, setLoading] = useState(true);
++  const [busyId, setBusyId] = useState<string | null>(null);
++  const [toast, setToast] = useState<string | null>(null);
++  const [previewImage, setPreviewImage] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    try {
++      const r = await cafeMessagesApi.list({
++        q: q.trim() || undefined,
++        table_id: tableId || undefined,
++        days,
++        limit: 300,
++      });
++      setRows(r.rows || []);
++      setStats({ total_window: r.total_window, tables_active: r.tables_active });
++    } catch (e: any) {
++      setToast(e?.message || 'Failed to load café messages');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setLoading(false);
++    }
++  }, [q, tableId, days]);
++
++  useEffect(() => { load(); }, [load]);
++
++  useEffect(() => {
++    (async () => {
++      try {
++        const r = await cafeMessagesApi.tables();
++        setTables(r.rows || []);
++      } catch { /* non-fatal */ }
++    })();
++  }, []);
++
++  const remove = async (row: CafeMessageRow) => {
++    const snippet = (row.text || (row.image ? '(photo only)' : '(empty message)')).trim();
++    const author = row.user_name || 'Someone';
++    const confirmMsg =
++      `Delete this café message permanently?\n\n` +
++      `"${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}"\n` +
++      `by ${author} in ${row.table_name || 'the table'}\n\n` +
++      `The table and every other message stay intact. This action is logged.`;
++    if (!window.confirm(confirmMsg)) return;
++    setBusyId(row.id);
++    try {
++      await cafeMessagesApi.remove(row.id);
++      await load();
++      setToast('Message deleted');
++      setTimeout(() => setToast(null), 2200);
++    } catch (e: any) {
++      setToast(e?.message || 'Delete failed');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setBusyId(null);
++    }
++  };
++
++  return (
++    <AdminShell title="FP Café Messages">
++      <div style={intro}>
++        <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, margin: 0 }}>
++          Member chat across every FP Café table. Pick a time window and table
++          to narrow, then delete any single message that doesn&rsquo;t belong —
++          the table and surrounding messages stay intact. DMs are private and
++          are moderated separately via member reports.
++        </p>
++      </div>
++
++      {/* Stats cards */}
++      <div style={statsRow}>
++        <StatCard label={`Messages in last ${days}d`} value={stats.total_window} />
++        <StatCard label="Tables with activity"       value={stats.tables_active} />
++      </div>
++
++      {/* Filters + search */}
++      <div style={controlsRow}>
++        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
++          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
++            {DAYS_OPTIONS.map((d) => {
++              const on = days === d.key;
++              return (
++                <button
++                  key={d.key}
++                  type="button"
++                  onClick={() => setDays(d.key)}
++                  className="cms-btn-ghost"
++                  style={{
++                    ...s.ghostBtn,
++                    padding: '8px 12px',
++                    background: on ? '#0A2540' : '#FFFFFF',
++                    color: on ? '#FFFFFF' : '#0A2540',
++                    borderColor: on ? '#0A2540' : '#CBD5E1',
++                    fontWeight: 700,
++                  }}
++                >
++                  {d.label}
++                </button>
++              );
++            })}
++          </div>
++          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
++            <label style={{ fontSize: 13, fontWeight: 700, color: '#0A2540' }}>Table:</label>
++            <select
++              value={tableId}
++              onChange={(e) => setTableId(e.target.value)}
++              style={selectInput}
++            >
++              <option value="">All tables</option>
++              {tables.map((t) => (
++                <option key={t.id} value={t.id}>{t.name}</option>
++              ))}
++            </select>
++          </div>
++        </div>
++        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
++          <input
++            type="search"
++            value={q}
++            onChange={(e) => setQ(e.target.value)}
++            onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
++            placeholder="Search text or author…"
++            style={searchInput}
++          />
++          <button
++            type="button"
++            className="cms-btn-primary"
++            style={{ ...s.primaryBtn, padding: '10px 18px' }}
++            onClick={() => load()}
++          >
++            Search
++          </button>
++        </div>
++      </div>
++
++      {loading ? (
++        <p style={{ color: '#64748B', marginTop: 24 }}>Loading café messages…</p>
++      ) : rows.length === 0 ? (
++        <div style={emptyBox}>
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
++            <GeorgeButterflyMark size={48} />
++          </div>
++          <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800, marginTop: 8 }}>
++            No messages in this window
++          </div>
++          <div style={{ color: '#64748B', fontSize: 14, marginTop: 4 }}>
++            Widen the time range or clear the search box.
++          </div>
++        </div>
++      ) : (
++        <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
++          {rows.map((m) => (
++            <MessageRow
++              key={m.id}
++              row={m}
++              busy={busyId === m.id}
++              onDelete={() => remove(m)}
++              onPreviewImage={(src) => setPreviewImage(src)}
++            />
++          ))}
++        </div>
++      )}
++
++      {/* Image preview overlay — click outside to close. */}
++      {previewImage ? (
++        <div
++          onClick={() => setPreviewImage(null)}
++          style={{
++            position: 'fixed', inset: 0, background: 'rgba(10,37,64,0.76)',
++            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
++            padding: 32,
++          }}
++        >
++           
++          <img src={previewImage} alt="Preview"
++               style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 16, boxShadow: '0 10px 40px rgba(0,0,0,0.4)' }} />
++        </div>
++      ) : null}
++
++      {toast && <div style={s.toast}>{toast}</div>}
++    </AdminShell>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Sub-components
++// ──────────────────────────────────────────────────────────────────────
++
++function MessageRow({ row, busy, onDelete, onPreviewImage }: {
++  row: CafeMessageRow;
++  busy: boolean;
++  onDelete: () => void;
++  onPreviewImage: (src: string) => void;
++}) {
++  return (
++    <div style={{
++      background: '#FFFFFF',
++      borderRadius: 14,
++      border: '1px solid #E2E8F0',
++      padding: 12,
++      opacity: busy ? 0.6 : 1,
++      transition: 'opacity 160ms ease',
++    }}>
++      <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 12, alignItems: 'flex-start' }}>
++        <div style={{
++          width: 40, height: 40, borderRadius: 999, background: '#F1F5F9',
++          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
++        }}>{row.user_avatar || '👤'}</div>
++
++        <div style={{ minWidth: 0 }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
++            <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 14 }}>{row.user_name || 'Someone'}</span>
++            <Pill tone="slate">☕ {row.table_name || 'Table'}</Pill>
++            <span style={{ fontSize: 12, color: '#64748B' }}>{fmtDate(row.created_at)}</span>
++          </div>
++          {row.text ? (
++            <p style={{ margin: '6px 0 0', color: '#0A2540', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
++              {row.text}
++            </p>
++          ) : null}
++          {row.image ? (
++            <button
++              type="button"
++              onClick={() => onPreviewImage(row.image)}
++              style={{
++                marginTop: 8, padding: 0, border: 'none',
++                background: 'transparent', cursor: 'zoom-in',
++              }}
++              aria-label="Preview attached image"
++            >
++               
++              <img
++                src={row.image}
++                alt="Attached"
++                style={{ width: 160, height: 160, objectFit: 'cover', borderRadius: 10, background: '#F1F5F9', display: 'block' }}
++              />
++            </button>
++          ) : null}
++          {!row.text && !row.image ? (
++            <p style={{ margin: '6px 0 0', color: '#94A3B8', fontStyle: 'italic', fontSize: 13 }}>
++              (empty message)
++            </p>
++          ) : null}
++        </div>
++
++        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
++          <button
++            type="button"
++            onClick={onDelete}
++            disabled={busy}
++            className="cms-btn-danger"
++            style={{ ...s.dangerBtn, padding: '6px 12px', fontSize: 12 }}
++          >
++            Delete
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function Pill({ children, tone }: { children: React.ReactNode; tone: 'slate' }) {
++  const palettes: Record<string, { bg: string; ink: string; border: string }> = {
++    slate: { bg: '#F1F5F9', ink: '#334155', border: '#CBD5E1' },
++  };
++  const p = palettes[tone];
++  return (
++    <span style={{
++      background: p.bg, color: p.ink, border: `1px solid ${p.border}`,
++      padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800,
++      letterSpacing: '0.05em', textTransform: 'uppercase',
++    }}>{children}</span>
++  );
++}
++
++function fmtDate(iso?: string): string {
++  if (!iso) return '';
++  const d = new Date(iso);
++  if (Number.isNaN(d.getTime())) return iso;
++  return d.toLocaleString('en-AU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
++}
++
++function StatCard({ label, value }: { label: string; value: number | string }) {
++  return (
++    <div style={{
++      background: '#FFFFFF', borderRadius: 16, border: '1px solid #E2E8F0', padding: 16,
++      minWidth: 160, flex: '1 1 160px',
++    }}>
++      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748B' }}>{label}</div>
++      <div style={{ fontSize: 24, fontWeight: 900, color: '#0A2540', marginTop: 4 }}>{value}</div>
++    </div>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Styles
++// ──────────────────────────────────────────────────────────────────────
++const intro: React.CSSProperties = { marginTop: -12, marginBottom: 20 };
++const statsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 };
++const controlsRow: React.CSSProperties = {
++  display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
++  alignItems: 'center', marginBottom: 16,
++};
++const searchInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 14px',
++  fontSize: 14, minWidth: 220, background: '#FFFFFF', color: '#0A2540',
++};
++const selectInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 12px',
++  fontSize: 14, background: '#FFFFFF', color: '#0A2540', minWidth: 180,
++};
++const emptyBox: React.CSSProperties = {
++  background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 16,
++  padding: 32, textAlign: 'center', marginTop: 20,
++};
+diff --git a/app/admin/groups-mod/page.tsx b/app/admin/groups-mod/page.tsx
+new file mode 100644
+index 00000000..cedc4bb6
+--- /dev/null
++++ b/app/admin/groups-mod/page.tsx
+@@ -0,0 +1,333 @@
++'use client';
++
++/**
++ * Community Groups — Mission Control moderation.
++ *
++ * Lists every community-group post with author, group, image/text,
++ * and date. Admins can:
++ *   • Delete a whole post (cascades its comments + any attached media)
++ *   • Expand a post to see its comments and delete them individually
++ *
++ * Lives at /admin/groups-mod on purpose — /admin/groups and
++ * /admin/groups/pending are already reserved for CRUD on the group
++ * directory itself.
++ */
++
++import { useCallback, useEffect, useState } from 'react';
++import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
++import CommentsDrawer from '@/components/admin/CommentsDrawer';
++import {
++  groupPostsApi,
++  type GroupPostRow,
++  type GroupOption,
++} from '@/lib/cms-api';
++import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
++
++export default function AdminGroupsModPage() {
++  const [groupId, setGroupId] = useState<string>('');
++  const [groups, setGroups] = useState<GroupOption[]>([]);
++  const [q, setQ] = useState('');
++  const [rows, setRows] = useState<GroupPostRow[]>([]);
++  const [stats, setStats] = useState({ total_posts: 0, total_comments: 0, total_groups: 0 });
++  const [loading, setLoading] = useState(true);
++  const [busyId, setBusyId] = useState<string | null>(null);
++  const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
++  const [toast, setToast] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    try {
++      const r = await groupPostsApi.list({
++        q: q.trim() || undefined,
++        group_id: groupId || undefined,
++        limit: 200,
++      });
++      setRows(r.rows || []);
++      setStats({ total_posts: r.total_posts, total_comments: r.total_comments, total_groups: r.total_groups });
++    } catch (e: any) {
++      setToast(e?.message || 'Failed to load group posts');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setLoading(false);
++    }
++  }, [q, groupId]);
++
++  useEffect(() => { load(); }, [load]);
++
++  useEffect(() => {
++    (async () => {
++      try {
++        const r = await groupPostsApi.groups();
++        setGroups(r.rows || []);
++      } catch { /* non-fatal */ }
++    })();
++  }, []);
++
++  const remove = async (row: GroupPostRow) => {
++    const title = (row.text || '').trim() || '(empty post)';
++    const author = row.author_name || 'Someone';
++    const commentPart = row.comments_count > 0
++      ? `\n\nThis will also remove ${row.comments_count} comment${row.comments_count === 1 ? '' : 's'}`
++      + (row.image ? ` and any attached media.` : `.`)
++      : row.image ? `\n\nAttached media will also be removed.` : '';
++    const confirmMsg =
++      `Delete this group post permanently?\n\n` +
++      `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
++      `by ${author} in ${row.group_name || 'the group'}${commentPart}\n\n` +
++      `Members can't recover it. This action is logged.`;
++    if (!window.confirm(confirmMsg)) return;
++    setBusyId(row.id);
++    try {
++      await groupPostsApi.remove(row.id);
++      await load();
++      setToast('Post deleted');
++      setTimeout(() => setToast(null), 2200);
++    } catch (e: any) {
++      setToast(e?.message || 'Delete failed');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setBusyId(null);
++    }
++  };
++
++  return (
++    <AdminShell title="Community Group Posts">
++      <div style={intro}>
++        <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, margin: 0 }}>
++          Every post made inside a Community Group, newest first. Delete a
++          whole post and its comments cascade with it; expand a post to prune
++          individual comments. Group details themselves live on the
++          {' '}<b>Groups</b> page.
++        </p>
++      </div>
++
++      {/* Stats cards */}
++      <div style={statsRow}>
++        <StatCard label="Group posts"  value={stats.total_posts} />
++        <StatCard label="Comments"     value={stats.total_comments} />
++        <StatCard label="Active groups" value={stats.total_groups} />
++      </div>
++
++      {/* Group chip + search */}
++      <div style={controlsRow}>
++        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
++          <label style={{ fontSize: 13, fontWeight: 700, color: '#0A2540' }}>Group:</label>
++          <select
++            value={groupId}
++            onChange={(e) => setGroupId(e.target.value)}
++            style={selectInput}
++          >
++            <option value="">All groups ({stats.total_groups})</option>
++            {groups.map((g) => (
++              <option key={g.id} value={g.id}>{g.name}</option>
++            ))}
++          </select>
++        </div>
++        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
++          <input
++            type="search"
++            value={q}
++            onChange={(e) => setQ(e.target.value)}
++            onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
++            placeholder="Search post text or author…"
++            style={searchInput}
++          />
++          <button
++            type="button"
++            className="cms-btn-primary"
++            style={{ ...s.primaryBtn, padding: '10px 18px' }}
++            onClick={() => load()}
++          >
++            Search
++          </button>
++        </div>
++      </div>
++
++      {loading ? (
++        <p style={{ color: '#64748B', marginTop: 24 }}>Loading group posts…</p>
++      ) : rows.length === 0 ? (
++        <div style={emptyBox}>
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
++            <GeorgeButterflyMark size={48} />
++          </div>
++          <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800, marginTop: 8 }}>
++            Nothing to moderate
++          </div>
++          <div style={{ color: '#64748B', fontSize: 14, marginTop: 4 }}>
++            When members post inside a Community Group, their posts will show up here.
++          </div>
++        </div>
++      ) : (
++        <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
++          {rows.map((p) => (
++            <PostRow
++              key={p.id}
++              row={p}
++              busy={busyId === p.id}
++              expanded={openCommentsFor === p.id}
++              onToggleComments={() => setOpenCommentsFor(openCommentsFor === p.id ? null : p.id)}
++              onDelete={() => remove(p)}
++            />
++          ))}
++        </div>
++      )}
++
++      {toast && <div style={s.toast}>{toast}</div>}
++    </AdminShell>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Sub-components
++// ──────────────────────────────────────────────────────────────────────
++
++function PostRow({
++  row, busy, expanded, onToggleComments, onDelete,
++}: {
++  row: GroupPostRow;
++  busy: boolean;
++  expanded: boolean;
++  onToggleComments: () => void;
++  onDelete: () => void;
++}) {
++  return (
++    <div style={{
++      background: '#FFFFFF',
++      borderRadius: 16,
++      border: '1px solid #E2E8F0',
++      padding: 16,
++      opacity: busy ? 0.6 : 1,
++      transition: 'opacity 160ms ease',
++    }}>
++      <div style={{ display: 'grid', gridTemplateColumns: row.image ? '96px 1fr auto' : '48px 1fr auto', gap: 14, alignItems: 'flex-start' }}>
++        {row.image ? (
++          <img
++            src={row.image}
++            alt="Attached"
++            style={{ width: 96, height: 96, borderRadius: 12, objectFit: 'cover', background: '#F1F5F9' }}
++          />
++        ) : (
++          <div style={{
++            width: 48, height: 48, borderRadius: 12, background: '#F1F5F9',
++            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
++          }}>
++            {row.author_avatar || '👤'}
++          </div>
++        )}
++
++        <div style={{ minWidth: 0 }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
++            <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 16 }}>
++              {row.author_name || 'Someone'}
++            </span>
++            <Pill tone="slate">👥 {row.group_name || 'Group'}</Pill>
++            {row.image ? <Pill tone="slate">📷 Photo</Pill> : null}
++          </div>
++          <div style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
++            Posted {fmtDate(row.created_at)}
++          </div>
++          <p style={{ margin: '8px 0 0', color: '#0A2540', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
++            {row.text || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(no text)</span>}
++          </p>
++          <div style={{ marginTop: 8, fontSize: 12, color: '#64748B' }}>
++            ❤ {row.likes_count} ·{' '}
++            <button
++              type="button"
++              onClick={onToggleComments}
++              style={{
++                background: 'transparent',
++                border: 'none',
++                color: '#0A2540',
++                fontWeight: 700,
++                cursor: 'pointer',
++                padding: 0,
++                fontSize: 12,
++                textDecoration: 'underline',
++              }}
++            >
++              💬 {row.comments_count} comment{row.comments_count === 1 ? '' : 's'}
++              {' '}· {expanded ? 'hide' : 'view'}
++            </button>
++          </div>
++          {expanded ? (
++            <CommentsDrawer
++              parentLabel={row.text}
++              loader={async () => {
++                const r = await groupPostsApi.comments(row.id);
++                return r.comments || [];
++              }}
++              deleter={(cid) => groupPostsApi.removeComment(row.id, cid).then(() => undefined)}
++            />
++          ) : null}
++        </div>
++
++        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
++          <button
++            type="button"
++            onClick={onDelete}
++            disabled={busy}
++            className="cms-btn-danger"
++            style={{ ...s.dangerBtn, padding: '8px 14px', fontSize: 13 }}
++          >
++            Delete
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function Pill({ children, tone }: { children: React.ReactNode; tone: 'slate' }) {
++  const palettes: Record<string, { bg: string; ink: string; border: string }> = {
++    slate: { bg: '#F1F5F9', ink: '#334155', border: '#CBD5E1' },
++  };
++  const p = palettes[tone];
++  return (
++    <span style={{
++      background: p.bg, color: p.ink, border: `1px solid ${p.border}`,
++      padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800,
++      letterSpacing: '0.05em', textTransform: 'uppercase',
++    }}>{children}</span>
++  );
++}
++
++function fmtDate(iso?: string): string {
++  if (!iso) return '';
++  const d = new Date(iso);
++  if (Number.isNaN(d.getTime())) return iso;
++  return d.toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
++}
++
++function StatCard({ label, value }: { label: string; value: number | string }) {
++  return (
++    <div style={{
++      background: '#FFFFFF', borderRadius: 16, border: '1px solid #E2E8F0', padding: 16,
++      minWidth: 160, flex: '1 1 160px',
++    }}>
++      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748B' }}>{label}</div>
++      <div style={{ fontSize: 24, fontWeight: 900, color: '#0A2540', marginTop: 4 }}>{value}</div>
++    </div>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Styles
++// ──────────────────────────────────────────────────────────────────────
++const intro: React.CSSProperties = { marginTop: -12, marginBottom: 20 };
++const statsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 };
++const controlsRow: React.CSSProperties = {
++  display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
++  alignItems: 'center', marginBottom: 16,
++};
++const searchInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 14px',
++  fontSize: 14, minWidth: 240, background: '#FFFFFF', color: '#0A2540',
++};
++const selectInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 12px',
++  fontSize: 14, background: '#FFFFFF', color: '#0A2540', minWidth: 220,
++};
++const emptyBox: React.CSSProperties = {
++  background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 16,
++  padding: 32, textAlign: 'center', marginTop: 20,
++};
+diff --git a/app/admin/local-events/page.tsx b/app/admin/local-events/page.tsx
+new file mode 100644
+index 00000000..1c2dbbcb
+--- /dev/null
++++ b/app/admin/local-events/page.tsx
+@@ -0,0 +1,330 @@
++'use client';
++
++/**
++ * Local Events — Mission Control moderation.
++ *
++ * Lists community-hosted events (the `events` collection) with a
++ * status filter (Upcoming / Past / All), a search box, and a
++ * delete-with-confirm action. Admins never edit a host's event copy —
++ * if a listing is problematic the only remedy is removal.
++ *
++ * FriendPlace-curated events (website RSVPs, `cms_events` collection)
++ * stay on the existing /admin/events page, which also supports create
++ * + edit. The two surfaces are intentionally separate so one admin
++ * action can't accidentally delete a curator-authored row.
++ */
++
++import { useCallback, useEffect, useState } from 'react';
++import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
++import { localEventsApi, type LocalEventRow } from '@/lib/cms-api';
++import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
++
++type StatusFilter = 'upcoming' | 'past' | 'all';
++
++const STATUS_TABS: { key: StatusFilter; label: string }[] = [
++  { key: 'upcoming', label: 'Upcoming' },
++  { key: 'past',     label: 'Past' },
++  { key: 'all',      label: 'All' },
++];
++
++export default function AdminLocalEventsPage() {
++  const [statusFilter, setStatusFilter] = useState<StatusFilter>('upcoming');
++  const [q, setQ] = useState('');
++  const [rows, setRows] = useState<LocalEventRow[]>([]);
++  const [stats, setStats] = useState({ total: 0, upcoming: 0, cancelled: 0 });
++  const [loading, setLoading] = useState(true);
++  const [busyId, setBusyId] = useState<string | null>(null);
++  const [toast, setToast] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    try {
++      const r = await localEventsApi.list({
++        q: q.trim() || undefined,
++        status: statusFilter,
++        limit: 200,
++      });
++      setRows(r.rows || []);
++      setStats({ total: r.total, upcoming: r.upcoming, cancelled: r.cancelled });
++    } catch (e: any) {
++      setToast(e?.message || 'Failed to load events');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setLoading(false);
++    }
++  }, [statusFilter, q]);
++
++  useEffect(() => { load(); }, [load]);
++
++  const remove = async (row: LocalEventRow) => {
++    const title  = row.title?.trim() || '(untitled)';
++    const host   = row.host_name || 'Someone';
++    const when   = formatEventWhen(row);
++    const confirmMsg =
++      `Delete this local event permanently?\n\n` +
++      `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
++      `by ${host}${when ? ` · ${when}` : ''}\n\n` +
++      `Members can't recover it and any RSVPs will be dropped. This action is logged.`;
++    if (!window.confirm(confirmMsg)) return;
++    setBusyId(row.id);
++    try {
++      await localEventsApi.remove(row.id);
++      await load();
++      setToast('Event deleted');
++      setTimeout(() => setToast(null), 2200);
++    } catch (e: any) {
++      setToast(e?.message || 'Delete failed');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setBusyId(null);
++    }
++  };
++
++  return (
++    <AdminShell title="Local Events">
++      <div style={intro}>
++        <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, margin: 0 }}>
++          Member-hosted community events. Upcoming shows events today or in the
++          future, Past shows events whose date has ended. Delete requires a
++          confirmation.{' '}
++          <span style={{ color: '#94A3B8' }}>
++            FriendPlace-curated events live on the <b>Events</b> page.
++          </span>
++        </p>
++      </div>
++
++      {/* Stats cards */}
++      <div style={statsRow}>
++        <StatCard label="Total events" value={stats.total} />
++        <StatCard label="Upcoming"     value={stats.upcoming} />
++        <StatCard
++          label="Cancelled"
++          value={stats.cancelled}
++          tone={stats.cancelled > 0 ? 'warn' : 'muted'}
++        />
++      </div>
++
++      {/* Status tabs + search */}
++      <div style={controlsRow}>
++        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
++          {STATUS_TABS.map((t) => {
++            const on = statusFilter === t.key;
++            return (
++              <button
++                key={t.key}
++                type="button"
++                onClick={() => setStatusFilter(t.key)}
++                className="cms-btn-ghost"
++                style={{
++                  ...s.ghostBtn,
++                  padding: '8px 14px',
++                  background: on ? '#0A2540' : '#FFFFFF',
++                  color: on ? '#FFFFFF' : '#0A2540',
++                  borderColor: on ? '#0A2540' : '#CBD5E1',
++                  fontWeight: 700,
++                }}
++              >
++                {t.label}
++              </button>
++            );
++          })}
++        </div>
++        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
++          <input
++            type="search"
++            value={q}
++            onChange={(e) => setQ(e.target.value)}
++            onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
++            placeholder="Search title, description or location…"
++            style={searchInput}
++          />
++          <button
++            type="button"
++            className="cms-btn-primary"
++            style={{ ...s.primaryBtn, padding: '10px 18px' }}
++            onClick={() => load()}
++          >
++            Search
++          </button>
++        </div>
++      </div>
++
++      {loading ? (
++        <p style={{ color: '#64748B', marginTop: 24 }}>Loading events…</p>
++      ) : rows.length === 0 ? (
++        <div style={emptyBox}>
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
++            <GeorgeButterflyMark size={48} />
++          </div>
++          <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800, marginTop: 8 }}>
++            {statusFilter === 'past' ? 'No past events' : statusFilter === 'all' ? 'No events yet' : 'No upcoming events'}
++          </div>
++          <div style={{ color: '#64748B', fontSize: 14, marginTop: 4 }}>
++            {statusFilter === 'upcoming'
++              ? 'When a member schedules an event in the future, it will show up here.'
++              : statusFilter === 'past'
++                ? 'Nothing in the archive yet.'
++                : 'Try another status or clear the search box.'}
++          </div>
++        </div>
++      ) : (
++        <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
++          {rows.map((e) => (
++            <EventRow key={e.id} row={e} busy={busyId === e.id} onDelete={() => remove(e)} />
++          ))}
++        </div>
++      )}
++
++      {toast && <div style={s.toast}>{toast}</div>}
++    </AdminShell>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Sub-components
++// ──────────────────────────────────────────────────────────────────────
++
++function EventRow({ row, busy, onDelete }: { row: LocalEventRow; busy: boolean; onDelete: () => void }) {
++  const borderColour =
++    row.status === 'cancelled'
++      ? '#FCA5A5'
++      : row.status === 'archived'
++        ? '#CBD5E1'
++        : '#E2E8F0';
++  return (
++    <div style={{
++      background: '#FFFFFF',
++      borderRadius: 16,
++      border: `1px solid ${borderColour}`,
++      padding: 16,
++      opacity: busy ? 0.6 : 1,
++      transition: 'opacity 160ms ease',
++    }}>
++      <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr auto', gap: 14, alignItems: 'flex-start' }}>
++        <div style={{
++          width: 48, height: 48, borderRadius: 12, background: '#F1F5F9',
++          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
++        }}>
++          {row.emoji || '📅'}
++        </div>
++
++        <div style={{ minWidth: 0 }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
++            <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 16 }}>
++              {row.title || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(untitled)</span>}
++            </span>
++            {row.status === 'cancelled' ? <Pill tone="danger">Cancelled</Pill> : null}
++            {row.status === 'archived' ? <Pill tone="slate">Archived</Pill> : null}
++            {row.recurrence ? <Pill tone="slate">{row.recurrence}</Pill> : null}
++          </div>
++          <div style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
++            Hosted by {row.host_name} · Posted {fmtPostedDate(row.created_at)}
++          </div>
++          <div style={{ fontSize: 13, color: '#0A2540', fontWeight: 700, marginTop: 6 }}>
++            📅 {formatEventWhen(row) || '(no date)'}
++          </div>
++          {row.location ? (
++            <div style={{ fontSize: 13, color: '#475569', marginTop: 4 }}>
++              📍 {row.location}{row.locality ? ` · ${row.locality}` : ''}
++            </div>
++          ) : null}
++          <p style={{ margin: '8px 0 0', color: '#334155', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
++            {row.description || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(no description)</span>}
++          </p>
++          <div style={{ marginTop: 8, fontSize: 12, color: '#64748B' }}>
++            🙋 {row.rsvps_count} going
++            {row.capacity ? ` · Capacity ${row.capacity}` : ''}
++          </div>
++        </div>
++
++        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
++          <button
++            type="button"
++            onClick={onDelete}
++            disabled={busy}
++            className="cms-btn-danger"
++            style={{ ...s.dangerBtn, padding: '8px 14px', fontSize: 13 }}
++          >
++            Delete
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function Pill({ children, tone }: { children: React.ReactNode; tone: 'danger' | 'slate' }) {
++  const palettes: Record<string, { bg: string; ink: string; border: string }> = {
++    danger: { bg: '#FEE2E2', ink: '#B91C1C', border: '#FCA5A5' },
++    slate:  { bg: '#F1F5F9', ink: '#334155', border: '#CBD5E1' },
++  };
++  const p = palettes[tone];
++  return (
++    <span style={{
++      background: p.bg, color: p.ink, border: `1px solid ${p.border}`,
++      padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800,
++      letterSpacing: '0.05em', textTransform: 'uppercase',
++    }}>{children}</span>
++  );
++}
++
++function formatEventWhen(row: LocalEventRow): string {
++  if (!row.date) return '';
++  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(row.date);
++  if (!m) return row.date;
++  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
++  const datePart = d.toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
++  const timePart = row.time
++    ? ` · ${row.time}${row.end_time ? ` – ${row.end_time}` : ''}`
++    : '';
++  return `${datePart}${timePart}`;
++}
++
++function fmtPostedDate(iso?: string): string {
++  if (!iso) return '';
++  const d = new Date(iso);
++  if (Number.isNaN(d.getTime())) return iso;
++  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
++}
++
++function StatCard({ label, value, hint, tone = 'default' }: {
++  label: string; value: number | string; hint?: string; tone?: 'default' | 'warn' | 'amber' | 'muted';
++}) {
++  const palette: Record<string, { bg: string; ink: string; sub: string; border: string }> = {
++    default: { bg: '#FFFFFF', ink: '#0A2540', sub: '#64748B', border: '#E2E8F0' },
++    warn:    { bg: '#FEF2F2', ink: '#B91C1C', sub: '#7F1D1D', border: '#FCA5A5' },
++    amber:   { bg: '#FEF3C7', ink: '#92400E', sub: '#78350F', border: '#F59E0B' },
++    muted:   { bg: '#F8FAFC', ink: '#334155', sub: '#64748B', border: '#E2E8F0' },
++  };
++  const p = palette[tone];
++  return (
++    <div style={{
++      background: p.bg, borderRadius: 16, border: `1px solid ${p.border}`, padding: 16,
++      minWidth: 160, flex: '1 1 160px',
++    }}>
++      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: p.sub }}>{label}</div>
++      <div style={{ fontSize: 24, fontWeight: 900, color: p.ink, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
++        {value}
++      </div>
++      {hint ? <div style={{ fontSize: 12, color: p.sub, marginTop: 4, lineHeight: 1.35 }}>{hint}</div> : null}
++    </div>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Styles
++// ──────────────────────────────────────────────────────────────────────
++const intro: React.CSSProperties = { marginTop: -12, marginBottom: 20 };
++const statsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 };
++const controlsRow: React.CSSProperties = {
++  display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
++  alignItems: 'center', marginBottom: 16,
++};
++const searchInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 14px',
++  fontSize: 14, minWidth: 260, background: '#FFFFFF', color: '#0A2540',
++};
++const emptyBox: React.CSSProperties = {
++  background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 16,
++  padding: 32, textAlign: 'center', marginTop: 20,
++};
+diff --git a/app/admin/moments/page.tsx b/app/admin/moments/page.tsx
+index 02686731..98debcba 100644
+--- a/app/admin/moments/page.tsx
++++ b/app/admin/moments/page.tsx
+@@ -2,7 +2,8 @@
+ 
+ import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
+-import { momentsApi, type MomentRow, type MomentAdminAction } from '@/lib/cms-api';
++import { momentsApi, momentCommentsApi, type MomentRow, type MomentAdminAction } from '@/lib/cms-api';
++import CommentsDrawer from '@/components/admin/CommentsDrawer';
+ import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
+ 
+ /**
+@@ -45,6 +46,7 @@ export default function AdminMomentsPage() {
+   const [loading, setLoading] = useState(true);
+   const [busyId, setBusyId] = useState<string | null>(null);
+   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
++  const [expandedCommentsId, setExpandedCommentsId] = useState<string | null>(null);
+   const [toast, setToast] = useState<string | null>(null);
+ 
+   const load = useCallback(async () => {
+@@ -194,6 +196,8 @@ export default function AdminMomentsPage() {
+               row={m}
+               busy={busyId === m.id}
+               expanded={expandedReportId === m.id}
++              commentsExpanded={expandedCommentsId === m.id}
++              onToggleComments={() => setExpandedCommentsId(expandedCommentsId === m.id ? null : m.id)}
+               onToggleReports={() => setExpandedReportId(expandedReportId === m.id ? null : m.id)}
+               onFeature={() => runAction(m.id, m.featured ? 'unfeature' : 'feature',
+                 m.featured
+@@ -247,12 +251,14 @@ function StatCard({ label, value, hint, tone = 'default' }: {
+ }
+ 
+ function MomentAdminRow({
+-  row, busy, expanded, onToggleReports, onFeature, onHide, onClearReports, onDelete,
++  row, busy, expanded, commentsExpanded, onToggleReports, onToggleComments, onFeature, onHide, onClearReports, onDelete,
+ }: {
+   row: MomentRow;
+   busy: boolean;
+   expanded: boolean;
++  commentsExpanded: boolean;
+   onToggleReports: () => void;
++  onToggleComments: () => void;
+   onFeature: () => void;
+   onHide: () => void;
+   onClearReports: () => void;
+@@ -305,10 +311,37 @@ function MomentAdminRow({
+             {row.caption || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(no caption)</span>}
+           </p>
+           <div style={{ marginTop: 8, fontSize: 12, color: '#64748B' }}>
+-            ❤ {row.likes_count} · 💬 {row.comments_count}
++            ❤ {row.likes_count} ·{' '}
++            <button
++              type="button"
++              onClick={onToggleComments}
++              style={{
++                background: 'transparent',
++                border: 'none',
++                color: '#0A2540',
++                fontWeight: 700,
++                cursor: 'pointer',
++                padding: 0,
++                fontSize: 12,
++                textDecoration: 'underline',
++              }}
++            >
++              💬 {row.comments_count} comment{row.comments_count === 1 ? '' : 's'} · {commentsExpanded ? 'hide' : 'view'}
++            </button>
+             {row.photos.length > 1 ? ` · 🖼 ${row.photos.length} photos` : null}
+           </div>
+ 
++          {commentsExpanded ? (
++            <CommentsDrawer
++              parentLabel={row.caption}
++              loader={async () => {
++                const r = await momentCommentsApi.list(row.id);
++                return r.comments || [];
++              }}
++              deleter={(cid) => momentCommentsApi.remove(row.id, cid).then(() => undefined)}
++            />
++          ) : null}
++
+           {expanded && row.reports.length > 0 ? (
+             <div style={{
+               marginTop: 12, background: '#FEF2F2', border: '1px solid #FECACA',
+diff --git a/app/admin/notice-board/page.tsx b/app/admin/notice-board/page.tsx
+new file mode 100644
+index 00000000..cba6c024
+--- /dev/null
++++ b/app/admin/notice-board/page.tsx
+@@ -0,0 +1,364 @@
++'use client';
++
++/**
++ * Notice Board — Mission Control moderation.
++ *
++ * Mirrors the Moments admin surface (list + delete-with-confirm). Admins
++ * never edit a member's words — if a post is problematic the only
++ * remedy is removal. Delete requires an explicit `window.confirm` with
++ * the post title so it can't be fired accidentally.
++ */
++
++import { useCallback, useEffect, useState } from 'react';
++import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
++import { noticeBoardApi, noticeCommentsApi, type NoticeBoardRow } from '@/lib/cms-api';
++import CommentsDrawer from '@/components/admin/CommentsDrawer';
++import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
++
++// Member-facing category list — kept in sync with the mobile client's
++// `CATEGORY_LIST` so the filter chips match what members actually post.
++const CATEGORY_CHIPS = [
++  'All',
++  'Announcement',
++  'Question',
++  'Event',
++  'Kindness',
++  'Buy & Sell',
++  'Community',
++  'Help Needed',
++  'Giveaway',
++];
++
++export default function AdminNoticeBoardPage() {
++  const [category, setCategory] = useState<string>('All');
++  const [q, setQ] = useState('');
++  const [rows, setRows] = useState<NoticeBoardRow[]>([]);
++  const [stats, setStats] = useState({ total: 0, reported: 0, active: 0 });
++  const [loading, setLoading] = useState(true);
++  const [busyId, setBusyId] = useState<string | null>(null);
++  const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
++  const [toast, setToast] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    try {
++      const r = await noticeBoardApi.list({
++        q: q.trim() || undefined,
++        category: category && category !== 'All' ? category : undefined,
++        limit: 200,
++      });
++      setRows(r.rows || []);
++      setStats({ total: r.total, reported: r.reported, active: r.active });
++    } catch (e: any) {
++      setToast(e?.message || 'Failed to load notices');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setLoading(false);
++    }
++  }, [category, q]);
++
++  useEffect(() => { load(); }, [load]);
++
++  const remove = async (row: NoticeBoardRow) => {
++    const title = row.title?.trim() || '(untitled)';
++    const author = row.author_name || 'Someone';
++    const confirmMsg =
++      `Delete this notice permanently?\n\n` +
++      `"${title.slice(0, 100)}${title.length > 100 ? '…' : ''}"\n` +
++      `by ${author}\n\n` +
++      `Members can't recover it. This action is logged.`;
++    if (!window.confirm(confirmMsg)) return;
++    setBusyId(row.id);
++    try {
++      await noticeBoardApi.remove(row.id);
++      await load();
++      setToast('Notice deleted');
++      setTimeout(() => setToast(null), 2200);
++    } catch (e: any) {
++      setToast(e?.message || 'Delete failed');
++      setTimeout(() => setToast(null), 3000);
++    } finally {
++      setBusyId(null);
++    }
++  };
++
++  return (
++    <AdminShell title="Notice Board">
++      <div style={intro}>
++        <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, margin: 0 }}>
++          Member-posted notices across every category. Use the filter chips to
++          narrow by category, search by title, body or author, and delete
++          anything that doesn&rsquo;t belong — a confirmation is required.
++        </p>
++      </div>
++
++      {/* Stats cards */}
++      <div style={statsRow}>
++        <StatCard label="Total notices"     value={stats.total} />
++        <StatCard label="Currently active"  value={stats.active} tone="default" />
++        <StatCard
++          label="Reported"
++          value={stats.reported}
++          tone={stats.reported > 0 ? 'warn' : 'muted'}
++        />
++      </div>
++
++      {/* Filter chips + search */}
++      <div style={controlsRow}>
++        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
++          {CATEGORY_CHIPS.map((cat) => {
++            const on = category === cat;
++            return (
++              <button
++                key={cat}
++                type="button"
++                onClick={() => setCategory(cat)}
++                className="cms-btn-ghost"
++                style={{
++                  ...s.ghostBtn,
++                  padding: '8px 14px',
++                  background: on ? '#0A2540' : '#FFFFFF',
++                  color: on ? '#FFFFFF' : '#0A2540',
++                  borderColor: on ? '#0A2540' : '#CBD5E1',
++                  fontWeight: 700,
++                }}
++              >
++                {cat}
++              </button>
++            );
++          })}
++        </div>
++        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
++          <input
++            type="search"
++            value={q}
++            onChange={(e) => setQ(e.target.value)}
++            onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
++            placeholder="Search title, body or author…"
++            style={searchInput}
++          />
++          <button
++            type="button"
++            className="cms-btn-primary"
++            style={{ ...s.primaryBtn, padding: '10px 18px' }}
++            onClick={() => load()}
++          >
++            Search
++          </button>
++        </div>
++      </div>
++
++      {loading ? (
++        <p style={{ color: '#64748B', marginTop: 24 }}>Loading notices…</p>
++      ) : rows.length === 0 ? (
++        <div style={emptyBox}>
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
++            <GeorgeButterflyMark size={48} />
++          </div>
++          <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800, marginTop: 8 }}>
++            {category === 'All' && !q.trim() ? 'No notices yet' : 'Nothing matches'}
++          </div>
++          <div style={{ color: '#64748B', fontSize: 14, marginTop: 4 }}>
++            {category === 'All' && !q.trim()
++              ? 'When members post to the Notice Board, they will appear here.'
++              : 'Try another category or clear the search box.'}
++          </div>
++        </div>
++      ) : (
++        <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
++          {rows.map((n) => (
++            <NoticeRow
++              key={n.id}
++              row={n}
++              busy={busyId === n.id}
++              expanded={openCommentsFor === n.id}
++              onToggleComments={() => setOpenCommentsFor(openCommentsFor === n.id ? null : n.id)}
++              onDelete={() => remove(n)}
++            />
++          ))}
++        </div>
++      )}
++
++      {toast && <div style={s.toast}>{toast}</div>}
++    </AdminShell>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Sub-components
++// ──────────────────────────────────────────────────────────────────────
++
++function NoticeRow({ row, busy, expanded, onToggleComments, onDelete }: {
++  row: NoticeBoardRow;
++  busy: boolean;
++  expanded: boolean;
++  onToggleComments: () => void;
++  onDelete: () => void;
++}) {
++  const activeStatus = computeActiveStatus(row.active_from, row.active_to);
++  return (
++    <div style={{
++      background: '#FFFFFF',
++      borderRadius: 16,
++      border: `1px solid ${row.reports_count > 0 ? '#FCA5A5' : '#E2E8F0'}`,
++      padding: 16,
++      opacity: busy ? 0.6 : 1,
++      transition: 'opacity 160ms ease',
++    }}>
++      <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr auto', gap: 14, alignItems: 'flex-start' }}>
++        <div style={{
++          width: 48, height: 48, borderRadius: 12, background: '#F1F5F9',
++          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
++        }}>
++          {row.author_avatar || '👤'}
++        </div>
++
++        <div style={{ minWidth: 0 }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
++            <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 16 }}>
++              {row.title || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(untitled)</span>}
++            </span>
++            <Pill tone="slate">{row.category}</Pill>
++            {row.has_image ? <Pill tone="slate">📷 Photo</Pill> : null}
++            {row.solved ? <Pill tone="amber">Solved</Pill> : null}
++            {activeStatus === 'scheduled' ? <Pill tone="slate">Scheduled</Pill> : null}
++            {activeStatus === 'expired' ? <Pill tone="danger">Expired</Pill> : null}
++            {row.reports_count > 0 ? (
++              <Pill tone="danger">🚩 {row.reports_count} report{row.reports_count === 1 ? '' : 's'}</Pill>
++            ) : null}
++          </div>
++          <div style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
++            {row.author_name} · {fmtDate(row.created_at)}
++            {row.locality ? ` · ${row.locality}` : ''}
++          </div>
++          <p style={{ margin: '8px 0 0', color: '#0A2540', fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
++            {row.body || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(no body)</span>}
++          </p>
++          {row.active_from || row.active_to ? (
++            <div style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
++              Active window: {row.active_from ? fmtDate(row.active_from) : '—'} → {row.active_to ? fmtDate(row.active_to) : '—'}
++            </div>
++          ) : null}
++          <div style={{ marginTop: 10 }}>
++            <button
++              type="button"
++              onClick={onToggleComments}
++              style={{
++                background: 'transparent',
++                border: 'none',
++                color: '#0A2540',
++                fontWeight: 700,
++                cursor: 'pointer',
++                padding: 0,
++                fontSize: 12,
++                textDecoration: 'underline',
++              }}
++            >
++              💬 {expanded ? 'Hide comments' : 'View comments'}
++            </button>
++          </div>
++          {expanded ? (
++            <CommentsDrawer
++              parentLabel={row.title}
++              loader={async () => {
++                const r = await noticeCommentsApi.list(row.id);
++                return r.comments || [];
++              }}
++              deleter={(cid) => noticeCommentsApi.remove(row.id, cid).then(() => undefined)}
++            />
++          ) : null}
++        </div>
++
++        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
++          <button
++            type="button"
++            onClick={onDelete}
++            disabled={busy}
++            className="cms-btn-danger"
++            style={{ ...s.dangerBtn, padding: '8px 14px', fontSize: 13 }}
++          >
++            Delete
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function Pill({ children, tone }: { children: React.ReactNode; tone: 'amber' | 'danger' | 'slate' }) {
++  const palettes: Record<string, { bg: string; ink: string; border: string }> = {
++    amber:  { bg: '#FEF3C7', ink: '#92400E', border: '#F59E0B' },
++    danger: { bg: '#FEE2E2', ink: '#B91C1C', border: '#FCA5A5' },
++    slate:  { bg: '#F1F5F9', ink: '#334155', border: '#CBD5E1' },
++  };
++  const p = palettes[tone];
++  return (
++    <span style={{
++      background: p.bg, color: p.ink, border: `1px solid ${p.border}`,
++      padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800,
++      letterSpacing: '0.05em', textTransform: 'uppercase',
++    }}>{children}</span>
++  );
++}
++
++function fmtDate(iso?: string): string {
++  if (!iso) return '';
++  const d = new Date(iso);
++  if (Number.isNaN(d.getTime())) return iso;
++  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
++}
++
++function computeActiveStatus(from?: string, to?: string): 'live' | 'scheduled' | 'expired' {
++  const now = Date.now();
++  if (from) {
++    const t = new Date(from).getTime();
++    if (!Number.isNaN(t) && t > now) return 'scheduled';
++  }
++  if (to) {
++    const t = new Date(to).getTime();
++    if (!Number.isNaN(t) && t < now) return 'expired';
++  }
++  return 'live';
++}
++
++function StatCard({ label, value, hint, tone = 'default' }: {
++  label: string; value: number | string; hint?: string; tone?: 'default' | 'warn' | 'amber' | 'muted';
++}) {
++  const palette: Record<string, { bg: string; ink: string; sub: string; border: string }> = {
++    default: { bg: '#FFFFFF', ink: '#0A2540', sub: '#64748B', border: '#E2E8F0' },
++    warn:    { bg: '#FEF2F2', ink: '#B91C1C', sub: '#7F1D1D', border: '#FCA5A5' },
++    amber:   { bg: '#FEF3C7', ink: '#92400E', sub: '#78350F', border: '#F59E0B' },
++    muted:   { bg: '#F8FAFC', ink: '#334155', sub: '#64748B', border: '#E2E8F0' },
++  };
++  const p = palette[tone];
++  return (
++    <div style={{
++      background: p.bg, borderRadius: 16, border: `1px solid ${p.border}`, padding: 16,
++      minWidth: 160, flex: '1 1 160px',
++    }}>
++      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: p.sub }}>{label}</div>
++      <div style={{ fontSize: 24, fontWeight: 900, color: p.ink, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
++        {value}
++      </div>
++      {hint ? <div style={{ fontSize: 12, color: p.sub, marginTop: 4, lineHeight: 1.35 }}>{hint}</div> : null}
++    </div>
++  );
++}
++
++// ──────────────────────────────────────────────────────────────────────
++// Styles
++// ──────────────────────────────────────────────────────────────────────
++const intro: React.CSSProperties = { marginTop: -12, marginBottom: 20 };
++const statsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 };
++const controlsRow: React.CSSProperties = {
++  display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
++  alignItems: 'center', marginBottom: 16,
++};
++const searchInput: React.CSSProperties = {
++  border: '1px solid #CBD5E1', borderRadius: 10, padding: '10px 14px',
++  fontSize: 14, minWidth: 260, background: '#FFFFFF', color: '#0A2540',
++};
++const emptyBox: React.CSSProperties = {
++  background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 16,
++  padding: 32, textAlign: 'center', marginTop: 20,
++};
+diff --git a/components/admin/AdminShell.tsx b/components/admin/AdminShell.tsx
+index 2229c6da..3019ae5e 100644
+--- a/components/admin/AdminShell.tsx
++++ b/components/admin/AdminShell.tsx
+@@ -48,6 +48,10 @@ const NAV_GROUPS: NavGroup[] = [
+       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
+       { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
+       { href: '/admin/moments',          label: 'Moments',          icon: '✨' },
++      { href: '/admin/notice-board',     label: 'Notice Board',     icon: '📰' },
++      { href: '/admin/local-events',     label: 'Local Events',     icon: '📍' },
++      { href: '/admin/groups-mod',       label: 'Group Posts',      icon: '👥' },
++      { href: '/admin/cafe',             label: 'FP Café Messages', icon: '☕' },
+       { href: '/admin/reports',          label: 'Reports',          icon: '🚩', soon: true },
+       { href: '/admin/support',          label: 'Support',          icon: '💬', soon: true },
+       { href: '/admin/groups/pending',   label: 'Pending groups',   icon: '👥', soon: true },
+diff --git a/components/admin/CommentsDrawer.tsx b/components/admin/CommentsDrawer.tsx
+new file mode 100644
+index 00000000..41f9ea9c
+--- /dev/null
++++ b/components/admin/CommentsDrawer.tsx
+@@ -0,0 +1,195 @@
++'use client';
++
++/**
++ * CommentsDrawer — reusable inline comment moderation drawer.
++ *
++ * Shared by Moments, Notice Board and Community Groups moderation pages.
++ * Renders a tight list of embedded comments with per-row Delete buttons
++ * (each one gated by `window.confirm`). The host page owns:
++ *   • `loader`  → fetches the current comment array for the parent id
++ *   • `deleter` → removes one comment by id (host decides which API)
++ *
++ * The drawer manages its own loading / busy / error state so a host
++ * screen can drop it in with two props and nothing else.
++ */
++
++import React, { useCallback, useEffect, useState } from 'react';
++import type { CommentRow } from '@/lib/cms-api';
++
++export type CommentsDrawerProps = {
++  /** Human-readable label for the parent (e.g. post title) used in
++   *  confirm dialogs: "Delete this comment on 'Garden swap'?". */
++  parentLabel?: string;
++  /** Fetch the current comment list. Called on mount + after delete. */
++  loader: () => Promise<CommentRow[]>;
++  /** Remove a single comment by id. Called after confirm. */
++  deleter: (commentId: string) => Promise<void>;
++};
++
++export default function CommentsDrawer({ parentLabel, loader, deleter }: CommentsDrawerProps) {
++  const [comments, setComments] = useState<CommentRow[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++  const [busyId, setBusyId] = useState<string | null>(null);
++
++  const refresh = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const rows = await loader();
++      setComments(rows || []);
++    } catch (e: any) {
++      setError(e?.message || 'Failed to load comments');
++    } finally {
++      setLoading(false);
++    }
++  }, [loader]);
++
++  useEffect(() => { refresh(); }, [refresh]);
++
++  const remove = async (c: CommentRow) => {
++    const snippet = (c.text || '').slice(0, 100);
++    const author = c.user_name || 'Someone';
++    const label = parentLabel ? ` on "${parentLabel.slice(0, 80)}${parentLabel.length > 80 ? '…' : ''}"` : '';
++    const confirmMsg =
++      `Delete this comment${label}?\n\n` +
++      `"${snippet}${(c.text || '').length > 100 ? '…' : ''}"\n` +
++      `by ${author}\n\n` +
++      `The parent post stays intact. This action is logged.`;
++    if (!window.confirm(confirmMsg)) return;
++    setBusyId(c.id);
++    try {
++      await deleter(c.id);
++      await refresh();
++    } catch (e: any) {
++      alert(e?.message || 'Delete failed');
++    } finally {
++      setBusyId(null);
++    }
++  };
++
++  if (loading) {
++    return <div style={emptyRow}>Loading comments…</div>;
++  }
++  if (error) {
++    return <div style={{ ...emptyRow, color: '#B91C1C' }}>Could not load comments — {error}</div>;
++  }
++  if (comments.length === 0) {
++    return <div style={emptyRow}>No comments on this post.</div>;
++  }
++  return (
++    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
++      {comments.map((c) => (
++        <div key={c.id}>
++          <div style={{
++            display: 'grid',
++            gridTemplateColumns: '32px 1fr auto',
++            gap: 10,
++            alignItems: 'flex-start',
++            background: '#F8FAFC',
++            border: '1px solid #E2E8F0',
++            borderRadius: 10,
++            padding: 10,
++            opacity: busyId === c.id ? 0.55 : 1,
++          }}>
++            <div style={avatarBubble}>{c.user_avatar || '👤'}</div>
++            <div style={{ minWidth: 0 }}>
++              <div style={{ fontSize: 12, fontWeight: 700, color: '#0A2540' }}>
++                {c.user_name || 'Someone'}
++                <span style={{ fontWeight: 400, color: '#64748B', marginLeft: 6 }}>· {relTime(c.created_at)}</span>
++              </div>
++              <div style={{ fontSize: 13, color: '#0A2540', marginTop: 4, whiteSpace: 'pre-wrap' }}>
++                {c.text || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(empty)</span>}
++              </div>
++            </div>
++            <button
++              type="button"
++              disabled={busyId === c.id}
++              onClick={() => remove(c)}
++              style={deleteBtn}
++            >
++              Delete
++            </button>
++          </div>
++          {/* Nested replies — Notice Board only, flat list under the parent. */}
++          {Array.isArray(c.replies) && c.replies.length > 0 ? (
++            <div style={{ marginLeft: 42, marginTop: 6, display: 'grid', gap: 6 }}>
++              {c.replies.map((r) => (
++                <div key={r.id} style={{
++                  display: 'grid',
++                  gridTemplateColumns: '28px 1fr auto',
++                  gap: 8,
++                  alignItems: 'flex-start',
++                  background: '#FFFFFF',
++                  border: '1px solid #E2E8F0',
++                  borderRadius: 10,
++                  padding: 8,
++                  opacity: busyId === r.id ? 0.55 : 1,
++                }}>
++                  <div style={{ ...avatarBubble, width: 28, height: 28, fontSize: 15 }}>{r.user_avatar || '↪'}</div>
++                  <div style={{ minWidth: 0 }}>
++                    <div style={{ fontSize: 11, fontWeight: 700, color: '#0A2540' }}>
++                      {r.user_name || 'Someone'}
++                      <span style={{ fontWeight: 400, color: '#64748B', marginLeft: 6 }}>· {relTime(r.created_at)}</span>
++                    </div>
++                    <div style={{ fontSize: 12, color: '#0A2540', marginTop: 3, whiteSpace: 'pre-wrap' }}>
++                      {r.text || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>(empty)</span>}
++                    </div>
++                  </div>
++                  <button
++                    type="button"
++                    disabled={busyId === r.id}
++                    onClick={() => remove(r)}
++                    style={deleteBtn}
++                  >
++                    Delete
++                  </button>
++                </div>
++              ))}
++            </div>
++          ) : null}
++        </div>
++      ))}
++    </div>
++  );
++}
++
++function relTime(iso?: string): string {
++  if (!iso) return '';
++  const then = new Date(iso).getTime();
++  if (Number.isNaN(then)) return '';
++  const diff = Math.max(0, Date.now() - then);
++  const secs = Math.round(diff / 1000);
++  if (secs < 60) return `${secs}s ago`;
++  const m = Math.round(secs / 60);
++  if (m < 60) return `${m} min${m === 1 ? '' : 's'} ago`;
++  const h = Math.round(m / 60);
++  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
++  const d = Math.round(h / 24);
++  if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
++  return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
++}
++
++const emptyRow: React.CSSProperties = {
++  marginTop: 12,
++  padding: '12px 14px',
++  background: '#F8FAFC',
++  border: '1px dashed #CBD5E1',
++  borderRadius: 10,
++  color: '#64748B',
++  fontSize: 13,
++};
++const avatarBubble: React.CSSProperties = {
++  width: 32, height: 32, borderRadius: 999, background: '#E2E8F0',
++  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
++};
++const deleteBtn: React.CSSProperties = {
++  background: '#FEE2E2',
++  color: '#B91C1C',
++  border: '1px solid #FCA5A5',
++  borderRadius: 8,
++  padding: '4px 10px',
++  fontSize: 12,
++  fontWeight: 700,
++  cursor: 'pointer',
++};
+diff --git a/lib/cms-api.ts b/lib/cms-api.ts
+index 8ef7c571..0641fc38 100644
+--- a/lib/cms-api.ts
++++ b/lib/cms-api.ts
+@@ -1327,6 +1327,204 @@ export const momentsApi = {
+   remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/moments/${id}`),
+ };
+ 
++// ============================================================================
++// Notice Board + Local Events moderation (admin-only).
++// Mirrors `momentsApi`'s lean shape: list → delete-with-confirm. Admins never
++// edit a member's words; if copy is problematic the only action is remove.
++// ============================================================================
++
++export type NoticeBoardRow = {
++  id: string;
++  title: string;
++  body: string;
++  category: string;
++  author_id: string;
++  author_name: string;
++  author_avatar: string;
++  locality: string;
++  created_at: string;
++  active_from: string;
++  active_to: string;
++  has_image: boolean;
++  reports_count: number;
++  solved: boolean;
++};
++
++export type NoticeBoardListResponse = {
++  count: number;
++  total: number;
++  reported: number;
++  active: number;
++  rows: NoticeBoardRow[];
++};
++
++export const noticeBoardApi = {
++  list: (opts: { q?: string; category?: string; limit?: number } = {}) => {
++    const p = new URLSearchParams();
++    if (opts.q) p.set('q', opts.q);
++    if (opts.category) p.set('category', opts.category);
++    if (opts.limit) p.set('limit', String(opts.limit));
++    const qs = p.toString();
++    return req<NoticeBoardListResponse>('GET', `/cms/notice-board${qs ? `?${qs}` : ''}`);
++  },
++  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/notice-board/${id}`),
++};
++
++export type LocalEventRow = {
++  id: string;
++  title: string;
++  emoji: string;
++  description: string;
++  location: string;
++  date: string;       // YYYY-MM-DD
++  time: string;       // HH:MM
++  end_time: string;   // HH:MM (optional)
++  host_id: string;
++  host_name: string;
++  locality: string;
++  capacity: number | null;
++  rsvps_count: number;
++  recurrence: string;
++  created_at: string;
++  status: 'active' | 'cancelled' | 'archived';
++};
++
++export type LocalEventsListResponse = {
++  count: number;
++  total: number;
++  upcoming: number;
++  cancelled: number;
++  rows: LocalEventRow[];
++};
++
++export const localEventsApi = {
++  list: (opts: { q?: string; status?: 'upcoming' | 'past' | 'all'; limit?: number } = {}) => {
++    const p = new URLSearchParams();
++    if (opts.q) p.set('q', opts.q);
++    if (opts.status) p.set('status', opts.status);
++    if (opts.limit) p.set('limit', String(opts.limit));
++    const qs = p.toString();
++    return req<LocalEventsListResponse>('GET', `/cms/local-events${qs ? `?${qs}` : ''}`);
++  },
++  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/local-events/${id}`),
++};
++
++// ============================================================================
++// Comment-level moderation (Notice Board + Moments).
++// Scalpel endpoints so admins can delete a single bad comment without
++// yanking the entire parent post.
++// ============================================================================
++
++export type CommentRow = {
++  id: string;
++  user_id: string;
++  user_name: string;
++  user_avatar: string;
++  text: string;
++  created_at: string;
++  replies?: CommentRow[];
++};
++
++export const noticeCommentsApi = {
++  list: (noticeId: string) =>
++    req<{ notice_title: string; comments: CommentRow[] }>('GET', `/cms/notice-board/${noticeId}/comments`),
++  remove: (noticeId: string, commentId: string) =>
++    req<{ ok: boolean }>('DELETE', `/cms/notice-board/${noticeId}/comments/${commentId}`),
++};
++
++export const momentCommentsApi = {
++  list: (momentId: string) =>
++    req<{ author_name: string; comments: CommentRow[] }>('GET', `/cms/moments/${momentId}/comments`),
++  remove: (momentId: string, commentId: string) =>
++    req<{ ok: boolean }>('DELETE', `/cms/moments/${momentId}/comments/${commentId}`),
++};
++
++// ============================================================================
++// Community Groups — group post moderation + inline comment delete.
++// ============================================================================
++
++export type GroupPostRow = {
++  id: string;
++  group_id: string;
++  group_name: string;
++  author_id: string;
++  author_name: string;
++  author_avatar: string;
++  text: string;
++  image: string;
++  likes_count: number;
++  comments_count: number;
++  created_at: string;
++};
++
++export type GroupPostsListResponse = {
++  count: number;
++  total_posts: number;
++  total_comments: number;
++  total_groups: number;
++  rows: GroupPostRow[];
++};
++
++export type GroupOption = { id: string; name: string };
++
++export const groupPostsApi = {
++  list: (opts: { q?: string; group_id?: string; limit?: number } = {}) => {
++    const p = new URLSearchParams();
++    if (opts.q) p.set('q', opts.q);
++    if (opts.group_id) p.set('group_id', opts.group_id);
++    if (opts.limit) p.set('limit', String(opts.limit));
++    const qs = p.toString();
++    return req<GroupPostsListResponse>('GET', `/cms/groups/posts${qs ? `?${qs}` : ''}`);
++  },
++  groups: () => req<{ rows: GroupOption[] }>('GET', `/cms/groups/list`),
++  remove: (id: string) =>
++    req<{ ok: boolean; comments_removed: number }>('DELETE', `/cms/groups/posts/${id}`),
++  comments: (postId: string) =>
++    req<{ post_text: string; comments: CommentRow[] }>('GET', `/cms/groups/posts/${postId}/comments`),
++  removeComment: (postId: string, commentId: string) =>
++    req<{ ok: boolean }>('DELETE', `/cms/groups/posts/${postId}/comments/${commentId}`),
++};
++
++// ============================================================================
++// FP Café — table message moderation.
++// ============================================================================
++
++export type CafeMessageRow = {
++  id: string;
++  table_id: string;
++  table_name: string;
++  user_id: string;
++  user_name: string;
++  user_avatar: string;
++  text: string;
++  image: string;
++  created_at: string;
++};
++
++export type CafeMessagesListResponse = {
++  count: number;
++  window_days: number;
++  total_window: number;
++  tables_active: number;
++  rows: CafeMessageRow[];
++};
++
++export type CafeTableOption = { id: string; name: string };
++
++export const cafeMessagesApi = {
++  list: (opts: { q?: string; table_id?: string; days?: number; limit?: number } = {}) => {
++    const p = new URLSearchParams();
++    if (opts.q) p.set('q', opts.q);
++    if (opts.table_id) p.set('table_id', opts.table_id);
++    if (opts.days) p.set('days', String(opts.days));
++    if (opts.limit) p.set('limit', String(opts.limit));
++    const qs = p.toString();
++    return req<CafeMessagesListResponse>('GET', `/cms/cafe/messages${qs ? `?${qs}` : ''}`);
++  },
++  tables: () => req<{ rows: CafeTableOption[] }>('GET', `/cms/cafe/tables`),
++  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/cafe/messages/${id}`),
++};
++
+ // CSV export lives on the CRM URL for symmetry — this is a browser
+ // download so we just build the URL and let the browser fetch it
+ // with the standard auth header via a hidden fetch + blob dance.
