@@ -4516,8 +4516,19 @@ async def community_today(user_id: Optional[str] = None):
         except Exception:
             pass
 
-    # Community milestones — most recent reached
-    total_users = await db.users.count_documents({})
+    # Community milestones — most recent reached.
+    # TestFlight feedback (Neo, Feb 2026): the raw user count surfaced
+    # test/demo/banned/restricted/system accounts so a 56-member
+    # community was reporting "100 members — hooray!". Apply the same
+    # real-member filter used for the "New this week" row so the
+    # Community Today milestone line reflects actual, visible members.
+    real_user_filter = {
+        "banned": {"$ne": True},
+        "restricted": {"$ne": True},
+        "is_demo": {"$ne": True},
+        "username": {"$not": {"$regex": "_[a-f0-9]{6,}$|^(TEST_|Priv_|test_)"}},
+    }
+    total_users = await db.users.count_documents(real_user_filter)
     reached = [m for m in COMMUNITY_MILESTONES if total_users >= m["users"]]
     next_milestone = next((m for m in COMMUNITY_MILESTONES if total_users < m["users"]), None)
 

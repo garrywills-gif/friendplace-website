@@ -85,6 +85,17 @@ function _formatInvitedAt(iso?: string): string {
   return `Invited on ${dayMonth} at ${time}`;
 }
 
+// TestFlight feedback (Neo, Feb 2026 — Nigel first-visit greeting):
+// The Home header must say "Welcome, {name}" / "Lovely to have you here"
+// on the member's VERY FIRST session (immediately post-onboarding) and
+// revert to the standard "Hi {name}" / "Good to see you again" on every
+// later visit. The flag is set once by the onboarding wizard, read on
+// Home mount, and persists through intra-session navigation. It is
+// cleared on logout so the next sign-in is treated as a returning
+// visit. Key is per-user so a shared device can't resurrect the flag
+// for the wrong member.
+const HOME_FIRST_SESSION_FLAG_PREFIX = 'home.firstSessionActive.';
+
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
@@ -110,6 +121,24 @@ export default function Home() {
   // Home entry point in addition to the tab bar). Same 15s poll cadence
   // as the ChatsIcon in the tab bar.
   const [chatsUnread, setChatsUnread] = useState<number>(0);
+  // First-visit greeting state. Hydrated once on mount from the
+  // per-user AsyncStorage flag set by the onboarding wizard; persists
+  // across intra-session navigation (tabs, drill-downs). Cleared on
+  // logout (see auth.tsx) so the next sign-in reads as a returning
+  // visit. Default `false` keeps the current returning greeting as
+  // the safe fallback.
+  const [isFirstSession, setIsFirstSession] = useState<boolean>(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) return;
+      try {
+        const flag = await AsyncStorage.getItem(`${HOME_FIRST_SESSION_FLAG_PREFIX}${user.id}`);
+        if (!cancelled) setIsFirstSession(flag === '1');
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
   // Incoming welcome/birthday greetings shown on Home + per-card action state.
   const [greetings, setGreetings] = useState<any[]>([]);
   const [thanked, setThanked] = useState<Record<string, boolean>>({});
@@ -662,13 +691,23 @@ export default function Home() {
           <AvatarBubble value={user?.avatar} size={62} fallback="🙂" />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.greetNameRow}>
-              <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]} numberOfLines={1}>
-                Hi {user?.first_name || "Friend"}
+              <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale, flexShrink: 1 }]} numberOfLines={2} ellipsizeMode="tail">
+                {/* First-visit greeting (TestFlight feedback, Neo Feb
+                    2026): Home must say "Welcome, {name}" on the very
+                    first session so new members (e.g. Nigel) don't see
+                    "Good to see you again" before they've been here.
+                    Reverts to "Hi {name}" on returning visits. Allow
+                    2 lines so longer first names ("Christopher",
+                    "Elizabeth") don't clip when prefixed with
+                    "Welcome, " alongside the butterfly badge. */}
+                {isFirstSession
+                  ? `Welcome, ${user?.first_name || "Friend"}`
+                  : `Hi ${user?.first_name || "Friend"}`}
               </Text>
               <GeorgeButterflyMark size={24 * scale} />
             </View>
             <Text style={[styles.greetSub, { color: c.muted, fontSize: 15 * scale }]}>
-              Good to see you again.
+              {isFirstSession ? "Lovely to have you here." : "Good to see you again."}
             </Text>
           </View>
         </View>
@@ -1538,8 +1577,16 @@ export default function Home() {
               <View style={styles.commRow}>
                 <Text style={styles.commEmoji}>🏆</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 14 * scale }}>
-                  {community.milestones.last_reached.label}
-                  {community.milestones.next ? ` · ${community.milestones.next.users - community.milestones.total_users} to next milestone` : ""}
+                  {/* TestFlight feedback (Neo, Feb 2026): lead with the
+                      ACTUAL member count so "100 members — hooray!"
+                      doesn't get misread as the current total when the
+                      community is still a long way from it. Milestone
+                      label trails as context only when there's no next
+                      milestone to chase (i.e. the community topped the
+                      scale). */}
+                  {community.milestones.next
+                    ? `${community.milestones.total_users} members · ${community.milestones.next.users - community.milestones.total_users} to the ${community.milestones.next.users}-member milestone 🎉`
+                    : (community.milestones.last_reached?.label || `${community.milestones.total_users} members strong 🎉`)}
                 </Text>
               </View>
             )}

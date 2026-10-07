@@ -230,6 +230,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // treats re-register as an upsert, so this transparently
           // reassigns the device to whoever logs in next.
           try { await clearPushRegistration(); } catch { /* best-effort */ }
+          // TestFlight feedback (Neo, Feb 2026 — Nigel first-visit
+          // greeting): clear the per-user first-session flag so the
+          // NEXT sign-in on this device gets the standard returning
+          // "Hi {name}" / "Good to see you again" header on Home. Set
+          // once by the onboarding wizard, read by /app/(tabs)/home.tsx.
+          try {
+            const uid = userIdRef.current;
+            if (uid) await AsyncStorage.removeItem(`home.firstSessionActive.${uid}`);
+          } catch { /* best-effort */ }
           await persist(null, null);
         },
         refresh: async () => {

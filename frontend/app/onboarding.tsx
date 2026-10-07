@@ -372,6 +372,17 @@ export default function OnboardingWizard() {
     // very first time the member opens the app after onboarding.
     // See `GeorgeButterfly.pickReturningGreeting`.
     AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
+    // TestFlight feedback (Neo, Feb 2026 — Nigel first-visit greeting):
+    // Mark this as the member's first session so Home shows
+    // "Welcome, {name}" / "Lovely to have you here" instead of the
+    // returning "Hi {name}" / "Good to see you again". The flag is
+    // read by /app/(tabs)/home.tsx and cleared on logout
+    // (/src/lib/auth.tsx) so later sign-ins get the returning
+    // greeting. Keyed per-user so a shared device can't resurrect
+    // the flag for the wrong account.
+    if (user?.id) {
+      AsyncStorage.setItem(`home.firstSessionActive.${user.id}`, '1').catch(() => {});
+    }
     // TestFlight 1028 (Garry, Sep 2026 — P0 tour timing): the
     // celebration screen previously auto-dismissed after 5.5s which
     // cut George/Georgia's closing line off on some devices and made
