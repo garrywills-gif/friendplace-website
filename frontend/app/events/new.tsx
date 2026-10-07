@@ -209,7 +209,15 @@ export default function NewEvent() {
   const claimAndPost = async () => {
     const trimmedName = businessName.trim();
     const trimmedContactName = businessContactName.trim();
-    const trimmedContactEmail = businessContactEmail.trim();
+    // TestFlight feedback (Neo, Feb 2026 — email validation): members
+    // routinely leave a trailing full-stop or whitespace on the
+    // contact email (iOS autocorrect, voice input, paste from a
+    // sentence). Normalise before we validate so a benign typo
+    // doesn't leave the button spinning on a doomed submit.
+    const trimmedContactEmail = businessContactEmail
+      .trim()
+      .toLowerCase()
+      .replace(/[.,;:!?\s]+$/g, "");
     if (trimmedName.length < 2) {
       show("Please enter your business or venue name");
       return;
@@ -218,8 +226,11 @@ export default function NewEvent() {
       show("Please tell us who we should contact");
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedContactEmail)) {
-      show("Please add a valid contact email");
+    // Stricter RFC-ish regex — disallows trailing dot, consecutive
+    // dots, and a dotless TLD so Resend never rejects what we accept.
+    const emailOk = /^[^\s@.]+(?:\.[^\s@.]+)*@[^\s@.]+(?:\.[^\s@.]+)+$/.test(trimmedContactEmail);
+    if (!emailOk) {
+      show("That email looks off — please double-check it");
       return;
     }
     if (!token) {
@@ -228,16 +239,29 @@ export default function NewEvent() {
     }
     setClaiming(true);
     try {
-      await api.claimBusiness(token, trimmedName, {
-        contact_name: trimmedContactName,
-        contact_email: trimmedContactEmail,
-        contact_phone: businessContactPhone.trim() || undefined,
-      });
+      // Idempotence (TestFlight Neo, Feb 2026): if the user is already
+      // marked as a business (first attempt succeeded on the server
+      // but the client never saw the reply) just skip the claim call
+      // and jump straight to the event submit so retry can never
+      // double-register a trial.
+      if (!user?.is_business) {
+        await api.claimBusiness(token, trimmedName, {
+          contact_name: trimmedContactName,
+          contact_email: trimmedContactEmail,
+          contact_phone: businessContactPhone.trim() || undefined,
+        });
+      }
       setBusinessModal(null);
-      show("Thanks — we'll send your welcome email 💜");
+      show("Thanks — we\u2019ll send your welcome email \ud83d\udc9c");
       await actuallyCreate();
     } catch (e: any) {
-      show(e?.message || "Could not save business details");
+      const raw = String(e?.message || "").trim();
+      // Surface a friendly, specific error so the member knows exactly
+      // what to do. Never leave the button in a half-trusting state.
+      const msg = raw.length
+        ? raw
+        : "We couldn\u2019t start your trial just now. Please check your connection and try again.";
+      show(msg);
     } finally { setClaiming(false); }
   };
 
@@ -453,10 +477,10 @@ export default function NewEvent() {
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 4 }}>
               <Text style={{ fontSize: 38 }}>🏢</Text>
               <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 21 * scale }]}>
-                Looks like you&rsquo;re creating an event for an organisation
+                {"Looks like you\u2019re creating an event for an organisation"}
               </Text>
               <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
-                FriendPlace welcomes community organisations, clubs, charities and local businesses. If you&rsquo;re posting on behalf of an organisation, we&rsquo;d love to help you reach more people in your community.
+                {"FriendPlace welcomes community organisations, clubs, charities and local businesses. If you\u2019re posting on behalf of an organisation, we\u2019d love to help you reach more people in your community."}
                 {"\n\n"}
                 <Text style={{ fontWeight: "800" }}>🎁 {businessModal?.trialOffer}</Text>
                 {"\n\n"}
@@ -524,7 +548,7 @@ export default function NewEvent() {
               />
 
               <Text style={{ color: c.muted, fontSize: 11 * scale, marginTop: 4, lineHeight: 15, textAlign: "center" }}>
-                We&rsquo;ll only use these details to help you get set up and to email you before your trial ends.
+                {"We\u2019ll only use these details to help you get set up and to email you before your trial ends."}
               </Text>
 
               <Pressable
@@ -533,7 +557,7 @@ export default function NewEvent() {
                   claiming ||
                   businessName.trim().length < 2 ||
                   businessContactName.trim().length < 2 ||
-                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim())
+                  !/^[^\s@.]+(?:\.[^\s@.]+)*@[^\s@.]+(?:\.[^\s@.]+)+$/.test(businessContactEmail.trim().toLowerCase().replace(/[.,;:!?\s]+$/g, ""))
                 }
                 onPress={claimAndPost}
                 style={[
@@ -542,7 +566,7 @@ export default function NewEvent() {
                     backgroundColor:
                       businessName.trim().length >= 2 &&
                       businessContactName.trim().length >= 2 &&
-                      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim()) &&
+                      /^[^\s@.]+(?:\.[^\s@.]+)*@[^\s@.]+(?:\.[^\s@.]+)+$/.test(businessContactEmail.trim().toLowerCase().replace(/[.,;:!?\s]+$/g, "")) &&
                       !claiming
                         ? c.brand
                         : c.surfaceTertiary,
@@ -550,19 +574,28 @@ export default function NewEvent() {
                 ]}
               >
                 <Text
+                  // TestFlight feedback (Neo, Feb 2026 — button
+                  // wrapping): the gift emoji + full label on narrow
+                  // phones used to orphan "🎁" onto a second line
+                  // ("Start my free trial & post event" / "🎁"). Allow
+                  // 2 lines with centred alignment so the emoji stays
+                  // with the sentence end and nothing clips.
+                  numberOfLines={2}
                   style={{
                     color:
                       businessName.trim().length >= 2 &&
                       businessContactName.trim().length >= 2 &&
-                      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim()) &&
+                      /^[^\s@.]+(?:\.[^\s@.]+)*@[^\s@.]+(?:\.[^\s@.]+)+$/.test(businessContactEmail.trim().toLowerCase().replace(/[.,;:!?\s]+$/g, "")) &&
                       !claiming
                         ? c.onBrandPrimary
                         : c.muted,
                     fontWeight: "900",
-                    fontSize: 16 * scale,
+                    fontSize: 15 * scale,
+                    textAlign: "center",
+                    lineHeight: 20 * scale,
                   }}
                 >
-                  {claiming ? "Starting your trial…" : "Start my free trial & post event 🎁"}
+                  {claiming ? "Starting your trial\u2026" : "Start my free trial & post event \ud83c\udf81"}
                 </Text>
               </Pressable>
 

@@ -7999,64 +7999,75 @@ async def claim_business(body: ClaimBusinessBody, user=Depends(current_user)):
 
     # ── Fire the Mission Control alert + welcome email (first-claim
     #    only so we don't spam ops on every business-name edit).
+    # TestFlight feedback (Neo, Feb 2026): BOTH the admin notify and
+    # the Resend welcome/ops-cc emails used to be `await`ed inline,
+    # so a slow Resend round-trip (easily 10–30s on cellular) kept
+    # the "Starting your trial…" button spinning on the client until
+    # the mobile fetch timed out. The trial itself was already saved
+    # above, so the member saw a stuck button despite a successful
+    # claim and a retry would land on `is_first_claim=False` making
+    # the mobile code bail without ever reaching `actuallyCreate`.
+    # Fix: fire these side-effects as background tasks so the API
+    # returns the fresh business status in <100 ms. Any failure
+    # still logs via the existing try/except inside the task.
     if is_first_claim:
-        try:
-            await _notify_admins({
-                "type": "business_signup",
-                "title": "New business signed up",
-                "body": f"{body.business_name.strip()} — {contact_name} <{contact_email}>",
-                "ref_user_id": user["id"],
-            })
-        except Exception:
-            logger.exception("business signup admin-notify failed")
-
-        # Auto-reply email — best-effort, don't block the claim if
-        # Resend is unavailable.
-        try:
-            from email_service import send_email, business_welcome_template
-            from html import escape as _html_escape
-            subject, html, text = business_welcome_template(
-                first_name=contact_name.split(" ")[0] if contact_name else None,
-                business_name=body.business_name.strip(),
-                trial_limit=cfg["limit"],
-                trial_days=cfg["period_days"],
-                requested_plan=plan,
-            )
-            support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
-            await _email_send(
-                to=contact_email,
-                subject=subject,
-                html=html,
-                text=text,
-                reply_to=support_from,
-            )
-            # Also cc the support inbox so ops has a paper trail.
+        async def _claim_side_effects() -> None:
             try:
-                await _email_send(
-                    to=support_from,
-                    subject=f"[Business signup] {body.business_name.strip()} — {contact_name}",
-                    html=(
-                        f"<p><strong>{_html_escape(body.business_name.strip())}</strong> just signed up.</p>"
-                        f"<ul>"
-                        f"<li>Contact: {_html_escape(contact_name)} &lt;{_html_escape(contact_email)}&gt;</li>"
-                        + (f"<li>Phone: {_html_escape(contact_phone)}</li>" if contact_phone else "")
-                        + f"<li>Requested plan: {_html_escape(plan)}</li>"
-                        f"<li>User ID: {_html_escape(user['id'])}</li>"
-                        f"</ul>"
-                    ),
-                    text=(
-                        f"{body.business_name.strip()} just signed up.\n"
-                        f"Contact: {contact_name} <{contact_email}>\n"
-                        + (f"Phone: {contact_phone}\n" if contact_phone else "")
-                        + f"Requested plan: {plan}\n"
-                        f"User ID: {user['id']}\n"
-                    ),
-                    reply_to=contact_email,
-                )
+                await _notify_admins({
+                    "type": "business_signup",
+                    "title": "New business signed up",
+                    "body": f"{body.business_name.strip()} — {contact_name} <{contact_email}>",
+                    "ref_user_id": user["id"],
+                })
             except Exception:
-                logger.exception("business signup ops-cc email failed")
-        except Exception:
-            logger.exception("business signup welcome email failed")
+                logger.exception("business signup admin-notify failed")
+            try:
+                from email_service import send_email, business_welcome_template
+                from html import escape as _html_escape
+                subject, html, text = business_welcome_template(
+                    first_name=contact_name.split(" ")[0] if contact_name else None,
+                    business_name=body.business_name.strip(),
+                    trial_limit=cfg["limit"],
+                    trial_days=cfg["period_days"],
+                    requested_plan=plan,
+                )
+                support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+                await _email_send(
+                    to=contact_email,
+                    subject=subject,
+                    html=html,
+                    text=text,
+                    reply_to=support_from,
+                )
+                try:
+                    await _email_send(
+                        to=support_from,
+                        subject=f"[Business signup] {body.business_name.strip()} — {contact_name}",
+                        html=(
+                            f"<p><strong>{_html_escape(body.business_name.strip())}</strong> just signed up.</p>"
+                            f"<ul>"
+                            f"<li>Contact: {_html_escape(contact_name)} &lt;{_html_escape(contact_email)}&gt;</li>"
+                            + (f"<li>Phone: {_html_escape(contact_phone)}</li>" if contact_phone else "")
+                            + f"<li>Requested plan: {_html_escape(plan)}</li>"
+                            f"<li>User ID: {_html_escape(user['id'])}</li>"
+                            f"</ul>"
+                        ),
+                        text=(
+                            f"{body.business_name.strip()} just signed up.\n"
+                            f"Contact: {contact_name} <{contact_email}>\n"
+                            + (f"Phone: {contact_phone}\n" if contact_phone else "")
+                            + f"Requested plan: {plan}\n"
+                            f"User ID: {user['id']}\n"
+                        ),
+                        reply_to=contact_email,
+                    )
+                except Exception:
+                    logger.exception("business signup ops-cc email failed")
+            except Exception:
+                logger.exception("business signup welcome email failed")
+
+        # Fire-and-forget; the user already has their trial saved.
+        asyncio.create_task(_claim_side_effects())
 
     return {
         **_safe_user(fresh or {}),

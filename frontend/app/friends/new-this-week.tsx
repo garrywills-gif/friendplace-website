@@ -25,6 +25,7 @@ import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { GeorgeCornerButton } from "@/src/components/Header";
+import { useNavHideScroll, BOTTOM_NAV_CONTENT_INSET } from "@/src/lib/bottom-nav";
 
 type NewMember = {
   id: string;
@@ -54,6 +55,7 @@ export default function NewThisWeek() {
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const [members, setMembers] = useState<NewMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -127,7 +129,16 @@ export default function NewThisWeek() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 10 }}
+        {...navScroll}
+        contentContainerStyle={{
+          padding: 16,
+          // TestFlight feedback (Neo, Feb 2026): the last row + its
+          // "👋 Welcome" button used to sit behind the GlobalBottomNav
+          // on iPhone. Give the list enough bottom cushion to scroll
+          // the final row fully clear of a visible bar.
+          paddingBottom: BOTTOM_NAV_CONTENT_INSET,
+          gap: 10,
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
