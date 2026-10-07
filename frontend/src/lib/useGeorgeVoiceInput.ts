@@ -103,8 +103,30 @@ export function useGeorgeVoiceInput(
   const stopRecording = useCallback(async () => {
     if (voicePhase !== 'recording') return;
     setVoicePhase('transcribing');
+    // TestFlight feedback (Neo, Feb 2026 — item #4): per-stage timing
+    // logs so we can measure the induction talk-to-text pipeline
+    // from the backend logs. Each stage is tagged `voice.stt:<label>`
+    // with millisecond deltas:
+    //   • stop             → audioRecorder.stop() returned
+    //   • grace            → 100 ms disk-finalise grace completed
+    //   • upload_start     → transport layer handed the request to fetch
+    //   • upload_done      → multipart body ACK'd by server
+    //   • transcribe_done  → text returned from server
+    //   • rendered         → onTranscript() invoked (text now in UI)
+    // The grace is kept at 100 ms (verified sufficient across TestFlight
+    // builds); only the measurement is new, so recording accuracy is
+    // untouched.
+    const _t0 = Date.now();
+    const _mark = (stage: string, extra?: string) => {
+      try {
+        const dt = Date.now() - _t0;
+        // eslint-disable-next-line no-console
+        console.log(`[voice.stt] ${stage} +${dt}ms${extra ? ' ' + extra : ''}`);
+      } catch { /* noop */ }
+    };
     try {
       await audioRecorder.stop();
+      _mark('stop');
       // iter214 (Garry, Oct 2026 — POLISH #3): the disk-finalise grace
       // period used to be 250ms; member feedback was transcription felt
       // noticeably slow on real device after speech ends. 100ms is still
@@ -113,6 +135,7 @@ export function useGeorgeVoiceInput(
       // latency — target "transcript appears about a second after
       // speech ends" is now reachable on a healthy network.
       await new Promise((r) => setTimeout(r, 100));
+      _mark('grace');
       const uri = audioRecorder.uri;
       try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
       if (!uri) {
@@ -121,19 +144,25 @@ export function useGeorgeVoiceInput(
         return;
       }
       if (voiceSeconds < 1) {
+        _mark('too_short_dropped', `seconds=${voiceSeconds}`);
         setVoicePhase('idle');
         return;
       }
       const isWeb = Platform.OS === 'web';
       const name = isWeb ? 'george-voice.webm' : 'george-voice.m4a';
       const type = isWeb ? 'audio/webm' : 'audio/m4a';
+      _mark('upload_start', `seconds=${voiceSeconds}`);
       const text = await georgeApi.transcribe(uri, name, type);
+      _mark('transcribe_done', `chars=${text ? text.length : 0}`);
       if (text) {
         onTranscript(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
+        _mark('rendered');
       } else {
         setVoiceError("I couldn't quite catch that. Mind trying again?");
+        _mark('empty_result');
       }
-    } catch {
+    } catch (e) {
+      _mark('error', (e as Error)?.message || 'unknown');
       setVoiceError("I couldn't quite catch that. Please try again.");
     } finally {
       setVoicePhase('idle');

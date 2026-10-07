@@ -268,10 +268,20 @@ export default function Notices() {
     Keyboard.dismiss();
     const activeFrom = combineISO(pFromDate, pFromTime, false);
     const activeTo = combineISO(pToDate, pToTime, true);
-    // From / start date is now compulsory (end date stays optional).
+    // TestFlight feedback (Neo, Feb 2026 — item #2): the end date/time
+    // is now compulsory on both create AND edit so the board can never
+    // accumulate open-ended notices again. Expired notices continue to
+    // live in MCGS as archived records (member-facing feed hides them
+    // after `active_to`).
     if (!pFromDate) {
       setCatError(null);
-      setDateError("Please add a date before posting.");
+      setDateError("Please add a start date before posting.");
+      requestAnimationFrame(() => composerScrollRef.current?.scrollToEnd({ animated: true }));
+      return;
+    }
+    if (!pToDate) {
+      setCatError(null);
+      setDateError("Please add an end date so the notice drops off automatically.");
       requestAnimationFrame(() => composerScrollRef.current?.scrollToEnd({ animated: true }));
       return;
     }
@@ -730,9 +740,17 @@ export default function Notices() {
               )}
 
               <View style={{ height: 14 }} />
-              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Active period</Text>
+              {/* TestFlight feedback (Neo, Feb 2026 — item #2): rename
+                  "Active period" to the warmer, member-facing question
+                  "How long would you like this notice to stay up?" and
+                  REQUIRE an end date/time on both create AND edit.
+                  Open-ended notices were accumulating since launch
+                  (79 of 97 live notices had no end date in Feb 2026).
+                  Expired notices still live in MCGS as archived
+                  records so there's no data loss. */}
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>How long would you like this notice to stay up?</Text>
               <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>
-                A start date is required. Leave the end blank to keep it on the board indefinitely — after the end date/time it drops off automatically.
+                Pick a start AND an end date — after the end date/time your notice drops off the board automatically. Both are required so the board stays fresh.
               </Text>
               <Text style={{ color: dateError ? c.error : c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From <Text style={{ color: c.error, fontWeight: "900" }}>*</Text></Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -742,10 +760,10 @@ export default function Notices() {
               {dateError ? (
                 <Text testID="post-date-error" style={{ color: c.error, marginTop: 6, fontSize: 13 * scale, fontWeight: "700" }}>{dateError}</Text>
               ) : null}
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>To</Text>
+              <Text style={{ color: dateError ? c.error : c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>Until <Text style={{ color: c.error, fontWeight: "900" }}>*</Text></Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1.4 }}><DateField testID="notice-to-date" value={pToDate} onChange={setPToDate} /></View>
-                <View style={{ flex: 1 }}><TimeField testID="notice-to-time" value={pToTime} onChange={setPToTime} /></View>
+                <View style={{ flex: 1.4 }}><DateField testID="notice-to-date" value={pToDate} onChange={(v) => { setPToDate(v); if (dateError) setDateError(null); }} /></View>
+                <View style={{ flex: 1 }}><TimeField testID="notice-to-time" value={pToTime} onChange={(v) => { setPToTime(v); if (dateError) setDateError(null); }} /></View>
               </View>
               {(pFromDate || pToDate) ? (
                 <Pressable

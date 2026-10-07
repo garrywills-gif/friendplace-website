@@ -925,12 +925,27 @@ def build_router(db) -> APIRouter:
         George endpoint) so we never transcribe on behalf of an
         unauthenticated caller.
         """
+        # TestFlight feedback (Neo, Feb 2026 — item #4): per-stage
+        # timing. The frontend emits `[voice.stt]` marks on the
+        # client; the backend now mirrors them so we can correlate
+        # the full stop → upload → whisper → render path from one
+        # log stream. Tag: `voice.stt.server`.
+        import time as _time
+        import logging as _logging
+        _slog = _logging.getLogger("friendplace.voice")
+        _t0 = _time.perf_counter()
         try:
             audio = await file.read()
         except Exception:
             raise HTTPException(status_code=400, detail="Could not read audio upload.")
+        read_ms = int((_time.perf_counter() - _t0) * 1000)
         if not audio:
             raise HTTPException(status_code=400, detail="Empty audio upload.")
+        _slog.info(
+            "voice.stt.server received bytes=%d read_ms=%d filename=%s content_type=%s",
+            len(audio), read_ms, (file.filename or "?"), (file.content_type or "?"),
+        )
+        _t1 = _time.perf_counter()
         try:
             text = await transcribe_audio_bytes(
                 audio,
@@ -946,6 +961,7 @@ def build_router(db) -> APIRouter:
                 status_code=502,
                 detail="I couldn't quite hear that. Mind trying again?",
             )
+        whisper_ms = int((_time.perf_counter() - _t1) * 1000)
         # iter245: same silence-hallucination guards as the legacy voice
         # endpoint — a silent clip must not drop "you" / "Thank you." or
         # non-Latin filler into the composer. Empty → app shows
@@ -953,6 +969,11 @@ def build_router(db) -> APIRouter:
         if text and (stt_transcript_looks_hallucinated(text) or stt_transcript_is_known_english_hallucination(text)):
             log.info("STT guard dropped transcript on /mcgs/george/transcribe: %r", text[:80])
             text = ""
+        total_ms = int((_time.perf_counter() - _t0) * 1000)
+        _slog.info(
+            "voice.stt.server done total_ms=%d read_ms=%d whisper_ms=%d chars=%d",
+            total_ms, read_ms, whisper_ms, len(text or ""),
+        )
         return {"text": text}
 
     @router.post("/mcgs/george/speak")

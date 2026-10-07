@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Calendar from "expo-calendar";
 import { useTheme } from "@/src/lib/theme";
-import { useNavHideScroll } from "@/src/lib/bottom-nav";
+import { useNavHideScroll, BOTTOM_NAV_CONTENT_INSET } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -349,7 +349,7 @@ export default function Events() {
         {...navScroll}
         data={visibleEvents}
         keyExtractor={(e) => e.id}
-        contentContainerStyle={{ padding: 16, gap: 12 }}
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: BOTTOM_NAV_CONTENT_INSET }}
         ListEmptyComponent={
           <EventsEmptyState filter={filter} query={query} user={user} onClearFilter={() => setFilter("all")} onClearQuery={() => setQuery("")} c={c} scale={scale} />
         }

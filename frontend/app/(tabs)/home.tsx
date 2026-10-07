@@ -949,12 +949,24 @@ export default function Home() {
                 </View>
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
-                {/* Author line: their avatar emoji then their display
+                {/* Author line: their avatar bubble then their display
                     name — warm, no "Author" label (Garry 31 Jul 2026).
-                    "🌺 Margaret" rather than "Author\nMargaret". */}
-                <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
-                  {featuredMoment.author_avatar || "🦋"}  {featuredMoment.author_name || "A member"}
-                </Text>
+                    TestFlight feedback (Neo, Feb 2026 — item #3):
+                    `author_avatar` can be a preset id like
+                    `preset:portrait-61`, an http(s) upload URL, or a
+                    legacy emoji glyph. The old implementation dropped
+                    the raw value into a <Text> which leaked the
+                    internal id ("preset:portrait-61  Lisa"). Rendering
+                    through <AvatarBubble> handles presets, uploaded
+                    photos, and the missing-avatar fallback (butterfly)
+                    uniformly, with no internal identifier ever on
+                    screen. */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <AvatarBubble value={featuredMoment.author_avatar} size={22 * scale} fallback="🦋" />
+                  <Text numberOfLines={1} style={{ flex: 1, color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
+                    {featuredMoment.author_name || "A member"}
+                  </Text>
+                </View>
                 <Text numberOfLines={3} style={{ color: "#3C2A06", fontWeight: "600", fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
                   {featuredMoment.caption || "Shared a moment"}
                 </Text>
