@@ -241,6 +241,72 @@ async def _user_first_name(db: Any, actor_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Fast canned opener (TestFlight feedback, Neo Feb 2026)
+# ---------------------------------------------------------------------------
+#
+# ``_compose(is_first=True, ...)`` was the only LLM call blocking the
+# first-greeting render on a brand-new onboarding session. On real
+# devices (TestFlight production backend) the Claude Sonnet 4.5 call
+# routinely stretched to ~30 s before the typing dots cleared and
+# George's/Georgia's first line appeared. Resume-after-"Finish later"
+# was already fast because ``active_onboarding_session`` returns the
+# persisted turns straight from Mongo without an LLM round-trip.
+#
+# The canned opener mirrors the FIRST-TURN contract documented in
+# ``COMPOSER_SYSTEM`` rule #1 verbatim:
+#   • if we have a CONFIRMED NAME → greet by name and gently confirm it
+#   • if the member has already stated some fields (seeded from their
+#     saved ``george_onboarding_known``), still open warmly but without
+#     re-asking the stated bits
+#   • otherwise → "Let's start with something easy. What would you like
+#     me to call you?"
+#
+# From turn 2 onwards the LLM is back in the loop as normal, so the
+# live conversation (including intent/navigation rules) is unchanged.
+def _canned_first_opener(known: dict, first_name: str, persona: str = "george") -> dict:
+    """Return a composed-shape dict for the very first George/Georgia
+    message so the typing dots clear in <1 s instead of waiting on an
+    LLM round-trip. Must stay in sync with COMPOSER_SYSTEM rule #1.
+    """
+    name = "Georgia" if (persona or "").lower() == "georgia" else "George"
+    # Resolve the CONFIRMED NAME exactly the same way _compose does so
+    # the opener never addresses the member by a filler/inferred value.
+    safe_known = dict(known or {})
+    pn = safe_known.get("preferred_name")
+    stated_name = (
+        clean_name(name_field_value(pn))
+        if isinstance(pn, dict) and (pn.get("source") or "").lower() == "stated"
+        else None
+    )
+    confirmed_name = stated_name or clean_name(first_name) or ""
+
+    if confirmed_name:
+        # Rule #1 — the "Lovely to meet you" branch when we already
+        # have a name candidate (either stated preferred_name or the
+        # signup first name).
+        message = (
+            f"Lovely to meet you, {confirmed_name}! I'm {name} \u2014 I'm just here to help you "
+            f"get settled, no rush at all. Would you like me to call you {confirmed_name}, "
+            f"or is there something else you'd prefer?"
+        )
+        field_being_asked = "preferred_name"
+    else:
+        # Rule #1 — the "something easy" branch for a truly nameless start.
+        message = (
+            f"Hi, I'm {name}. Lovely to meet you. Let's start with something easy \u2014 "
+            f"what would you like me to call you?"
+        )
+        field_being_asked = "preferred_name"
+
+    return {
+        "state": "needs_reply",
+        "message": message,
+        "field_being_asked": field_being_asked,
+        "confirm_hints": [],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -375,7 +441,16 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str, persona: str = "
     skipped: list = []
     turns: list = []
     first_name = await _user_first_name(db, actor_id)
-    composed = await _compose(known, turns, skipped, is_first=True, first_name=first_name, persona=persona)
+    # TestFlight fix (Neo, Feb 2026 — first-greeting delay): the Claude
+    # Sonnet 4.5 round-trip for the OPENING line routinely took ~30 s
+    # on the production backend, leaving members staring at empty
+    # typing dots on their very first introduction. The opener is
+    # heavily templated by COMPOSER_SYSTEM rule #1, so we now render
+    # it from a canned template that stays in lockstep with the LLM
+    # contract. All subsequent turns still go through the live LLM
+    # composer, so the conversation itself (including intent routing)
+    # is unchanged.
+    composed = _canned_first_opener(known, first_name=first_name, persona=persona)
     turns.append({
         "role": "george",
         "content": composed.get("message") or "Let\u2019s start with something easy. What would you like me to call you?",
