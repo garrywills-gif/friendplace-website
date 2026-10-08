@@ -46,9 +46,8 @@ export default function RegisterInterestPage() {
   const [heardFrom, setHeardFrom]     = useState('');
   const [referralSource, setReferralSource] = useState('');
   const [submitting, setSubmitting]   = useState(false);
-  const [reviewing, setReviewing]     = useState(false);
-  const [confirming, setConfirming]   = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
+  const submitInFlight = useRef(false);
   const [done, setDone]               = useState(false);
   const [founderNumber, setFounderNumber] = useState<number | null>(null);
   const [error, setError]             = useState<string | null>(null);
@@ -183,84 +182,59 @@ export default function RegisterInterestPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setError(null);
     if (!firstName.trim() || !email.trim()) {
       setError('Please leave your first name and email so we know how to reach you.');
       return;
     }
-    // Very light email sanity check — the backend is the source of truth.
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
       setError("That email doesn't look quite right — could you double-check it?");
       return;
     }
+    submitInFlight.current = true;
     setSubmitting(true);
     try {
-      // Phase-C endpoint: persists to `interest_registrations` and
-      // sends a warm, in-voice confirmation email signed by the
-      // chosen companion. Any non-2xx surfaces as a friendly error;
-      // the DB write itself is the source of truth so an email
-      // failure never punishes the visitor.
-      const referralHeardFrom = referralSource
-        ? `referral:${referralSource}${heardFrom.trim() ? ` | ${heardFrom.trim()}` : ''}`
-        : (heardFrom.trim() || null);
-      const res = await fetch(`${API_BASE}/api/public/register-interest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: firstName.trim(),
-          email: email.trim().toLowerCase(),
-          state_country: location.trim() || null,
-          heard_from: referralHeardFrom,
-          companion_choice: companion,
-        }),
-      });
-
-      if (!res.ok) {
-        let msg = '';
-        try {
-          const body = await res.json();
-          msg = typeof body?.detail === 'string' ? body.detail : '';
-        } catch {
-          msg = '';
+      // One explicit submission completes both backend phases. Preserve
+      // the saved id so a failed confirmation retries the same registration.
+      let savedId = registrationId;
+      if (!savedId) {
+        const referralHeardFrom = referralSource
+          ? `referral:${referralSource}${heardFrom.trim() ? ` | ${heardFrom.trim()}` : ''}`
+          : (heardFrom.trim() || null);
+        const res = await fetch(`${API_BASE}/api/public/register-interest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: firstName.trim(),
+            email: email.trim().toLowerCase(),
+            state_country: location.trim() || null,
+            heard_from: referralHeardFrom,
+            companion_choice: companion,
+          }),
+        });
+        if (!res.ok) {
+          let msg = '';
+          try {
+            const body = await res.json();
+            msg = typeof body?.detail === 'string' ? body.detail : '';
+          } catch { /* use the friendly fallback */ }
+          setError(res.status === 429
+            ? 'It looks like a few of you might be registering from the same place — give it a moment and try again.'
+            : (msg || "Something went wrong on our side — could you try again in a moment?"));
+          return;
         }
-        // 429 = rate-limited (five per hour per IP). We soften the
-        // wording so it still feels like a person, not a server.
-        if (res.status === 429) {
-          setError('It looks like a few of you might be registering from the same place — give it a moment and try again.');
-        } else {
-          setError(msg || "Something went wrong on our side — could you try again in a moment?");
+        const body = await res.json();
+        const rawId = body?.id ?? body?.registration_id ?? body?.reg_id;
+        if (!rawId) {
+          setError("Your details were saved, but we couldn't finish your registration. Please try again in a moment.");
+          return;
         }
-        return;
+        savedId = String(rawId);
+        setRegistrationId(savedId);
       }
-      // Phase 1 only saves the registration. Founder-number allocation
-      // intentionally happens only after the visitor confirms on the
-      // review screen below. Keep the registration id so Phase 2 can
-      // call the dedicated /confirm endpoint.
-      const body = await res.json();
-      const rawId = body?.id ?? body?.registration_id ?? body?.reg_id;
-      if (!rawId) {
-        setError("Your details were saved, but we couldn't open the confirmation step. Please try again in a moment.");
-        return;
-      }
-      setRegistrationId(String(rawId));
-      setReviewing(true);
-    } catch (err) {
-      console.error('[ryi] submit failed', err);
-      // Network hiccup on the visitor's side — don't punish them
-      // for it; the retry is just a tap away.
-      setError("Your internet seems a little slow. Could you try again?");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function onConfirm() {
-    if (!registrationId || confirming) return;
-    setError(null);
-    setConfirming(true);
-    try {
       const res = await fetch(
-        `${API_BASE}/api/public/register-interest/${encodeURIComponent(registrationId)}/confirm`,
+        `${API_BASE}/api/public/register-interest/${encodeURIComponent(savedId)}/confirm`,
         { method: 'POST' },
       );
       if (!res.ok) {
@@ -268,10 +242,8 @@ export default function RegisterInterestPage() {
         try {
           const body = await res.json();
           msg = typeof body?.detail === 'string' ? body.detail : '';
-        } catch {
-          msg = '';
-        }
-        setError(msg || "We couldn't finish your registration just yet. Please try again.");
+        } catch { /* use the friendly fallback */ }
+        setError(msg || "We couldn't finish your registration just yet. Please tap submit to try again.");
         return;
       }
       const body = await res.json();
@@ -280,64 +252,14 @@ export default function RegisterInterestPage() {
         return;
       }
       setFounderNumber(body.founder_number);
-      setReviewing(false);
       setDone(true);
     } catch (err) {
-      console.error('[ryi] confirm failed', err);
+      console.error('[ryi] submit failed', err);
       setError("Your internet seems a little slow. Could you try again?");
     } finally {
-      setConfirming(false);
+      submitInFlight.current = false;
+      setSubmitting(false);
     }
-  }
-
-  if (reviewing && !done) {
-    const companionName = meta?.name || 'George';
-    return (
-      <div style={pageBg}>
-        <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
-          <div style={plate}>
-            <h1 style={openingLine}>One last look.</h1>
-            <p style={{ ...leadCopy, marginTop: 8 }}>
-              Make sure everything looks right. When you&rsquo;re happy, {companionName} will reserve your very own Founding Member number.
-            </p>
-
-            <div style={{
-              marginTop: 26,
-              padding: '18px 20px',
-              borderRadius: 16,
-              background: '#0A2540',
-              color: '#FFFFFF',
-              textAlign: 'left',
-            }}>
-              <ReviewRow label="First name" value={firstName.trim()} />
-              <ReviewRow label="Email" value={email.trim().toLowerCase()} />
-              {location.trim() && <ReviewRow label="Location" value={location.trim()} />}
-              {heardFrom.trim() && <ReviewRow label="Heard about us" value={heardFrom.trim()} />}
-              <ReviewRow label="Saying hello to" value={companionName} last />
-            </div>
-
-            {error && (
-              <div role="alert" style={errorBar}>{error}</div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={confirming}
-                style={{ ...primaryCta, opacity: confirming ? 0.6 : 1 }}
-              >
-                {confirming ? 'Saying hello…' : 'That’s my hello — submit'}
-              </button>
-            </div>
-
-            <p style={footNote}>
-              Your Founding Member number is reserved only when you confirm here.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   if (done) {
@@ -517,6 +439,7 @@ export default function RegisterInterestPage() {
           <form onSubmit={onSubmit} style={{ marginTop: 8 }} noValidate>
             <Field label="First name" required>
               <input
+                disabled={submitting || !!registrationId}
                 type="text"
                 value={firstName}
                 onChange={e => setFirstName(e.target.value)}
@@ -529,6 +452,7 @@ export default function RegisterInterestPage() {
 
             <Field label="Email address" required>
               <input
+                disabled={submitting || !!registrationId}
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -542,6 +466,7 @@ export default function RegisterInterestPage() {
 
             <Field label="State or country" optional>
               <input
+                disabled={submitting || !!registrationId}
                 type="text"
                 value={location}
                 onChange={e => setLocation(e.target.value)}
@@ -553,6 +478,7 @@ export default function RegisterInterestPage() {
 
             <Field label="How did you hear about FriendPlace?" optional>
               <input
+                disabled={submitting || !!registrationId}
                 type="text"
                 value={heardFrom}
                 onChange={e => setHeardFrom(e.target.value)}
@@ -567,7 +493,7 @@ export default function RegisterInterestPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="submit" disabled={submitting} style={{ ...primaryCta, opacity: submitting ? 0.6 : 1 }}>
-                {submitting ? 'Saving…' : 'Continue'}
+                {submitting ? 'Saying hello…' : 'That’s my hello — submit'}
               </button>
             </div>
           </form>
@@ -578,19 +504,6 @@ export default function RegisterInterestPage() {
           </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ReviewRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', gap: 16,
-      padding: '8px 0',
-      borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.10)',
-    }}>
-      <span style={{ opacity: 0.7, fontSize: 14 }}>{label}</span>
-      <span style={{ fontWeight: 600, fontSize: 15, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
     </div>
   );
 }
