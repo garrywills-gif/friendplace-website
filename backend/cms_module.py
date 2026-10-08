@@ -1393,6 +1393,215 @@ def build_router(db) -> APIRouter:
         }
 
 
+    @router.post("/crm/founding-members/{member_id}/allocate-number")
+    async def crm_founding_members_allocate_number(
+        member_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Admin recovery control — attach a Founding Member number to a
+        registration that doesn't have one yet.
+
+        Context (Neo, Feb 2026 — Vik's missing FMN investigation):
+        A visitor who completes Phase 1 of /public/register-interest but
+        abandons Phase 2 ("That's my hello") leaves a numberless row in
+        the CRM. The timeline misleadingly reads "Registered as Founding
+        Member" (now fixed to read "Submitted registration — awaiting
+        confirmation"). This endpoint lets an admin finish the
+        allocation on the member's behalf AFTER a deliberate click +
+        confirmation of first_name + email.
+
+        Guarantees (requested by Garry):
+          • Idempotent — if `founder_number` is already set, returns 200
+            with the existing number and sends NO second ack email.
+          • Uses the SAME counter-based allocator the public confirm
+            endpoint uses (`_assign_founder_number_to_registration`).
+            No active-member math; no renumbering; no second row.
+          • Mandatory `confirm` echo (`first_name` + `email`) that must
+            match the stored row exactly. The frontend shows these
+            values and the admin tap confirms them — any mismatch 400s.
+          • Writes an entry to `cms_audit_log` with actor + target so
+            the action is traceable. Also appends a `history[]` entry
+            on the row itself so the timeline shows the manual
+            allocation.
+          • Fires the standard waitlist acknowledgement email EXACTLY
+            ONCE (the duplicate guard respects any `ack_sent_at`
+            already on the row, so re-running this endpoint after a
+            retry never sends a second email).
+        """
+        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(404, "Founding member not found")
+        if bool(row.get("is_reserved")):
+            raise HTTPException(
+                400,
+                "Reserved slot — this record already has (or is a placeholder "
+                "for) a specific founder number. Edit via the DB Viewer if truly necessary.",
+            )
+        if row.get("merged_into"):
+            raise HTTPException(
+                400,
+                "This registration has been merged into another record; allocate "
+                "on the surviving row instead.",
+            )
+
+        # Deliberate confirmation echo — the admin UI shows the actual
+        # name + email beside the button, so the submitted values must
+        # match exactly. This prevents a wrong-row click from mutating
+        # a different member's record.
+        confirm_name  = (payload.get("confirm_first_name") or "").strip()
+        confirm_email = (payload.get("confirm_email") or "").strip().lower()
+        stored_name   = (row.get("first_name") or "").strip()
+        stored_email  = (row.get("email") or "").strip().lower()
+        if (not confirm_name) or (confirm_name.lower() != stored_name.lower()):
+            raise HTTPException(400, "Confirmation name must match the registration first_name exactly.")
+        if (not confirm_email) or (confirm_email != stored_email):
+            raise HTTPException(400, "Confirmation email must match the registration email exactly.")
+
+        existing_num = row.get("founder_number")
+        if isinstance(existing_num, int) and existing_num > 0:
+            # Idempotent — number already allocated. Record the "noop"
+            # audit line (so an admin re-click isn't invisible) but do
+            # NOT send another ack email or re-write status.
+            try:
+                await db.cms_audit_log.insert_one({
+                    "actor":  admin.get("email") or admin.get("id"),
+                    "action": "founder.allocate_number.noop",
+                    "target_type": "interest_registration",
+                    "target_id":   member_id,
+                    "detail": (
+                        f"{stored_name} <{stored_email}> already holds "
+                        f"Founding Member #{existing_num:04d} — no change."
+                    ),
+                    "at": _now_iso(),
+                })
+            except Exception:
+                pass
+            return {
+                "ok": True,
+                "founder_number": existing_num,
+                "founder_number_display": f"#{existing_num:04d}",
+                "already_allocated": True,
+                "ack_sent": bool(row.get("ack_sent_at")),
+                "member_id": member_id,
+            }
+
+        # Draw + lock via the public-confirm path so there is literally
+        # ONE allocator in the codebase. This guarantees we pull from
+        # the same counter (incl. reserved-slot gap-fill queue) a
+        # legitimate self-confirm would pull from — no renumbering.
+        try:
+            from server import _assign_founder_number_to_registration, now_iso  # type: ignore
+        except Exception:
+            raise HTTPException(500, "Server allocator unavailable; cannot allocate right now.")
+        try:
+            fnum = await _assign_founder_number_to_registration(member_id)
+        except Exception as e:
+            raise HTTPException(500, f"Allocation failed — nothing changed. ({e})")
+
+        # Mark status as `registered` + stamp confirmed_at. This is the
+        # same shape /public/register-interest/{id}/confirm applies; we
+        # keep the ack email as the LAST side-effect so a failure
+        # between here and ack doesn't lose the number.
+        try:
+            await db.interest_registrations.update_one(
+                {"id": member_id},
+                {"$set": {
+                    "status": "registered",
+                    "confirmed_at": _now_iso(),
+                    "allocated_by_admin": admin.get("email") or admin.get("id"),
+                    "allocated_at": _now_iso(),
+                }, "$push": {
+                    "history": {
+                        "at": _now_iso(),
+                        "from": row.get("status"),
+                        "to": "registered",
+                        "reason": "admin_allocate_number",
+                        "actor_email": admin.get("email"),
+                        "actor_id": admin.get("id"),
+                        "founder_number": fnum,
+                    },
+                }},
+            )
+        except Exception:
+            # Non-fatal — the number has landed on the row via the
+            # allocator above; the status flip is bookkeeping.
+            pass
+
+        # Fire the warm acknowledgement email ONCE (duplicate-guarded).
+        ack_sent = False
+        existing_ack = row.get("ack_sent_at")
+        if not existing_ack:
+            try:
+                from email_service import send_email_detailed, waitlist_template
+                companion = (row.get("companion_choice") or "george").lower()
+                companion = companion if companion in {"george", "georgia"} else "george"
+                first_name = stored_name or "Friend"
+                subject, html_body, text_body = waitlist_template(
+                    first_name=first_name,
+                    founder_number=fnum,
+                    companion=companion,
+                )
+                ack_result = await send_email_detailed(
+                    to=stored_email,
+                    subject=subject,
+                    html=html_body,
+                    text=text_body,
+                )
+                if getattr(ack_result, "ok", False) and getattr(ack_result, "message_id", None):
+                    ack_sent = True
+                    try:
+                        await db.interest_registrations.update_one(
+                            {"id": member_id},
+                            {"$set": {
+                                "ack_sent_at": _now_iso(),
+                                "ack_message_id": ack_result.message_id,
+                                "ack_source": "admin_allocate_number",
+                            }},
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                # Don't fail the request — the number is secured.
+                # Admin can resend via the standard ack-resend tooling.
+                try:
+                    await db.cms_audit_log.insert_one({
+                        "actor":  admin.get("email") or admin.get("id"),
+                        "action": "founder.allocate_number.ack_failed",
+                        "target_type": "interest_registration",
+                        "target_id": member_id,
+                        "detail": f"Number allocated OK but ack email failed: {e}",
+                        "at": _now_iso(),
+                    })
+                except Exception:
+                    pass
+
+        try:
+            await db.cms_audit_log.insert_one({
+                "actor":  admin.get("email") or admin.get("id"),
+                "action": "founder.allocate_number",
+                "target_type": "interest_registration",
+                "target_id": member_id,
+                "detail": (
+                    f"Allocated Founding Member #{fnum:04d} to "
+                    f"{stored_name} <{stored_email}>."
+                    + (" Ack email sent." if ack_sent else " Ack email NOT sent (duplicate or failure).")
+                ),
+                "at": _now_iso(),
+            })
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "founder_number": fnum,
+            "founder_number_display": f"#{fnum:04d}",
+            "already_allocated": False,
+            "ack_sent": ack_sent,
+            "member_id": member_id,
+        }
+
+
     @router.post("/crm/founding-members/retire-duplicate")
     async def crm_founding_members_retire_duplicate(
         payload: Dict[str, Any],
@@ -4610,18 +4819,59 @@ def build_router(db) -> APIRouter:
             raise HTTPException(404, "Founding member not found")
         events: list[dict] = []
 
-        # 1) Registration.
+        # 1) Registration event — three distinct wordings so an admin
+        #    can tell at a glance whether a number was ever drawn:
+        #    (TestFlight / MCGS feedback, Neo Feb 2026 — Vik's missing
+        #    FMN investigation.)
+        #
+        #    • number present                            →
+        #      "Registered as Founding Member #0003"
+        #    • status is pending_confirmation, no number →
+        #      "Submitted registration — awaiting confirmation"
+        #      (visitor never pressed "That's my hello")
+        #    • any other active status, no number        →
+        #      "Founding Member number missing — needs investigation"
+        #      (status flipped past pending_confirmation but the
+        #       number never landed — a real bug worth triaging)
+        #
+        #    This change is DISPLAY-ONLY: it does not touch stored
+        #    status, founder_number, ack timestamps, or anything else
+        #    on the row.
         fn = row.get("founder_number")
-        fn_display = f"#{fn:04d}" if fn else ""
-        events.append({
-            "at":     row.get("created_at"),
-            "kind":   "registered",
-            "title":  f"Registered as Founding Member {fn_display}".strip(),
-            "detail": (
+        fn_display = f"#{fn:04d}" if (isinstance(fn, int) and fn > 0) else ""
+        row_status = (row.get("status") or "").lower()
+        if fn_display:
+            reg_title = f"Registered as Founding Member {fn_display}"
+            reg_detail = (
                 f"{row.get('first_name') or '(unnamed)'} joined the register "
                 f"from {row.get('state_country') or 'somewhere in the world'}. "
                 f"Heard about us via: {row.get('heard_from') or '—'}."
-            ),
+            )
+        elif row_status == "pending_confirmation":
+            reg_title = "Submitted registration — awaiting confirmation"
+            reg_detail = (
+                f"{row.get('first_name') or '(unnamed)'} started the register "
+                f"from {row.get('state_country') or 'somewhere in the world'} "
+                f"but hasn't pressed \u201CThat's my hello\u201D yet, so no "
+                f"Founding Member number has been drawn and no "
+                f"acknowledgement email has been sent."
+            )
+        else:
+            reg_title = "Founding Member number missing — needs investigation"
+            reg_detail = (
+                f"{row.get('first_name') or '(unnamed)'}'s status is "
+                f"\u201C{row_status or 'unknown'}\u201D but no Founding "
+                f"Member number is attached to this row. This is unusual "
+                f"\u2014 recommended action: run "
+                f"`scripts/audit_founder_numbers.py` and consider "
+                f"allocating manually with the Admin \u201CAllocate "
+                f"founder number\u201D control."
+            )
+        events.append({
+            "at":     row.get("created_at"),
+            "kind":   "registered",
+            "title":  reg_title,
+            "detail": reg_detail,
             "founder_number": fn,
         })
 

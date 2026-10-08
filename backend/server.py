@@ -14363,6 +14363,14 @@ async def public_register_interest(payload: dict, request: Request):
         "acquisition": acquisition,
         "ip": ip,
         "is_test": False,
+        # Automatic 24h "finish my registration" reminder (Neo, Feb 2026,
+        # Vik's missing FMN investigation): ONLY applies to registrations
+        # created from this iter forward. The reminder background loop
+        # filters on `reminder_eligible == True`, so existing legacy
+        # pending rows are left strictly alone (they have no field or
+        # `False`). The reminder fires exactly once per row, writes
+        # `reminder_sent_at`, and respects email_suppressions.
+        "reminder_eligible": True,
         "created_at": now_iso(),
     }
     try:
@@ -14411,7 +14419,8 @@ async def public_register_interest_confirm(reg_id: str, request: Request):
     effective_companion = companion or "george"
 
     already = row.get("founder_number")
-    if isinstance(already, int) and already > 0:
+    was_already_confirmed = isinstance(already, int) and already > 0
+    if was_already_confirmed:
         founder_number = already
     else:
         # Draw + lock atomically-with-success (non-burning on failure).
@@ -14436,55 +14445,64 @@ async def public_register_interest_confirm(reg_id: str, request: Request):
 
     # Fire the warm acknowledgement (+ internal team nudge). Never fail the
     # request on an email hiccup — the DB record is the source of truth.
-    try:
-        from email_service import send_email_detailed, waitlist_template, send_email
-        meta = _RYI_COMPANION_META.get(effective_companion, _RYI_COMPANION_META["george"])
-        subject, html_body, text_body = waitlist_template(
-            first_name=first_name, founder_number=founder_number, companion=effective_companion,
-        )
-        ack_result = await send_email_detailed(to=email, subject=subject, html=html_body, text=text_body)
-        if getattr(ack_result, "ok", False) and getattr(ack_result, "message_id", None):
-            try:
-                await db.email_test_log.insert_one({
-                    "message_id": ack_result.message_id, "template": "waitlist",
-                    "companion": effective_companion, "recipient": email,
-                    "subject": subject, "created_at": now_iso(),
-                    "mode": "ack", "founder_id": reg_id,
-                })
-            except Exception:
-                logger.exception("email_test_log insert failed (ack)")
-            try:
-                await db.interest_registrations.update_one(
-                    {"id": reg_id},
-                    {"$set": {"ack_sent_at": now_iso(), "ack_message_id": ack_result.message_id}},
-                )
-            except Exception:
-                logger.exception("interest_registrations ack_sent_at update failed")
-        else:
-            logger.warning("RYI confirm ack send failed for %s: %s", email, getattr(ack_result, "error", None))
-        internal_html = (
-            f"<p><b>{html_module.escape(first_name)}</b> confirmed their hello "
-            f"(Founding Member {_fmt_founder_no(founder_number)}).</p>"
-            f"<p><b>Email:</b> {html_module.escape(email)}</p>"
-            f"<p><b>State/Country:</b> {html_module.escape(row.get('state_country') or '—')}</p>"
-            f"<p><b>How did they hear about us:</b> {html_module.escape(row.get('heard_from') or '—')}</p>"
-            f"<p><b>Chose to meet:</b> {meta['name']}</p>"
-        )
-        await send_email(
-            to="hello@friendplace.com.au",
-            subject=f"[FriendPlace RYI] {first_name} ({email}) — {_fmt_founder_no(founder_number)}",
-            html=internal_html,
-            text=(f"{first_name} confirmed their hello.\n\nEmail: {email}\n"
-                  f"Founding Member: {_fmt_founder_no(founder_number)}\n"),
-        )
-    except Exception:
-        logger.exception("failed to send RYI confirmation email")
+    # Idempotence (Neo, Feb 2026 — Vik's missing FMN): skip the ack
+    # entirely when this is a repeat confirm (double-tap, retry, resume
+    # link after prior success). `ack_sent_at` on the row is also
+    # respected so a legacy row that already received its ack never
+    # gets a second one.
+    _already_acked = bool(row.get("ack_sent_at"))
+    _should_send_ack = (not was_already_confirmed) and (not _already_acked)
+    if _should_send_ack:
+        try:
+            from email_service import send_email_detailed, waitlist_template, send_email
+            meta = _RYI_COMPANION_META.get(effective_companion, _RYI_COMPANION_META["george"])
+            subject, html_body, text_body = waitlist_template(
+                first_name=first_name, founder_number=founder_number, companion=effective_companion,
+            )
+            ack_result = await send_email_detailed(to=email, subject=subject, html=html_body, text=text_body)
+            if getattr(ack_result, "ok", False) and getattr(ack_result, "message_id", None):
+                try:
+                    await db.email_test_log.insert_one({
+                        "message_id": ack_result.message_id, "template": "waitlist",
+                        "companion": effective_companion, "recipient": email,
+                        "subject": subject, "created_at": now_iso(),
+                        "mode": "ack", "founder_id": reg_id,
+                    })
+                except Exception:
+                    logger.exception("email_test_log insert failed (ack)")
+                try:
+                    await db.interest_registrations.update_one(
+                        {"id": reg_id},
+                        {"$set": {"ack_sent_at": now_iso(), "ack_message_id": ack_result.message_id}},
+                    )
+                except Exception:
+                    logger.exception("interest_registrations ack_sent_at update failed")
+            else:
+                logger.warning("RYI confirm ack send failed for %s: %s", email, getattr(ack_result, "error", None))
+            internal_html = (
+                f"<p><b>{html_module.escape(first_name)}</b> confirmed their hello "
+                f"(Founding Member {_fmt_founder_no(founder_number)}).</p>"
+                f"<p><b>Email:</b> {html_module.escape(email)}</p>"
+                f"<p><b>State/Country:</b> {html_module.escape(row.get('state_country') or '—')}</p>"
+                f"<p><b>How did they hear about us:</b> {html_module.escape(row.get('heard_from') or '—')}</p>"
+                f"<p><b>Chose to meet:</b> {meta['name']}</p>"
+            )
+            await send_email(
+                to="hello@friendplace.com.au",
+                subject=f"[FriendPlace RYI] {first_name} ({email}) — {_fmt_founder_no(founder_number)}",
+                html=internal_html,
+                text=(f"{first_name} confirmed their hello.\n\nEmail: {email}\n"
+                      f"Founding Member: {_fmt_founder_no(founder_number)}\n"),
+            )
+        except Exception:
+            logger.exception("failed to send RYI confirmation email")
 
     return {
         "ok": True,
         "id": reg_id,
         "founder_number": founder_number,
         "founder_number_display": _fmt_founder_no(founder_number),
+        "already_confirmed": was_already_confirmed,
     }
 
 
@@ -14989,6 +15007,26 @@ async def _start_campaign_scheduler():
     poller = getattr(_cms_router, "start_scheduled_poller", None)
     if poller:
         asyncio.create_task(poller())
+
+
+@app.on_event("startup")
+async def _start_registration_reminder():
+    """Kick off the 24-hour registration-reminder loop.
+
+    Neo, Feb 2026 (Vik's missing FMN investigation): fires exactly one
+    friendly "finish my registration" email per visitor who left Phase 1
+    of /public/register-interest without ever tapping "That's my hello".
+    Only applies to rows marked `reminder_eligible: True` (set on new
+    phase-1 inserts from this iter onward), so existing legacy pending
+    rows are left completely alone. Full guarantees documented in
+    `services/registration_reminder.py`.
+    """
+    try:
+        from services.registration_reminder import run_loop as _rr_run
+        asyncio.create_task(_rr_run(db))
+        logger.info("registration-reminder loop scheduled.")
+    except Exception:
+        logger.exception("registration-reminder loop failed to start (non-fatal)")
 app.include_router(_build_public_router(db), prefix="/api")
 
 # Mission Control George System (MCGS) — see /app/memory/mcgs-architecture.md
