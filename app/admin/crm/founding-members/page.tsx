@@ -461,6 +461,62 @@ function MemberRow({
     }
   };
 
+  // Admin recovery: allocate a Founding Member number to a row that
+  // didn't finish Phase 2 of the register-interest flow. Requires the
+  // admin to type the row's first_name + email EXACTLY (echoed into
+  // the input placeholders) so a wrong-row click can't fire. Server
+  // guarantees: idempotent, same allocator the public confirm uses,
+  // ack email sent exactly once, cms_audit_log written.
+  const [allocName, setAllocName] = useState('');
+  const [allocEmail, setAllocEmail] = useState('');
+  const [allocBusy, setAllocBusy] = useState(false);
+  const [allocMsg, setAllocMsg] = useState<string | null>(null);
+  const allocateNumber = async () => {
+    if (allocBusy) return;
+    const stored_name  = (row.first_name || '').trim();
+    const stored_email = (row.email || '').trim().toLowerCase();
+    const typed_name   = allocName.trim();
+    const typed_email  = allocEmail.trim().toLowerCase();
+    if (!typed_name || typed_name.toLowerCase() !== stored_name.toLowerCase()) {
+      setAllocMsg(`Please type the first name exactly as stored: "${stored_name}".`);
+      return;
+    }
+    if (!typed_email || typed_email !== stored_email) {
+      setAllocMsg(`Please type the email exactly as stored: "${stored_email}".`);
+      return;
+    }
+    const ok = window.confirm(
+      `About to allocate the next Founding Member number to ${stored_name} <${stored_email}>.\n\n` +
+      `This uses the same counter-based allocator as the public confirm flow — no renumbering of anyone else — ` +
+      `and fires the standard acknowledgement email exactly once.\n\n` +
+      `Continue?`
+    );
+    if (!ok) return;
+    setAllocBusy(true);
+    setAllocMsg(null);
+    try {
+      const res = await foundingMembersCrmApi.allocateNumber(row.id, {
+        confirm_first_name: typed_name,
+        confirm_email: typed_email,
+      });
+      setAllocMsg(
+        res.already_allocated
+          ? `✓ Already held ${res.founder_number_display} — no change made. ${res.ack_sent ? 'Ack previously sent.' : 'Ack NOT re-sent.'}`
+          : `✓ Allocated ${res.founder_number_display}. ${res.ack_sent ? 'Welcome email sent.' : 'Welcome email NOT sent — see cms_audit_log.'}`
+      );
+      setAllocName('');
+      setAllocEmail('');
+      void onUpdate(row.id, {}, {
+        founder_number: res.founder_number,
+        status: 'registered' as CRMFoundingMemberStatus,
+      } as any);
+    } catch (e: any) {
+      setAllocMsg(`Couldn't allocate: ${String(e?.message || 'error').replace(/^\d+\s*/, '')}`);
+    } finally {
+      setAllocBusy(false);
+    }
+  };
+
   return (
     <div style={{
       borderTop: '1px solid #F1F5F9',
@@ -678,6 +734,60 @@ function MemberRow({
             {mergeMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: mergeMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{mergeMsg}</div>}
           </div>
 
+          {!row.founder_number && !row.is_reserved && (
+            <div style={{
+              marginBottom: 16, padding: '12px 14px', borderRadius: 12,
+              background: '#FEF3C7', border: '1px solid #FCD34D',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: '#78350F', marginBottom: 4 }}>
+                Allocate founder number
+              </div>
+              <div style={{ fontSize: 12, color: '#7C2D12', marginBottom: 10 }}>
+                This registration has no Founding Member number. Check its status and timeline before allocating one.
+                Allocation uses the same counter-based process as the public confirm flow, fires the acknowledgement email once, and writes an audit log entry.
+                Type the stored first name <strong>and</strong> email exactly to confirm you have the right record.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <input
+                  value={allocName}
+                  aria-label="Confirm registration first name"
+                  onChange={e => setAllocName(e.target.value)}
+                  placeholder={`First name: ${row.first_name || '(none)'}`}
+                  style={{
+                    padding: '8px 10px', border: '1.5px solid #FBBF24', borderRadius: 10,
+                    fontSize: 13, background: '#FFFFFF',
+                  }}
+                />
+                <input
+                  value={allocEmail}
+                  aria-label="Confirm registration email"
+                  onChange={e => setAllocEmail(e.target.value)}
+                  placeholder={`Email: ${row.email || '(none)'}`}
+                  style={{
+                    padding: '8px 10px', border: '1.5px solid #FBBF24', borderRadius: 10,
+                    fontSize: 13, background: '#FFFFFF',
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => void allocateNumber()}
+                disabled={allocBusy || !allocName.trim() || !allocEmail.trim()}
+                style={{
+                  padding: '9px 18px', borderRadius: 10, border: 'none',
+                  background: (allocBusy || !allocName.trim() || !allocEmail.trim()) ? '#CBD5E1' : '#B45309',
+                  color: '#FFFFFF', fontWeight: 800, fontSize: 13,
+                  cursor: (allocBusy || !allocName.trim() || !allocEmail.trim()) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {allocBusy ? 'Allocating…' : 'Allocate founder number'}
+              </button>
+              {allocMsg && (
+                <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 700, color: allocMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>
+                  {allocMsg}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 20 }}>
             <div>
               <label style={s.label}>Admin notes</label>

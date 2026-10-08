@@ -867,6 +867,26 @@ export const foundingMembersCrmApi = {
     req<{ count: number; events: CRMTimelineEvent[] }>(
       'GET', `/cms/crm/founding-members/${id}/timeline`,
     ),
+  // Admin recovery control (Neo, Feb 2026 — Vik's missing FMN
+  // investigation). Attach a Founding Member number to a registration
+  // that doesn't have one yet. REQUIRES a deliberate echo of the
+  // row's first_name + email so the admin confirms the right record.
+  // Server runs the SAME counter-based allocator the public confirm
+  // flow uses, is idempotent, respects email_suppressions, and writes
+  // a `cms_audit_log` entry. Fires the standard waitlist ack email
+  // exactly once.
+  allocateNumber: (
+    id: string,
+    body: { confirm_first_name: string; confirm_email: string },
+  ) =>
+    req<{
+      ok: true;
+      founder_number: number;
+      founder_number_display: string;
+      already_allocated: boolean;
+      ack_sent: boolean;
+      member_id: string;
+    }>('POST', `/cms/crm/founding-members/${id}/allocate-number`, body),
 };
 
 export const enquiriesApi = {
