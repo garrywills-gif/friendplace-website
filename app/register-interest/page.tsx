@@ -327,7 +327,7 @@ export default function RegisterInterestPage() {
                 disabled={confirming}
                 style={{ ...primaryCta, opacity: confirming ? 0.6 : 1 }}
               >
-                {confirming ? 'Saying hello…' : 'That’s my hello'}
+                {confirming ? 'Saying hello…' : 'That’s my hello — submit'}
               </button>
             </div>
 
