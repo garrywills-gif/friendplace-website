@@ -85,6 +85,7 @@ export function statusBadgesFor(m: MemberRow): Badge[] {
   if (m.profile_hidden)     b.push({ label: 'Profile hidden', bg: '#F1F5F9', fg: '#334155', border: '#CBD5E1' });
   if (m.is_admin)           b.push({ label: 'Admin',       bg: '#EEF2FF', fg: '#3730A3', border: '#C7D2FE' });
   if (m.is_founding)        b.push({ label: 'Founding',    bg: '#ECFDF5', fg: '#065F46', border: '#A7F3D0' });
+  if ((m as any).is_test)   b.push({ label: 'Test',        bg: '#FEF3C7', fg: '#92400E', border: '#FCD34D' });
   if (m.is_demo)            b.push({ label: 'Demo',        bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1' });
   return b;
 }
