@@ -426,6 +426,38 @@ export default function MemberProfilePage() {
             </span>
           </div>
 
+          {/* iter264 — App administrator switch (same server function as the app's Moderators screen). */}
+          {profile && (
+            <section style={{ marginTop: 24, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12, padding: 16 }} data-testid="app-admin-section">
+              <h2 style={sectionTitle}>App administrator</h2>
+              <p style={{ margin: '6px 0 12px', color: '#475569', fontSize: 14 }}>
+                {profile.user.is_admin
+                  ? 'This member is a FriendPlace app administrator (Admin tools in the app).'
+                  : 'This member is not an app administrator.'}
+              </p>
+              <button
+                data-testid="app-admin-toggle"
+                style={{ ...actionBtn, background: profile.user.is_admin ? '#FEE2E2' : '#0F766E', color: profile.user.is_admin ? '#991B1B' : '#FFFFFF' }}
+                onClick={async () => {
+                  const makeAdmin = !profile.user.is_admin;
+                  const typed = window.prompt(
+                    `${makeAdmin ? 'Promote' : 'Demote'} ${profile.user.first_name || profile.user.username} ${makeAdmin ? 'to' : 'from'} app administrator?\n\nType the member ID to confirm:\n${profile.user.id}`,
+                  );
+                  if (typed === null) return;
+                  try {
+                    await cmsApi.setAppAdmin(profile.user.id, { make_admin: makeAdmin, confirm_member_id: typed.trim() });
+                    setBanner({ tone: 'ok', text: makeAdmin ? 'Promoted to app administrator.' : 'App administrator access removed.' });
+                    await reload();
+                  } catch (e: any) {
+                    setBanner({ tone: 'err', text: e?.message || 'Could not change administrator access.' });
+                  }
+                }}
+              >
+                {profile.user.is_admin ? 'Remove app administrator' : 'Make app administrator'}
+              </button>
+            </section>
+          )}
+
           {/* Unified timeline */}
           <section style={{ marginTop: 24 }}>
             <div style={sectionHeader}>

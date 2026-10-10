@@ -18,10 +18,12 @@ import { AskGeorgeAboutThis } from '@/components/mcgs/AskGeorgeAboutThis';
 import { cmsApi, type MemberRow } from '@/lib/cms-api';
 import { MemberRowCard } from '@/components/members/MemberRowCard';
 
-type StatusFilter = '' | 'banned' | 'suspended' | 'restricted' | 'founding' | 'demo' | 'admin';
+type StatusFilter = '' | 'real' | 'test' | 'banned' | 'suspended' | 'restricted' | 'founding' | 'demo' | 'admin';
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; hint: string }[] = [
-  { value: '',           label: 'All members',     hint: 'Everyone.' },
+  { value: '',           label: 'All members',     hint: 'Everyone — real, test and demo accounts (labelled).' },
+  { value: 'real',       label: 'Real members',    hint: 'Genuine members only (no test or demo accounts).' },
+  { value: 'test',       label: 'Test members',    hint: 'QA / test-flagged accounts.' },
   { value: 'restricted', label: 'Restricted',      hint: 'Currently limited in-app.' },
   { value: 'suspended',  label: 'Suspended',       hint: 'Time-boxed suspension in effect.' },
   { value: 'banned',     label: 'Banned',          hint: 'Permanent — cannot sign in.' },
@@ -48,6 +50,8 @@ export default function MembersPage() {
       const r = await cmsApi.listMembers({
         q: q.trim() || undefined,
         status: status || undefined,
+        // iter264: All + Test views include test accounts; Real excludes them.
+        include_test: status === '' || status === 'test',
         limit: PAGE_SIZE,
         skip,
       });
