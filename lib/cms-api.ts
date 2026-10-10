@@ -195,9 +195,10 @@ export const cmsApi = {
     req<{ actions: string[] }>('GET', '/cms/admin-log/actions'),
 
   // Member management (Slice 1)
-  listMembers: (opts?: { q?: string; status?: string; limit?: number; skip?: number }) => {
+  listMembers: (opts?: { q?: string; status?: string; limit?: number; skip?: number; include_test?: boolean }) => {
     const p = new URLSearchParams();
     if (opts?.q) p.set('q', opts.q);
+    if (opts?.include_test) p.set('include_test', 'true');
     if (opts?.status) p.set('status', opts.status);
     if (opts?.limit != null) p.set('limit', String(opts.limit));
     if (opts?.skip != null) p.set('skip', String(opts.skip));
@@ -206,6 +207,8 @@ export const cmsApi = {
       'GET', `/cms/members${qs ? `?${qs}` : ''}`,
     );
   },
+  setAppAdmin: (id: string, body: { make_admin: boolean; confirm_member_id: string; reason?: string }) =>
+    req<{ ok: true; is_admin: boolean; unchanged?: boolean }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/app-admin`, body),
   getMember: (id: string) =>
     req<MemberProfile>('GET', `/cms/members/${encodeURIComponent(id)}`),
   addMemberNote: (id: string, note: string) =>
@@ -385,6 +388,7 @@ export type MemberRow = {
   profile_hidden?: boolean;
   is_admin?: boolean;
   is_demo?: boolean;
+  is_test?: boolean;
   is_founding?: boolean;
 };
 
