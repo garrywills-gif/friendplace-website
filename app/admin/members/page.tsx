@@ -18,6 +18,8 @@ import { AskGeorgeAboutThis } from '@/components/mcgs/AskGeorgeAboutThis';
 import { cmsApi, type MemberRow } from '@/lib/cms-api';
 import { MemberRowCard } from '@/components/members/MemberRowCard';
 
+import OpenMargaretButton from '@/components/admin/OpenMargaretButton';
+
 type StatusFilter = '' | 'real' | 'test' | 'banned' | 'suspended' | 'restricted' | 'founding' | 'demo' | 'admin';
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; hint: string }[] = [
@@ -80,6 +82,8 @@ export default function MembersPage() {
         Everyone in FriendPlace. Search by name, email, handle or Member ID.
         Actions live inside the profile — always behind identity confirmation.
       </p>
+
+      <div style={{ margin: '0 0 16px' }}><OpenMargaretButton /></div>
 
       <div style={filterRow}>
         <input

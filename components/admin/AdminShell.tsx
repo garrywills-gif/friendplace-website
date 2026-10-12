@@ -58,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/crm',                  label: 'CRM Navigator',    icon: '🧭' },
       { href: '/admin/members',              label: 'Members',          icon: '👤' },
+      { href: '/admin/member-backups',   label: 'Member Backups',   icon: '🗄️' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
       { href: '/admin/enquiries',            label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
       { href: '/admin/replies',              label: 'Replies',          icon: '💌', badgeKey: 'replies' },
