@@ -57,6 +57,9 @@ export const cmsApi = {
   login: (data: { email: string; password: string }) =>
     req<{ ok: true; token: string; admin: any }>('POST', '/cms/auth/login', data),
   me: () => req<{ id: string; email: string; display_name?: string; last_login_at?: string }>('GET', '/cms/auth/me'),
+  openMargaretCode: () => req<{ code: string; expires_in: number }>('POST', '/cms/app-handoff/margaret'),
+  memberBackups: () => req<any>('GET', '/cms/member-backups'),
+  memberBackupNow: () => req<any>('POST', '/cms/member-backups/run'),
   updateMe: (display_name: string) =>
     req<{
       ok: true;
@@ -1605,6 +1608,25 @@ export async function downloadFoundingMembersCsv(opts: { status?: string; q?: st
   a.href = url;
   const stamp = new Date().toISOString().slice(0, 10);
   a.download = `founding-members-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+
+export async function downloadMemberBackup(id: string, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${BASE}/api/cms/member-backups/${encodeURIComponent(id)}/download`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `Download failed (${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
