@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { cmsApi, type EventRow } from '@/lib/cms-api';
+import { LocalEventsTabs } from '@/components/admin/LocalEventsTabs';
 
 function EventsListInner() {
   const router = useRouter();
@@ -54,7 +55,8 @@ function EventsListInner() {
   };
 
   return (
-    <AdminShell title="Events">
+    <AdminShell title="Local Events">
+      <LocalEventsTabs active="hosted" />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: -12, marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <p style={{ color: '#475569', fontSize: 16, maxWidth: 640, margin: 0 }}>
           Coffee lounges, walking groups, workshops — the moments where friendship happens. Draft, preview, publish, and manage RSVPs from one place.
@@ -164,7 +166,7 @@ function formatEventWhen(iso: string | undefined, tz: string = 'Australia/Sydney
 
 export default function EventsListPage() {
   return (
-    <Suspense fallback={<AdminShell title="Events"><p style={{ color: '#64748B' }}>Loading…</p></AdminShell>}>
+    <Suspense fallback={<AdminShell title="Local Events"><p style={{ color: '#64748B' }}>Loading…</p></AdminShell>}>
       <EventsListInner />
     </Suspense>
   );
