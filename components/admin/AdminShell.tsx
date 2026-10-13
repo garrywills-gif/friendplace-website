@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
-import { cmsApi, repliesApi } from '@/lib/cms-api';
+import { cmsApi, repliesApi, pendingGroupsApi } from '@/lib/cms-api';
 import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
 import { inboxApi } from '@/lib/inbox-api';
 import { ENQUIRY_HANDLED_EVENT } from '@/lib/enquiry-handled';
@@ -22,7 +22,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions' | 'replies' | 'enquiries' | 'inbox';
+  badgeKey?: 'submissions' | 'replies' | 'enquiries' | 'inbox' | 'groups';
   soon?: boolean;
 };
 
@@ -46,7 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/events',           label: 'Events',               icon: '📅' },
       { href: '/admin/event-submissions',label: 'Event submissions',    icon: '📝', badgeKey: 'submissions' },
       { href: '/admin/groups-mod',       label: 'Group Posts',          icon: '👥' },
-      { href: '/admin/groups/pending',   label: 'Pending groups',       icon: '👥', soon: true },
+      { href: '/admin/groups/pending',   label: 'Pending groups',       icon: '👥', badgeKey: 'groups' },
       { href: '/admin/cafe',             label: 'FP Café Messages',     icon: '☕' },
       { href: '/admin/reports',          label: 'Reports / Complaints', icon: '🚩', soon: true },
       { href: '/admin/support',          label: 'Support',              icon: '💬', soon: true },
@@ -116,6 +116,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [unreadReplies, setUnreadReplies] = useState<number>(0);
   const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
   const [unreadInbox, setUnreadInbox] = useState<number>(0);
+  const [pendingGroups, setPendingGroups] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -162,6 +163,12 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         if (!cancelled) setUnreadInbox(res.count ?? 0);
       } catch {
         // Silent fail — inbox badge stays at last known value.
+      }
+      try {
+        const res = await pendingGroupsApi.list();
+        if (!cancelled) setPendingGroups(res.count ?? 0);
+      } catch {
+        // Silent fail — pending group badge retains its last known value.
       }
     })();
     return () => { cancelled = true; };
@@ -274,7 +281,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                         ? unreadEnquiries
                         : item.badgeKey === 'inbox'
                           ? unreadInbox
-                          : 0;
+                          : item.badgeKey === 'groups'
+                            ? pendingGroups
+                            : 0;
                 return (
                   <Link
                     key={item.href}
