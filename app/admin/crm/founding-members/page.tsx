@@ -56,6 +56,9 @@ export default function FoundingMembersCRMPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Display 20 registrations per page; search and status filtering apply to the complete result set.
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
 
   const showToast = (msg: string, ms = 2200) => {
     setToast(msg);
@@ -66,7 +69,7 @@ export default function FoundingMembersCRMPage() {
     setLoading(true);
     try {
       const [listRes, statsRes] = await Promise.all([
-        foundingMembersCrmApi.list({ status: filter === 'all' ? undefined : filter, q: q || undefined, limit: 500 }),
+        foundingMembersCrmApi.list({ status: filter === 'all' ? undefined : filter, q: q || undefined, limit: 5000 }),
         foundingMembersCrmApi.stats(),
       ]);
       setRows(listRes.rows || []);
@@ -79,6 +82,13 @@ export default function FoundingMembersCRMPage() {
   }, [filter, q]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPage(1); }, [filter, q]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const showingFrom = rows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const showingTo = Math.min(currentPage * PAGE_SIZE, rows.length);
 
   // ── Inline update helpers ─────────────────────────────────────
   const applyPatch = async (
@@ -245,7 +255,7 @@ export default function FoundingMembersCRMPage() {
             </p>
           </div>
         ) : (
-          rows.map(r => (
+          pageRows.map(r => (
             <MemberRow
               key={r.id}
               row={r}
@@ -263,9 +273,36 @@ export default function FoundingMembersCRMPage() {
         )}
       </div>
 
+      {!loading && rows.length > 0 && (
+        <div data-testid="fm-pagination" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+          <div data-testid="fm-pagination-summary" style={{ fontSize: 13, color: '#475569' }}>
+            Showing <strong>{showingFrom}–{showingTo}</strong> of <strong>{rows.length.toLocaleString()}</strong> member{rows.length === 1 ? '' : 's'}
+          </div>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <button data-testid="fm-page-prev" disabled={currentPage <= 1} onClick={() => { setExpandedId(null); setPage(currentPage - 1); }} style={pagerBtn(false, currentPage <= 1)}>← Previous</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                <button key={n} data-testid={`fm-page-${n}`} onClick={() => { setExpandedId(null); setPage(n); }} aria-current={n === currentPage ? 'page' : undefined} style={pagerBtn(n === currentPage, false)}>{n}</button>
+              ))}
+              <button data-testid="fm-page-next" disabled={currentPage >= totalPages} onClick={() => { setExpandedId(null); setPage(currentPage + 1); }} style={pagerBtn(false, currentPage >= totalPages)}>Next →</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {toast && <div style={s.toast}>{toast}</div>}
     </AdminShell>
   );
+}
+
+function pagerBtn(active: boolean, disabled: boolean): React.CSSProperties {
+  return {
+    minWidth: 36, padding: '8px 12px', borderRadius: 10, fontSize: 13, fontWeight: 800,
+    border: active ? '1px solid #0A2540' : '1px solid #CBD5E1',
+    background: active ? '#0A2540' : '#FFFFFF',
+    color: active ? '#FFFFFF' : disabled ? '#94A3B8' : '#0A2540',
+    cursor: disabled ? 'default' : 'pointer',
+  };
 }
 
 // ─── Stats row ────────────────────────────────────────────────
