@@ -49,6 +49,18 @@ async function req<T>(
   return json as T;
 }
 
+// MCGS pending Community Group suggestions — uses the existing admin backend.
+export type PendingGroupRow = {
+  id: string; name: string; emoji?: string | null; description?: string | null; reason?: string | null;
+  suggested_at?: string | null; locality?: string | null;
+  member: { id?: string | null; username?: string | null; name?: string | null; email?: string | null; exists: boolean };
+};
+export const pendingGroupsApi = {
+  list: () => req<{ count: number; items: PendingGroupRow[] }>('GET', '/cms/groups/pending'),
+  approve: (id: string) => req<{ ok: true }>('POST', `/cms/groups/pending/${id}/approve`, {}),
+  reject: (id: string, reason?: string) => req<{ ok: true }>('POST', `/cms/groups/pending/${id}/reject`, reason ? { reason } : {}),
+};
+
 export const cmsApi = {
   // Auth
   setupRequired: () => req<{ setup_required: boolean }>('GET', '/cms/auth/setup-required'),
