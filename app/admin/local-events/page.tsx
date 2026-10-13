@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { localEventsApi, type LocalEventRow } from '@/lib/cms-api';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
+import { LocalEventsTabs } from '@/components/admin/LocalEventsTabs';
 
 type StatusFilter = 'upcoming' | 'past' | 'all';
 
@@ -111,13 +112,14 @@ export default function AdminLocalEventsPage() {
 
   return (
     <AdminShell title="Local Events">
+      <LocalEventsTabs active="member" />
       <div style={intro}>
         <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, margin: 0 }}>
           Member-hosted community events. Upcoming shows events today or in the
           future, Past shows events whose date has ended. Delete requires a
           confirmation.{' '}
           <span style={{ color: '#94A3B8' }}>
-            FriendPlace-curated events live on the <b>Events</b> page.
+            FriendPlace-run events are on the <b>Hosted by FriendPlace</b> tab.
           </span>
         </p>
       </div>

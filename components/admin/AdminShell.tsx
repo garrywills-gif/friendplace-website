@@ -24,6 +24,8 @@ type NavItem = {
   icon: string;
   badgeKey?: 'submissions' | 'replies' | 'enquiries' | 'inbox' | 'groups';
   soon?: boolean;
+  alsoActive?: string[];
+  exact?: boolean;
 };
 
 type NavGroup = { label: string; items: NavItem[] };
@@ -42,9 +44,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/moments',          label: 'SAM',                  icon: '✨' },
       { href: '/admin/notice-board',     label: 'Notice Board',         icon: '📰' },
-      { href: '/admin/local-events',     label: 'Local Events',         icon: '📍' },
-      { href: '/admin/events',           label: 'Events',               icon: '📅' },
+      { href: '/admin/local-events',     label: 'Local Events',         icon: '📅', alsoActive: ['/admin/events'] },
       { href: '/admin/event-submissions',label: 'Event submissions',    icon: '📝', badgeKey: 'submissions' },
+      { href: '/admin/groups',           label: 'All groups',           icon: '👥', exact: true },
       { href: '/admin/groups-mod',       label: 'Group Posts',          icon: '👥' },
       { href: '/admin/groups/pending',   label: 'Pending groups',       icon: '👥', badgeKey: 'groups' },
       { href: '/admin/cafe',             label: 'FP Café Messages',     icon: '☕' },
@@ -271,7 +273,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
               {group.items.map((item) => {
                 const active =
                   pathname === item.href ||
-                  (pathname?.startsWith(item.href + '/') ?? false);
+                  (!item.exact && (pathname?.startsWith(item.href + '/') ?? false)) ||
+                  (item.alsoActive || []).some(p => pathname === p || (pathname?.startsWith(p + '/') ?? false));
                 const badgeCount =
                   item.badgeKey === 'submissions'
                     ? pendingSubmissions

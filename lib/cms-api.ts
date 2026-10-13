@@ -61,6 +61,20 @@ export const pendingGroupsApi = {
   reject: (id: string, reason?: string) => req<{ ok: true }>('POST', `/cms/groups/pending/${id}/reject`, reason ? { reason } : {}),
 };
 
+export const hostedSectionApi = {
+  get: () => req<{ enabled: boolean }>('GET', '/cms/events-hosted-section'),
+  set: (enabled: boolean) => req<{ enabled: boolean }>('PUT', '/cms/events-hosted-section', { enabled }),
+};
+export type AllGroupRow = {
+  id: string; name: string; emoji?: string | null; is_protected: boolean; pending: boolean;
+  member_count: number; post_count: number; created_at?: string | null; suggested_by_username?: string | null;
+};
+export const allGroupsApi = {
+  list: () => req<{ rows: AllGroupRow[]; count: number }>('GET', '/cms/groups/all'),
+  protect: (id: string, value: boolean) => req<{ ok: true; is_protected: boolean }>('POST', `/cms/groups/${id}/protect`, { protected: value }),
+  remove: (id: string, confirmName: string) => req<{ ok: true }>('DELETE', `/cms/groups/${id}?confirm_name=${encodeURIComponent(confirmName)}`),
+};
+
 export const cmsApi = {
   // Auth
   setupRequired: () => req<{ setup_required: boolean }>('GET', '/cms/auth/setup-required'),
