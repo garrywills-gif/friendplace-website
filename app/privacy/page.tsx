@@ -1,5 +1,3 @@
-import { site } from '@/lib/brand';
-
 export const metadata = { title: 'Privacy Policy' };
 
 // Effective date is updated in the CMS. Falls back to the launch date.
@@ -25,7 +23,7 @@ export default function PrivacyPage() {
             <p><em>Plain English summary:</em> We collect only the minimum we need to run FriendPlace safely. We do not sell your data. You can delete your account and data any time.</p>
 
             <h2>1. Who we are</h2>
-            <p>FriendPlace is operated from New South Wales, Australia. If you have a privacy question you can reach us at <a href={`mailto:${site.emailContact}`}>{site.emailContact}</a>.</p>
+            <p>FriendPlace is operated from New South Wales, Australia. If you have a privacy question you can reach us at <a href="mailto:privacy@friendplace.com.au">privacy@friendplace.com.au</a>.</p>
 
             <h2>2. What we collect</h2>
             <ul>
@@ -77,7 +75,7 @@ export default function PrivacyPage() {
             <p>We’ll update this page and let existing members know via in-app notice or email if we make material changes.</p>
 
             <h2>11. Contact</h2>
-            <p>Any questions or requests: <a href={`mailto:${site.emailContact}`}>{site.emailContact}</a>.</p>
+            <p>Any questions or requests: <a href="mailto:privacy@friendplace.com.au">privacy@friendplace.com.au</a>.</p>
           </Policy>
         </div>
       </section>
