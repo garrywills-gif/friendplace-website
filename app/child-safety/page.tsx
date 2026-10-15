@@ -1,5 +1,5 @@
 export const metadata = {
-  title: 'Child Safety Standards | FriendPlace',
+  title: 'CSAM Policy | FriendPlace',
   description: 'FriendPlace standards prohibiting child sexual abuse and exploitation, and information on reporting safety concerns.',
 };
 
@@ -9,7 +9,7 @@ export default function ChildSafetyPage() {
       <section style={{ background: '#0A2540', color: '#FFFFFF', padding: '52px 0 40px' }}>
         <div className="container" style={{ maxWidth: 820 }}>
           <div style={{ textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: 12, fontWeight: 700, color: '#5EEAD4', marginBottom: 10 }}>Policies</div>
-          <h1 style={{ color: '#FFFFFF' }}>Child Safety Standards</h1>
+          <h1 style={{ color: '#FFFFFF' }}>CSAM Policy</h1>
           <p style={{ color: '#CBD5E1', marginTop: 12 }}>FriendPlace · Because you belong too.</p>
         </div>
       </section>
