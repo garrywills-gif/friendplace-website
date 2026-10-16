@@ -44,7 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/moments',          label: 'SAM',                  icon: '✨' },
       { href: '/admin/notice-board',     label: 'Notice Board',         icon: '📰' },
-      { href: '/admin/local-events',     label: 'Local Events',         icon: '📅', alsoActive: ['/admin/events'] },
+      { href: '/admin/events',           label: 'Events',               icon: '📍' },
       { href: '/admin/event-submissions',label: 'Event submissions',    icon: '📝', badgeKey: 'submissions' },
       { href: '/admin/groups',           label: 'All groups',           icon: '👥', exact: true },
       { href: '/admin/groups-mod',       label: 'Group Posts',          icon: '👥' },
