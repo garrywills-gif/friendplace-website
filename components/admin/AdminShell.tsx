@@ -76,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/about',            label: 'About page',       icon: 'ℹ️' },
       { href: '/admin/faqs',             label: 'FAQs',             icon: '❓' },
       { href: '/admin/success-stories',  label: 'Success stories',  icon: '📖' },
+      { href: '/admin/founding-members', label: 'Founders showcase', icon: '🌱' },
       { href: '/admin/media',            label: 'Media library',    icon: '🖼️' },
       { href: '/admin/emails',           label: 'Email templates',  icon: '✉️' },
     ],
