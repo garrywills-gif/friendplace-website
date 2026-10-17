@@ -37,6 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/bridge',    label: 'The Bridge',           icon: '🌉' },
       { href: '/admin/george',    label: "George's Workspace",   icon: '🦋' },
       { href: '/admin/inbox',     label: 'Inbox',                 icon: '📧', badgeKey: 'inbox' },
+      { href: '/admin/enquiries',            label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
     ],
   },
   {
@@ -62,7 +63,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/members',              label: 'Members',          icon: '👤' },
       { href: '/admin/member-backups',   label: 'Member Backups',   icon: '🗄️' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
-      { href: '/admin/enquiries',            label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
       { href: '/admin/replies',              label: 'Replies',          icon: '💌', badgeKey: 'replies' },
       { href: '/admin/campaigns',            label: 'Campaigns',        icon: '📮' },
       { href: '/admin/segments',             label: 'Segments',         icon: '🦋' },

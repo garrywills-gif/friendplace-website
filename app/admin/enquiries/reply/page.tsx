@@ -4,8 +4,9 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AdminShell } from '@/components/admin/AdminShell';
-import { marketingApi, type MarketingPreviewOut } from '@/lib/cms-api';
-import { markEnquiryHandled } from '@/lib/enquiry-handled';
+import { inboxApi, type Mailbox } from '@/lib/inbox-api';
+import { renderEnquiryEmail } from '@/lib/enquiry-email';
+import { markEnquiryHandled, setEnquiryStatus } from '@/lib/enquiry-handled';
 
 type CtaChoice = 'none' | 'visit' | 'register' | 'get_app' | 'custom';
 
@@ -35,8 +36,10 @@ function EnquiryReplyComposer() {
   const [ctaChoice, setCtaChoice] = useState<CtaChoice>('none');
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
-  const [preview, setPreview] = useState<MarketingPreviewOut | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
+  const [fromMailbox, setFromMailbox] = useState('');
+  const [signature, setSignature] = useState('George at FriendPlace');
+  const [sent, setSent] = useState(false);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
@@ -51,70 +54,59 @@ function EnquiryReplyComposer() {
   const selectedCta = CTA_OPTIONS.find((o) => o.value === ctaChoice) || CTA_OPTIONS[0];
   const customCtaReady = ctaChoice !== 'custom' || (ctaLabel.trim().length > 0 && /^https?:\/\//i.test(ctaUrl.trim()));
 
-  const previewKey = useMemo(
-    () => JSON.stringify({ recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl }),
-    [recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl],
-  );
-
   useEffect(() => {
     let alive = true;
-    const timer = setTimeout(async () => {
-      setPreviewBusy(true);
-      setPreviewErr(null);
-      try {
-        const p = await marketingApi.preview({
-          template_id: 'enquiry_reply',
-          recipient_name: recipientName,
-          recipient_email: recipientEmail,
-          recipient_type: 'person',
-          subject_override: subject || null,
-          additional_message: '',
-          body_text: bodyText,
-          cta_choice: ctaChoice,
-          cta_label: ctaChoice === 'custom' ? ctaLabel : '',
-          cta_url: ctaChoice === 'custom' ? ctaUrl : '',
-        } as any);
-        if (alive) setPreview(p);
-      } catch (e: any) {
-        if (!alive) return;
-        setPreview(null);
-        setPreviewErr(e?.message || String(e));
-      } finally {
-        if (alive) setPreviewBusy(false);
-      }
-    }, 250);
+    inboxApi.mailboxes().then(({ mailboxes: boxes }) => {
+      if (!alive) return;
+      const active = boxes.filter((box) => box.active !== false);
+      setMailboxes(active);
+      const received = searchParams?.get('mailbox') || 'hello@friendplace.com.au';
+      setFromMailbox(active.find((box) => box.address.toLowerCase() === received.toLowerCase())?.address || active[0]?.address || '');
+    }).catch((e) => {
+      if (alive) setPreviewErr(e?.message || 'Could not load sender addresses.');
+    });
+    return () => { alive = false; };
+  }, [searchParams]);
 
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [previewKey, recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl]);
+  const emailContent = useMemo(() => renderEnquiryEmail({
+    body: bodyText, signature, ctaChoice, ctaLabel, ctaUrl,
+  }), [bodyText, signature, ctaChoice, ctaLabel, ctaUrl]);
 
-  const canSend = recipientEmail.includes('@') && bodyText.trim().length > 0 && customCtaReady && !sending;
+  const preview = { html: emailContent.html, subject };
+
+  const canSend = recipientEmail.includes('@') && !!fromMailbox && !!subject.trim() && bodyText.trim().length > 0 && customCtaReady && !sending && !sent;
 
   const send = async () => {
     if (!canSend) return;
     setSending(true);
     setToast(null);
     try {
-      const result = await marketingApi.send({
-        template_id: 'enquiry_reply',
-        recipient_name: recipientName,
-        recipient_email: recipientEmail,
-        recipient_type: 'person',
-        subject_override: subject || null,
-        additional_message: '',
-        body_text: bodyText,
-        cta_choice: ctaChoice,
-        cta_label: ctaChoice === 'custom' ? ctaLabel : '',
-        cta_url: ctaChoice === 'custom' ? ctaUrl : '',
-      } as any);
+      const result = await inboxApi.compose({
+        to_email: recipientEmail.trim(),
+        subject: subject.trim(),
+        body_text: emailContent.text,
+        body_html: emailContent.html,
+        from_mailbox: fromMailbox,
+        include_footer: false,
+      });
 
       if (result.ok) {
-        markEnquiryHandled(searchParams?.get('in_reply_to'));
-        setToast({ kind: 'ok', msg: `Sent to ${result.recipient_email}. Enquiry marked replied.` });
+        setSent(true);
+        const enquiryId = searchParams?.get('in_reply_to');
+        const kind = searchParams?.get('kind');
+        if (enquiryId && (kind === 'contact' || kind === 'interest' || kind === 'support' || kind === 'report' || kind === 'waitlist')) {
+          try {
+            await setEnquiryStatus(kind, enquiryId, 'replied');
+            setToast({ kind: 'ok', msg: `Sent to ${recipientEmail}. Enquiry marked replied.` });
+          } catch {
+            setToast({ kind: 'ok', msg: `Email sent to ${recipientEmail}, but its enquiry status could not be updated. Mark it replied from Enquiries; do not resend.` });
+          }
+        } else {
+          markEnquiryHandled(enquiryId);
+          setToast({ kind: 'ok', msg: `Sent to ${recipientEmail}.` });
+        }
       } else {
-        setToast({ kind: 'err', msg: `Send failed: ${result.error || 'unknown error'}` });
+        setToast({ kind: 'err', msg: `Send failed: unknown error` });
       }
     } catch (e: any) {
       setToast({ kind: 'err', msg: `Send failed: ${e?.message || e}` });
@@ -131,13 +123,21 @@ function EnquiryReplyComposer() {
       </p>
 
       <div style={modeBanner}>
-        <strong>Personal enquiry reply</strong> — read the full original enquiry below, then write your complete reply. No canned intro will be added. The FriendPlace branded wrapper and team sign-off stay in place.
+        <strong>Personal enquiry reply</strong> — read the full original enquiry below, then write your complete reply. Your greeting and wording are used exactly as written. Choose the sending mailbox and signature below.
       </div>
 
       <div style={layout}>
         <div style={formCol}>
           <div style={card}>
             <h3 style={cardTitle}>Recipient</h3>
+            <label style={label} htmlFor="enquiry-from">From</label>
+            <select id="enquiry-from" style={input} value={fromMailbox} onChange={(e) => setFromMailbox(e.target.value)}>
+              {!fromMailbox && <option value="">Loading sender addresses…</option>}
+              {mailboxes.map((box) => <option key={box.id} value={box.address}>{box.label} &lt;{box.address}&gt;</option>)}
+            </select>
+            <label style={label} htmlFor="enquiry-signature">Signature (leave blank to use your own)</label>
+            <input id="enquiry-signature" style={input} value={signature} onChange={(e) => setSignature(e.target.value)} />
+
 
             <label style={label}>Name</label>
             <input style={input} value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
@@ -221,7 +221,7 @@ function EnquiryReplyComposer() {
               disabled={!canSend}
               style={{ ...sendBtn, opacity: canSend ? 1 : 0.5, cursor: canSend ? 'pointer' : 'not-allowed' }}
             >
-              {sending ? 'Sending…' : 'Send reply'}
+              {sent ? 'Reply sent' : sending ? 'Sending…' : 'Send reply'}
             </button>
             <Link href="/admin/enquiries" style={cancelLink}>Cancel</Link>
           </div>
@@ -237,7 +237,7 @@ function EnquiryReplyComposer() {
           <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
             <div style={previewHeader}>
               <span style={previewHeaderLabel}>Live preview</span>
-              <span style={previewHeaderMeta}>{previewBusy ? 'refreshing…' : preview?.subject || '—'}</span>
+              <span style={previewHeaderMeta}>{preview?.subject || '—'}</span>
             </div>
 
             {previewErr ? (

@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { selectedConversation } from '@/lib/inbox-thread';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import {
   inboxApi,
@@ -291,17 +292,7 @@ function InboxPanel() {
 
       const r = await inboxApi.get(m.id);
       const message = { ...r.message, read: true };
-      const correspondent = String(message.from_email || '').trim().toLowerCase();
-      const selectedMailbox = String(message.mailbox || '').trim().toLowerCase();
-      const cleanThread = (r.thread || []).filter((t) => {
-        if (t.id === message.id) return true;
-        const threadMailbox = String(t.mailbox || '').trim().toLowerCase();
-        if (threadMailbox && selectedMailbox && threadMailbox !== selectedMailbox) return false;
-        if (t.direction === 'outbound') {
-          return String(t.to_email || '').trim().toLowerCase() === correspondent;
-        }
-        return String(t.from_email || '').trim().toLowerCase() === correspondent;
-      });
+      const cleanThread = selectedConversation(message, r.thread || []);
       setSelected(message);
       setThread(cleanThread);
       setFromMailbox(pickDefaultFrom(message, cleanThread));
