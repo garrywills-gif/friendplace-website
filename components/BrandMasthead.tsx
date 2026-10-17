@@ -2,23 +2,7 @@ import Link from 'next/link';
 import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 
-/**
- * FriendPlace slim masthead strip.
- *
- * A native HTML/CSS band that sits directly under the top navigation
- * bar — deliberately built from real elements rather than pasting the
- * flyer PNG. That gives us:
- *   • crisp scaling on any DPR (no image compression)
- *   • fluid responsive behaviour (collapses gracefully on mobile)
- *   • fully editable via the Mini-CMS later (tagline + contact fields)
- *
- * Composition (left → right, desktop):
- *   [butterfly] [FriendPlace  •  Because you belong too.]   [✉ hello@ ]   [🌐 friendplace.com.au]
- *
- * Composition (mobile / <640 px):
- *   [butterfly] [FriendPlace  •  Because you belong too.]
- *   (contact rows hidden below 640 px so nothing is cramped)
- */
+/** Brand strip with the tagline beneath the wordmark on every screen size. */
 export default function BrandMasthead() {
   return (
     <section
@@ -61,7 +45,7 @@ export default function BrandMasthead() {
             className="masthead-butterfly"
             style={{ width: 44, height: 'auto', display: 'block', flexShrink: 0 }}
           />
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, minWidth: 0 }}>
             <span
               className="masthead-wordmark"
               style={{
@@ -75,16 +59,10 @@ export default function BrandMasthead() {
               Friend<span style={{ color: '#5EEAD4' }}>Place</span>
             </span>
             <span
-              aria-hidden
-              className="masthead-divider"
-              style={{ color: 'rgba(255,255,255,0.25)', fontSize: 18, lineHeight: 1 }}
-            >
-              •
-            </span>
-            <span
               className="masthead-tagline"
               style={{
-                fontSize: 15,
+                fontSize: 16,
+                lineHeight: 1.4,
                 fontWeight: 500,
                 color: '#CBD5E1',
                 letterSpacing: '0.01em',
@@ -131,17 +109,12 @@ export default function BrandMasthead() {
       </div>
 
       <style>{`
-        /* Responsive collapse — below 900 px, hide the contact rail so
-           the mast stays slim and readable. Below 500 px also hide the
-           tagline so we never wrap onto three lines. */
-        @media (max-width: 900px) {
+        @media (max-width: 1100px) {
           .masthead-contact { display: none !important; }
         }
         @media (max-width: 520px) {
-          .masthead-divider,
-          .masthead-tagline { display: none !important; }
-          .masthead-wordmark { font-size: 22px !important; }
-          .masthead-butterfly { width: 36px !important; }
+          .masthead-wordmark { font-size: 24px !important; }
+          .masthead-butterfly { width: 40px !important; }
         }
         .masthead-brand:hover .masthead-wordmark {
           text-shadow: 0 0 12px rgba(94,234,212,0.35);
