@@ -50,8 +50,6 @@ export default async function HomePage() {
     ? features.features
     : DEFAULT_FEATURES;
   const founderMembers = founders?.members || [];
-  const founderCount = founders?.count ?? founderMembers.length;
-  const founderCap = founders?.cap ?? 250;
   const storiesList = stories?.stories || [];
 
   return (
@@ -536,24 +534,15 @@ export default async function HomePage() {
             <p style={{ color: '#475569', fontSize: 18, maxWidth: 560, margin: '0 auto 24px' }}>
               A permanent thank-you badge, on the app forever. The first 250 people help shape what FriendPlace becomes.
             </p>
-            <div style={{
+            <Link href="/register-interest" className="btn btn-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: 10,
               padding: '12px 24px', borderRadius: 999,
               background: '#0A2540', color: '#FFFFFF',
-              fontWeight: 800, fontSize: 15,
+              fontWeight: 800, fontSize: 16,
             }}>
-              <span style={{ display: 'inline-flex', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
-                <GeorgeButterflyMark size={20} />
-              </span>
-              {/* Show a warm invitation while we're pre-launch. Once
-                  people start joining the count flips to a live "N of
-                  250 welcomed" pill. */}
-              <span>
-                {founderCount > 0
-                  ? `${founderCount} of ${founderCap} welcomed`
-                  : `Be one of our first ${founderCap} Founding Members`}
-              </span>
-            </div>
+              <GeorgeButterflyMark size={20} />
+              <span>Become a Founding Member</span>
+            </Link>
           </div>
           {founderMembers.length > 0 ? (
             <div style={{
