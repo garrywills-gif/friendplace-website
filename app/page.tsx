@@ -50,6 +50,8 @@ export default async function HomePage() {
     ? features.features
     : DEFAULT_FEATURES;
   const founderMembers = founders?.members || [];
+  const founderCount = Number.isInteger(founders?.count) && founders.count >= 0 ? founders.count : null;
+  const founderCap = founders?.cap || 250;
   const storiesList = stories?.stories || [];
 
   return (
@@ -534,6 +536,11 @@ export default async function HomePage() {
             <p style={{ color: '#475569', fontSize: 18, maxWidth: 560, margin: '0 auto 24px' }}>
               A permanent thank-you badge, on the app forever. The first 250 people help shape what FriendPlace becomes.
             </p>
+            {founderCount !== null && (
+              <p style={{ color: '#0A2540', fontWeight: 800, fontSize: 22, marginBottom: 20 }}>
+                {founderCount} of {founderCap} Founding Members registered
+              </p>
+            )}
             <Link href="/register-interest" className="btn btn-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: 10,
               padding: '12px 24px', borderRadius: 999,

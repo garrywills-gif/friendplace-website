@@ -24,6 +24,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
     cache: method === 'GET' && path.startsWith('/public/') ? 'force-cache' : 'no-store',
+    ...(method === 'GET' && path === '/public/founders' ? { next: { revalidate: 60 } } : {}),
   });
   if (res.status === 401) clearAuth();
   const text = await res.text();
