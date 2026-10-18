@@ -72,7 +72,7 @@ export default function GroupResetPage() {
     setBusy(true); setErr(null); setRestoreMsg(null);
     try {
       const r = await call('POST', '/group-reset/restore', { backup_id: restoreId, confirm: restoreWord });
-      setRestoreMsg(`Restored: ${r.restored.groups} groups, ${r.restored.group_posts} posts, ${r.restored.user_groups} member group lists, ${r.restored.notifications} notifications.`);
+      setRestoreMsg(`Restored: ${r.restored.groups} groups, ${r.restored.group_posts} posts, ${r.restored.user_groups} member group lists, ${r.restored.notifications} notifications, ${r.restored.founders_table} café table seat lists.`);
       setRestoreWord('');
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
@@ -90,7 +90,8 @@ export default function GroupResetPage() {
       <p style={{ color: '#475569', marginTop: 0 }}>
         One-time pre-launch cleanup. Every group is kept exactly as it is (name, icon, description, settings, protection)
         and its activity is reset to <b>0 members and 0 posts</b>. Group posts, their comments and reactions, members&apos;
-        group lists and group-activity notifications are removed. Member accounts, administrator access, Founding Member
+        group lists, group-activity notifications and the Founders Lounge café table seats are removed (the table and
+        its messages stay). Member accounts, administrator access, Founding Member
         registrations, FMNs and Share a Moment (including For Mum ❤️🦋) are never touched.
       </p>
 
@@ -115,6 +116,7 @@ export default function GroupResetPage() {
               {stat('Reactions removed', p.reactions)}
               {stat('Group notifications removed', p.notifications)}
               {stat('Member group lists cleared', p.users_with_group_lists)}
+              {stat('Founders Lounge café seats cleared', p.founders_table_seats)}
               {stat('Memberships of deleted accounts', p.orphaned_memberships)}
               {stat('Posts by deleted accounts', p.orphaned_posts)}
             </div>
@@ -191,7 +193,7 @@ export default function GroupResetPage() {
       {result && (
         <div style={result.protected_unchanged ? good : bad} data-testid="gr-result">
           <div style={{ fontWeight: 800, marginBottom: 6 }}>Reset complete</div>
-          <div>{result.groups_reset} groups reset · {result.posts_deleted} posts removed · {result.user_group_lists_cleared} member group lists cleared · {result.notifications_deleted} notifications removed</div>
+          <div>{result.groups_reset} groups reset · {result.posts_deleted} posts removed · {result.user_group_lists_cleared} member group lists cleared · {result.notifications_deleted} notifications removed · {result.founders_table_seats_cleared} Founders Lounge café seats cleared</div>
           <div>Remaining: {result.memberships_remaining} memberships, {result.posts_remaining} posts</div>
           <div>Accounts, FMNs, group definitions and Share a Moment: {result.protected_unchanged ? 'unchanged ✓' : `CHANGED: ${result.protected_changed.join(', ')}`}</div>
           <div>Group backup ID (keep for restore): <b>{result.group_backup_id}</b></div>
