@@ -232,7 +232,7 @@ export function GeorgeButterfly({
   return (
     <>
       {/* the arrival stage lives in a fixed layer so it can drift across the whole viewport */}
-      <div style={overlay} aria-hidden={phase === 'idle'}>
+      <div style={{ ...overlay, visibility: phase === 'idle' ? 'hidden' : 'visible' }} aria-hidden={phase === 'idle'}>
         <div
           style={{
             ...butterflyAnchor,

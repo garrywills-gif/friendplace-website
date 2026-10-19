@@ -98,7 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/knowledge',        label: 'Knowledge',        icon: '📚' },
       { href: '/admin/launch',           label: 'Launch',           icon: '🚀' },
       { href: '/admin/security',         label: 'Security',         icon: '🛡️' },
-      { href: '/admin/admins',           label: 'Admins',           icon: '👑', soon: true },
+      { href: '/admin/admins',           label: 'Admins',           icon: '👑' },
       { href: '/admin/settings',         label: 'Settings',         icon: '⚙️', soon: true },
       { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
     ],
@@ -349,7 +349,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
               aria-label="Account settings"
             >
               <span aria-hidden style={{ fontSize: 14 }}>⚙️</span>
-              <span>Account</span>
+              <span>My account</span>
             </Link>
             <button onClick={signOut} className="cms-sign-out" style={{ ...footerBtn, cursor: 'pointer', flex: 1 }}>
               Sign out

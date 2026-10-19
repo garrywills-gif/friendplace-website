@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * Mission Control — Account & Admins.
+ * Mission Control — personal account and admin management.
  *
- * A single page combining:
+ * Shared controls for the two navigation destinations:
  *   1. "Your account" — read-only email/display name + change-password form.
  *   2. "Admins" — list every CMS admin, add another via an invite link,
  *      and remove peers (with guardrails: you can't delete yourself or
@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { AdminShell, adminStyles as a } from '@/components/admin/AdminShell';
 import { cmsApi } from '@/lib/cms-api';
 import { getAdmin, setAdmin as setAdminLocal, setToken } from '@/lib/cms-auth';
@@ -26,11 +27,10 @@ type AdminRow = {
 };
 
 export default function AccountPage() {
+  const isAdminsPage = usePathname() === '/admin/admins';
   return (
-    <AdminShell title="Account & Admins">
-      <YourAccountSection />
-      <div style={{ height: 12 }} />
-      <AdminsSection />
+    <AdminShell title={isAdminsPage ? 'Admins' : 'My account'}>
+      {isAdminsPage ? <AdminsSection /> : <YourAccountSection />}
     </AdminShell>
   );
 }
