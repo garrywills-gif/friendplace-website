@@ -4,6 +4,7 @@ import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import MetaPixel from '@/components/MetaPixel';
+import WebsiteAnalytics from '@/components/site/WebsiteAnalytics';
 import { CompanionProvider } from '@/lib/companion-context';
 import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
 import { LeadingButterfly } from '@/components/site/LeadingButterfly';
@@ -75,5 +76,5 @@ fbq('init', '4256953884595956');
 fbq('track', 'PageView');`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en-AU"><head><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous"/><link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/><script id="friendplace-meta-pixel" dangerouslySetInnerHTML={{ __html: metaPixelBaseCode }} /><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} /></head><body><MetaPixel/><CompanionProvider><SiteHeader/><main>{children}</main><SiteFooter/><ConciergeOverlay/><LeadingButterfly/></CompanionProvider></body></html>;
+  return <html lang="en-AU"><head><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous"/><link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/><script id="friendplace-meta-pixel" dangerouslySetInnerHTML={{ __html: metaPixelBaseCode }} /><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} /></head><body><MetaPixel/><WebsiteAnalytics/><CompanionProvider><SiteHeader/><main>{children}</main><SiteFooter/><ConciergeOverlay/><LeadingButterfly/></CompanionProvider></body></html>;
 }
