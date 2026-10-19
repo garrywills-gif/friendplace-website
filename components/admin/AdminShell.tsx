@@ -26,6 +26,7 @@ type NavItem = {
   soon?: boolean;
   alsoActive?: string[];
   exact?: boolean;
+  external?: boolean;
 };
 
 type NavGroup = { label: string; items: NavItem[] };
@@ -74,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Website',
     items: [
       { href: '/admin/home',             label: 'Home page',        icon: '🏠' },
+      { href: 'https://vercel.com/friend-place/friendplace-website/analytics', label: 'Website visitors', icon: '📊', external: true },
       { href: '/admin/about',            label: 'About page',       icon: 'ℹ️' },
       { href: '/admin/faqs',             label: 'FAQs',             icon: '❓' },
       { href: '/admin/success-stories',  label: 'Success stories',  icon: '📖' },
@@ -293,6 +295,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                   <Link
                     key={item.href}
                     href={item.href}
+                    target={item.external ? '_blank' : undefined}
+                    rel={item.external ? 'noopener noreferrer' : undefined}
                     className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
                     style={navLink}
                     data-active={active ? '1' : '0'}
@@ -310,6 +314,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                         : item.icon}
                     </span>
                     <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.external && <span aria-label="opens in a new tab">↗</span>}
                     {item.soon && !active && <span style={soonPill}>Soon</span>}
                     {badgeCount > 0 && (
                       <span
