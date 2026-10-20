@@ -52,8 +52,8 @@ export default function GuidesPage() {
       <section style={{ background: '#0A2540', color: 'white', padding: '72px 24px 64px', textAlign: 'center' }}>
         <div style={{ maxWidth: 820, margin: '0 auto' }}>
           <div style={{ color: '#5EEAD4', fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 13, marginBottom: 14 }}>FriendPlace Guides</div>
-          <h1 style={{ fontSize: 'clamp(36px, 6vw, 58px)', lineHeight: 1.05, margin: '0 0 20px', letterSpacing: '-.035em' }}>A little help finding your people</h1>
-          <p style={{ fontSize: 19, lineHeight: 1.65, color: '#D7E2EC', maxWidth: 680, margin: '0 auto' }}>Friendly, practical ideas for making new connections, finding local activities and feeling more at home in your community.</p>
+          <h1 style={{ fontSize: 'clamp(36px, 6vw, 58px)', lineHeight: 1.05, margin: '0 0 20px', letterSpacing: '-.035em' }}>A little help finding new friends</h1>
+          <p style={{ fontSize: 19, lineHeight: 1.65, color: '#D7E2EC', maxWidth: 680, margin: '0 auto' }}>Looking for friends near you? Explore simple, practical ideas for making new friends as an adult, meeting local people and feeling more at home in your community.</p>
         </div>
       </section>
 
