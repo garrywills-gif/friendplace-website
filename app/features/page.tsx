@@ -14,11 +14,11 @@ import TapMeButterfly from '@/components/TapMeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export const metadata: Metadata = {
-  title: 'FriendPlace Features | Meet People, Groups, Events & FP Café',
+  title: { absolute: 'Find Local Friends, Groups and Events | FriendPlace' },
   description: 'Explore FriendPlace features for meeting local people, joining groups and events, sharing moments, chatting in FP Café and building genuine friendships in Australia.',
   alternates: { canonical: '/features' },
   openGraph: {
-    title: 'FriendPlace Features | Meet People, Groups, Events & FP Café',
+    title: 'Find Local Friends, Groups and Events | FriendPlace',
     description: 'See how FriendPlace helps adults connect locally through people, groups, events, FP Café and everyday community moments.',
     url: '/features',
     type: 'website',

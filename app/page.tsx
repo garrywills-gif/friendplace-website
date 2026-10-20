@@ -9,18 +9,18 @@ import HeroInvitation from '@/components/site/HeroInvitation';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export const metadata: Metadata = {
-  title: { absolute: 'Make New Friends in Australia | FriendPlace' },
+  title: { absolute: 'Make New Friends as an Adult in Australia | FriendPlace' },
   description: 'Looking to make new friends near you? FriendPlace is an upcoming Australian friendship app for adults to meet new people, chat and find groups. Register your interest.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'Make New Friends in Australia | FriendPlace',
+    title: 'Make New Friends as an Adult in Australia | FriendPlace',
     description: 'Finding new friends can start with a simple hello. Meet FriendPlace, an upcoming Australian community app for local friendship, conversation and plans.',
     url: '/',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Make New Friends in Australia | FriendPlace',
+    title: 'Make New Friends as an Adult in Australia | FriendPlace',
     description: 'An upcoming Australian friendship app for adults. Local people, shared interests and everyday connection. Because you belong too.',
   },
 };
@@ -115,8 +115,8 @@ export default async function HomePage() {
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
               </h1>
               <p className="hero-short" style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
-                Real friendships. Real communities.<br />
-                Right where you live.
+                Make new friends as an adult.<br />
+                Meet local people, join groups and enjoy events.
               </p>
               <p className="hero-long" style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
                 Finding new friends starts with a hello. FriendPlace is an upcoming Australian friendship app helping adults make friends near them, meet new people and enjoy real conversations — with friendship at the heart of it.
@@ -287,7 +287,7 @@ export default async function HomePage() {
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
             <SectionEyebrow>Why FriendPlace?</SectionEyebrow>
-            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>❤️ Not what you're used to. In the best way.</h2>
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>❤️ Friends, not dating.</h2>
             <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
               Just genuine friendships and community — the way it used to feel.
             </p>
@@ -547,20 +547,21 @@ export default async function HomePage() {
 
       <section aria-labelledby="finding-friends-heading" style={{ padding: '64px 0', background: '#FEFCF8' }}>
         <div className="container" style={{ maxWidth: 900 }}>
-          <h2 id="finding-friends-heading" style={{ color: '#0A2540' }}>Finding friends starts with something simple</h2>
+          <h2 id="finding-friends-heading" style={{ color: '#0A2540' }}>Genuine local friendship starts with a hello</h2>
           <p style={{ color: '#475569', fontSize: 18, lineHeight: 1.75 }}>
             A regular walk, a shared hobby or a coffee can give you a reason to see the same people again.
             If you are wondering how to make friends as an adult, start with something you enjoy and give a small hello time to grow.
             You do not need a big social circle to begin.
           </p>
           <p style={{ color: '#475569', fontSize: 18, lineHeight: 1.75 }}>
-            FriendPlace is coming soon to help adults in Australia find local connection, from conversation in the FP Café to people, groups and plans nearby.
+            If you want to meet new people in Australia, FriendPlace is coming soon to help you find local connection, from conversation in the FP Café to local groups and events.
             While we prepare to launch, explore some practical ideas:
           </p>
           <ul style={{ fontSize: 17, lineHeight: 1.8, paddingLeft: 24 }}>
             <li><Link href="/guides/where-can-i-meet-people-near-me" style={{ color: '#0F766E', fontWeight: 700 }}>Where can I meet new people and make friends near me?</Link></li>
             <li><Link href="/guides/making-friends-as-an-adult-australia" style={{ color: '#0F766E', fontWeight: 700 }}>How to make friends as an adult in Australia</Link></li>
-            <li><Link href="/guides/meet-new-people-after-moving" style={{ color: '#0F766E', fontWeight: 700 }}>Finding new friends after moving to a new area</Link></li>
+            <li><Link href="/guides/meet-new-people-after-moving" style={{ color: '#0F766E', fontWeight: 700 }}>Make friends after moving to a new area</Link></li>
+            <li><Link href="/guides/find-local-social-groups-activities" style={{ color: '#0F766E', fontWeight: 700 }}>Finding friendship groups and activities near you</Link></li>
           </ul>
           <Link href="/faqs" style={{ color: '#0F766E', fontWeight: 700 }}>Questions about finding friends with FriendPlace →</Link>
         </div>
