@@ -10,7 +10,7 @@ import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export const metadata: Metadata = {
   title: { absolute: 'Make New Friends in Australia | FriendPlace' },
-  description: 'Looking to make new friends near you? FriendPlace is an upcoming Australian friendship app for adults to meet local people, chat and find groups. Register your interest.',
+  description: 'Looking to make new friends near you? FriendPlace is an upcoming Australian friendship app for adults to meet new people, chat and find groups. Register your interest.',
   alternates: { canonical: '/' },
   openGraph: {
     title: 'Make New Friends in Australia | FriendPlace',
@@ -119,7 +119,7 @@ export default async function HomePage() {
                 Right where you live.
               </p>
               <p className="hero-long" style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
-                Finding new friends starts with a hello. FriendPlace is an upcoming Australian friendship app helping adults make friends near them, meet local people and enjoy real conversations — with friendship at the heart of it.
+                Finding new friends starts with a hello. FriendPlace is an upcoming Australian friendship app helping adults make friends near them, meet new people and enjoy real conversations — with friendship at the heart of it.
               </p>
               <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                                <Link
@@ -558,7 +558,7 @@ export default async function HomePage() {
             While we prepare to launch, explore some practical ideas:
           </p>
           <ul style={{ fontSize: 17, lineHeight: 1.8, paddingLeft: 24 }}>
-            <li><Link href="/guides/where-can-i-meet-people-near-me" style={{ color: '#0F766E', fontWeight: 700 }}>Where can I meet people and make friends near me?</Link></li>
+            <li><Link href="/guides/where-can-i-meet-people-near-me" style={{ color: '#0F766E', fontWeight: 700 }}>Where can I meet new people and make friends near me?</Link></li>
             <li><Link href="/guides/making-friends-as-an-adult-australia" style={{ color: '#0F766E', fontWeight: 700 }}>How to make friends as an adult in Australia</Link></li>
             <li><Link href="/guides/meet-new-people-after-moving" style={{ color: '#0F766E', fontWeight: 700 }}>Finding new friends after moving to a new area</Link></li>
           </ul>

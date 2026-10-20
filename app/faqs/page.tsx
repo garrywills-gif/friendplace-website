@@ -3,11 +3,12 @@ import FAQAccordion from '@/components/FAQAccordion';
 
 export const metadata = {
   title: 'Finding Friends & Making New Friends — FAQs',
-  description: 'Questions about finding friends near you, making friends as an adult and joining FriendPlace, an upcoming Australian friendship app. Learn how registration works.',
+  description: 'How to meet new people, find friends near you and make friends as an adult. Answers about FriendPlace, an upcoming Australian friendship app.',
   alternates: { canonical: '/faqs' },
 };
 
 const FINDING_FRIENDS_FAQS = [
+  { q: 'Where can I meet new people in my area?', a: 'Try your local library, community centre, walking groups, hobby clubs or volunteering. A regular activity gives you a shared interest and a chance to see familiar faces again. Start with a friendly hello and, if you enjoy chatting, suggest meeting at the next activity. FriendPlace is coming soon to help adults meet new people nearby through conversation, groups and local plans.' },
   { q: 'How do I make friends near me?', a: 'Start with local activities you enjoy: a walking group, library event, community class, volunteering or a regular coffee catch-up. Seeing the same people again gives conversation a chance to grow. FriendPlace is being built to help adults in Australia discover local people, groups and events. The app is coming soon; you can register your interest on this website.' },
   { q: 'How can I make new friends as an adult?', a: 'Choose an activity you would enjoy even before you know anyone, turn up regularly and start with a small hello. Ask about a shared interest, then suggest another walk or coffee if you both enjoy the conversation. Finding new friends can take time, so there is no need to rush or feel that every introduction must become a close friendship.' },
   { q: 'Where can I find friends after moving to a new area?', a: 'Local libraries, community centres, hobby groups and volunteering are useful places to begin. Pick a recurring activity that fits your routine so you can get to know familiar faces. Our friendship guides include practical ideas for meeting new people after moving, and FriendPlace is coming soon to support everyday local connection.' },
