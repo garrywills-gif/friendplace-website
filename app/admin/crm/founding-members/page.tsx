@@ -25,6 +25,7 @@ import {
   type CRMFoundingMemberStatus,
   type CRMTimelineEvent,
 } from '@/lib/cms-api';
+import { MemberEmailPanel } from '@/components/admin/MemberEmailPanel';
 
 const STATUS_ORDER: CRMFoundingMemberStatus[] = ['registered', 'invited', 'joined', 'opted_out'];
 
@@ -689,6 +690,7 @@ function MemberRow({
       {expanded && (
         <div style={expandPanel} onClick={e => e.stopPropagation()}>
           <FoundingMemberTimeline memberId={row.id} />
+          <MemberEmailPanel kind="founder" memberId={row.id} memberEmail={row.email} />
           <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12, fontWeight: 900, color: '#0A2540' }}>Email</div>
