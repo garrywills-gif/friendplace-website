@@ -26,6 +26,7 @@ import { ModerationSummaryCard } from '@/components/members/ModerationSummaryCar
 import { ModerationTimeline } from '@/components/members/ModerationTimeline';
 import { AwardPointsModal, ReverseAwardModal } from '@/components/members/AwardPointsModal';
 import { butterflyPointsApi, type BpLedgerEntry } from '@/lib/cms-api';
+import { MemberEmailPanel } from '@/components/admin/MemberEmailPanel';
 
 export default function MemberProfilePage() {
   const params = useParams<{ id: string }>();
@@ -309,6 +310,11 @@ export default function MemberProfilePage() {
           <div style={shortcutsRow}>
             <span>Shortcuts</span>
             <kbd style={kbd}>W</kbd> warn · <kbd style={kbd}>S</kbd> suspend · <kbd style={kbd}>B</kbd> ban · <kbd style={kbd}>R</kbd> restore · <kbd style={kbd}>N</kbd> note
+          </div>
+
+          {/* Member communications — Send Email / Email History */}
+          <div style={{ marginTop: 20 }}>
+            <MemberEmailPanel kind="user" memberId={userId} memberEmail={profile.user.email} />
           </div>
 
           {/* iter164h — Butterfly Points recognition (Mission Control) */}
