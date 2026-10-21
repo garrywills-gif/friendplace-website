@@ -78,7 +78,7 @@ function mdToHtml(md: string): string {
   const inl = (s: string) => esc(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^\*])\*(?!\s)(.+?)\*/g, '$1<em>$2</em>')
-    .replace(/\\[([^\\]]+)\\]\\(((?:https?:|mailto:)[^)\s]+)\\)/g, '<a href="$2">$1</a>');
+    .replace(/\[([^\]]+)\]\(((?:https?:|mailto:)[^)\s]+)\)/g, '<a href="$2">$1</a>');
   return (md || '').split(/\n\s\*\n/).map(b => {
     const lines = b.split('\n');
     if (lines.every(l => /^\s\*[-\*]\s+/.test(l))) return `<ul>${lines.map(l => `<li>${inl(l.replace(/^\s\*[-\*]\s+/, ''))}</li>`).join('')}</ul>`;
