@@ -885,6 +885,10 @@ export const foundingMembersCrmApi = {
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
   ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
+  // Edit Email — dry_run validates and checks duplicates without saving.
+  editEmail: (id: string, body: { new_email: string; dry_run?: boolean }) =>
+    req<{ ok: true; dry_run?: boolean; old_email: string; new_email: string; member?: CRMFoundingMember }>(
+      'POST', `/cms/crm/founding-members/${id}/email`, body),
   // Permanently delete a registration. Refuses reserved slots (server
   // returns 403). Does NOT rewind the founder_number counter — that
   // is a deliberate separate operation. See backend for full rules.
