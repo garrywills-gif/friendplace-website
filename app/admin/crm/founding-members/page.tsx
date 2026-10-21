@@ -262,6 +262,7 @@ export default function FoundingMembersCRMPage() {
               expanded={expandedId === r.id}
               onToggle={() => setExpandedId(cur => (cur === r.id ? null : r.id))}
               onUpdate={applyPatch}
+              onLocalPatch={(id, patch) => setRows(cur => cur.map(x => x.id === id ? { ...x, ...patch } : x))}
               onDelete={deleteRow}
               onMerged={async () => {
                 setExpandedId(null);
@@ -372,7 +373,7 @@ function StatCard({
 // ─── Row ──────────────────────────────────────────────────────
 
 function MemberRow({
-  row, expanded, onToggle, onUpdate, onDelete, onMerged,
+  row, expanded, onToggle, onUpdate, onLocalPatch, onDelete, onMerged,
 }: {
   row: CRMFoundingMember;
   expanded: boolean;
@@ -382,6 +383,7 @@ function MemberRow({
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
     optimistic?: Partial<CRMFoundingMember>,
   ) => void;
+  onLocalPatch: (id: string, patch: Partial<CRMFoundingMember>) => void;
   onDelete: (id: string) => Promise<boolean>;
   onMerged: () => Promise<void> | void;
 }) {
@@ -391,6 +393,37 @@ function MemberRow({
   const [linkInput, setLinkInput] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
+  // Edit email: validate on server, confirm the change, then save.
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const saveEmail = async () => {
+    const v = emailDraft.trim().toLowerCase();
+    if (!v || emailBusy) return;
+    setEmailBusy(true);
+    setEmailMsg(null);
+    try {
+      const check = await foundingMembersCrmApi.editEmail(row.id, { new_email: v, dry_run: true });
+      const fmn = row.founder_number ? ` (#${String(row.founder_number).padStart(4, '0')})` : '';
+      const ok = window.confirm(
+        `Change the email for ${row.first_name || 'this member'}${fmn}?\n\n` +
+        `Current:  ${check.old_email || '(none)'}\nNew:        ${check.new_email}\n\n` +
+        `Future Founding Member emails and campaigns will use the new address. ` +
+        `Past campaign records keep the original address. The member's app login is NOT changed.`
+      );
+      if (!ok) return;
+      const res = await foundingMembersCrmApi.editEmail(row.id, { new_email: v });
+      onLocalPatch(row.id, { email: res.new_email } as Partial<CRMFoundingMember>);
+      setEmailMsg(`✓ Email updated: ${res.old_email} → ${res.new_email}`);
+      setEmailEditing(false);
+      setEmailDraft('');
+    } catch (e: any) {
+      setEmailMsg(`Couldn't update: ${String(e?.message || 'error').replace(/^\d+\s*/, '')}`);
+    } finally {
+      setEmailBusy(false);
+    }
+  };
   const [mergeQuery, setMergeQuery] = useState('');
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeMatches, setMergeMatches] = useState<CRMFoundingMember[]>([]);
@@ -656,6 +689,38 @@ function MemberRow({
       {expanded && (
         <div style={expandPanel} onClick={e => e.stopPropagation()}>
           <FoundingMemberTimeline memberId={row.id} />
+          <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: '#0A2540' }}>Email</div>
+              <div style={{ fontSize: 13, color: '#334155' }}>{row.email || '—'}</div>
+              {!emailEditing && (
+                <button data-testid={`fm-edit-email-${row.id}`}
+                  onClick={() => { setEmailEditing(true); setEmailDraft(row.email || ''); setEmailMsg(null); }}
+                  style={{ padding: '6px 12px', borderRadius: 10, border: '1.5px solid #0D9488', background: '#FFFFFF', color: '#0F766E', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
+                  Edit email
+                </button>
+              )}
+            </div>
+            {emailEditing && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <input data-testid={`fm-edit-email-input-${row.id}`} value={emailDraft}
+                  onChange={e => setEmailDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveEmail(); } }}
+                  placeholder="Corrected email address" type="email"
+                  style={{ flex: '1 1 240px', minWidth: 200, padding: '8px 10px', border: '1.5px solid #CBD5E1', borderRadius: 10, fontSize: 13, background: '#FFFFFF' }} />
+                <button data-testid={`fm-edit-email-save-${row.id}`} onClick={() => void saveEmail()}
+                  disabled={emailBusy || !emailDraft.trim()}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: 'none', background: (emailBusy || !emailDraft.trim()) ? '#CBD5E1' : '#0D9488', color: '#FFFFFF', fontWeight: 800, fontSize: 13, cursor: (emailBusy || !emailDraft.trim()) ? 'not-allowed' : 'pointer' }}>
+                  {emailBusy ? 'Checking…' : 'Save email'}
+                </button>
+                <button onClick={() => { setEmailEditing(false); setEmailDraft(''); setEmailMsg(null); }}
+                  style={{ padding: '8px 14px', borderRadius: 10, border: '1.5px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            )}
+            {emailMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: emailMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{emailMsg}</div>}
+          </div>
           <div style={{
             marginBottom: 16, padding: '12px 14px', borderRadius: 12,
             background: (row as any).linked_user_id ? '#F0FDF4' : '#FFF7ED',
