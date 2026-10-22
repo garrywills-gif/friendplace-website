@@ -113,6 +113,20 @@ function EnquiriesPanel() {
   }, [filter, archived]);
 
   const totalAll = useMemo(() => kinds.reduce((n, k) => n + k.count, 0), [kinds]);
+  // New/unanswered enquiries first, then Reviewing reports, then everything else.
+  const sortedRows = useMemo(() => {
+    if (!rows) return rows;
+    const pinned = (r: EnquiryRow) => ['contact', 'support', 'report'].includes(r.kind) && !r.archived_at
+      && !['replied', 'resolved', 'closed', 'dismissed', 'actioned'].includes(String(r.status || 'new'));
+    // 0 = new/unanswered enquiries · 1 = Reports marked Reviewing · 2 = everything else
+    const tier = (r: EnquiryRow) => (!pinned(r) ? 2 : (r.kind === 'report' && r.status === 'reviewing' ? 1 : 0));
+    return [...rows].sort((a, b) => {
+      const pa = tier(a); const pb = tier(b);
+      if (pa !== pb) return pa - pb;
+      return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    });
+  }, [rows]);
+
 
   const tabs: Array<{ key: KindKey; label: string; count: number }> = [
     { key: 'all', label: 'All', count: totalAll },
@@ -237,7 +251,7 @@ function EnquiriesPanel() {
 
       {!loading && rows && rows.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {rows.map((r, i) => (
+          {(sortedRows || []).map((r, i) => (
             <EnquiryRowCard
               key={`${r.kind}-${r.id ?? i}`}
               r={r}
