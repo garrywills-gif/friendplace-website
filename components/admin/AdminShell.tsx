@@ -54,7 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/cafe',             label: 'FP Café Messages',     icon: '☕' },
       { href: '/admin/reports',          label: 'Reports / Complaints', icon: '🚩', soon: true },
       { href: '/admin/support',          label: 'Support',              icon: '💬', soon: true },
-      { href: '/admin/announcements',    label: 'Announcements',        icon: '📣', soon: true },
+      { href: '/admin/announcements',    label: 'Announcements',        icon: '📣' },
     ],
   },
   {
