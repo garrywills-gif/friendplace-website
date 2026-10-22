@@ -52,7 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/groups-mod',       label: 'Group Posts',          icon: '👥' },
       { href: '/admin/groups/pending',   label: 'Pending groups',       icon: '👥', badgeKey: 'groups' },
       { href: '/admin/cafe',             label: 'FP Café Messages',     icon: '☕' },
-      { href: '/admin/reports',          label: 'Reports / Complaints', icon: '🚩', soon: true },
+      { href: '/admin/reports',          label: 'Moderation',           icon: '🚩' },
       { href: '/admin/support',          label: 'Support',              icon: '💬', soon: true },
       { href: '/admin/announcements',    label: 'Announcements',        icon: '📣' },
     ],
