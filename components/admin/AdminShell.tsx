@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi, repliesApi, pendingGroupsApi } from '@/lib/cms-api';
 import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
@@ -58,17 +58,21 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Members & Outreach',
+    label: 'Members',
     items: [
-      { href: '/admin/crm',                  label: 'CRM Navigator',    icon: '🧭' },
-      { href: '/admin/members',              label: 'Members',          icon: '👤' },
-      { href: '/admin/member-backups',   label: 'Member Backups',   icon: '🗄️' },
-      { href: '/admin/group-reset',      label: 'Groups Reset',     icon: '🧹' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
-      { href: '/admin/replies',              label: 'Replies',          icon: '💌', badgeKey: 'replies' },
-      { href: '/admin/campaigns',            label: 'Campaigns',        icon: '📮' },
-      { href: '/admin/segments',             label: 'Segments',         icon: '🦋' },
-      { href: '/admin/flyers',               label: 'Marketing',        icon: '🖨️' },
+      { href: '/admin/members',              label: 'Members',          icon: '👤' },
+      { href: '/admin/member-backups',       label: 'Members Backup',   icon: '🗄️' },
+    ],
+  },
+  {
+    label: 'Outreach',
+    items: [
+      { href: '/admin/crm',       label: 'CRM',       icon: '🧭', exact: true },
+      { href: '/admin/campaigns', label: 'Campaigns', icon: '📮' },
+      { href: '/admin/replies',   label: 'Replies',   icon: '💌', badgeKey: 'replies' },
+      { href: '/admin/segments',  label: 'Segments',  icon: '🦋' },
+      { href: '/admin/flyers',    label: 'Marketing', icon: '🖨️' },
     ],
   },
   {
@@ -100,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/security',         label: 'Security',         icon: '🛡️' },
       { href: '/admin/admins',           label: 'Admins',           icon: '👑' },
       { href: '/admin/settings',         label: 'Settings',         icon: '⚙️', soon: true },
+      { href: '/admin/group-reset',      label: 'Groups Reset',     icon: '🧹' },
       { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
     ],
   },
@@ -116,6 +121,7 @@ const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 export function AdminShell({ children, title }: { children: ReactNode; title?: string }) {
   const router = useRouter();
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement | null>(null);
   const [ready, setReady] = useState(false);
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
@@ -139,6 +145,18 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     })();
      
   }, []);
+
+  // Restore the sidebar's position when the shell is remounted on navigation.
+  // sessionStorage is per tab, so other MCGS tabs keep their own scroll position.
+  useEffect(() => {
+    if (!ready || !navRef.current) return;
+    try {
+      const saved = sessionStorage.getItem('mcgs-sidebar-scroll');
+      if (saved !== null) navRef.current.scrollTop = Number(saved) || 0;
+    } catch {
+      // Storage may be unavailable in restricted browsers.
+    }
+  }, [ready]);
 
   // Refresh sidebar badges whenever the route changes so admins see an
   // up-to-date count after handling an enquiry, reply or submission.
@@ -270,7 +288,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           Every friendship begins with two people.
         </div>
 
-        <nav style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
+        <nav ref={navRef} onScroll={(event) => {
+          try { sessionStorage.setItem('mcgs-sidebar-scroll', String(event.currentTarget.scrollTop)); } catch {}
+        }} style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
           {NAV_GROUPS.map((group) => (
             <div key={group.label} style={{ marginBottom: 14 }}>
               <div style={navGroupHeading}>{group.label}</div>
