@@ -627,6 +627,19 @@ function MemberRow({
                 #{String(row.founder_number).padStart(4, '0')}
               </span>
             )}
+            {!row.founder_number && row.member_number_display && (
+              <span
+                title="Member Number (registered after the 250 Founding Member places closed)"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px', borderRadius: 6,
+                  background: '#F1F5F9', color: '#334155', border: '1px solid #CBD5E1',
+                  fontSize: 11, fontWeight: 900, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em',
+                }}
+              >
+                {row.member_number_display}
+              </span>
+            )}
             <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{displayName}</span>
           </div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
@@ -838,7 +851,7 @@ function MemberRow({
             {mergeMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: mergeMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{mergeMsg}</div>}
           </div>
 
-          {!row.founder_number && !row.is_reserved && (
+          {!row.founder_number && !row.member_number_display && !row.is_reserved && (
             <div style={{
               marginBottom: 16, padding: '12px 14px', borderRadius: 12,
               background: '#FEF3C7', border: '1px solid #FCD34D',
