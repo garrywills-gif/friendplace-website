@@ -578,7 +578,7 @@ export default async function HomePage() {
             </p>
             {founderCount !== null && (
               <p style={{ color: '#0A2540', fontWeight: 800, fontSize: 22, marginBottom: 20 }}>
-                {founderCount} of {founderCap} Founding Members registered
+                {founderCount >= founderCap ? `All ${founderCap} Founding Member places are filled` : `${founderCount} of ${founderCap} Founding Member places filled`}
               </p>
             )}
             <Link href="/register-interest" className="btn btn-primary" style={{
