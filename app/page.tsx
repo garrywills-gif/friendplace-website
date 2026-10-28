@@ -109,7 +109,7 @@ export default async function HomePage() {
                 <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
                   <GeorgeButterflyMark size={18} />
                 </span>
-                Now welcoming Founding Members
+                250 Founding Member places filled
               </div>
               <h1 className="hero-h1" style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
@@ -588,7 +588,7 @@ export default async function HomePage() {
               fontWeight: 800, fontSize: 16,
             }}>
               <GeorgeButterflyMark size={20} />
-              <span>Become a Founding Member</span>
+              <span>Register your interest</span>
             </Link>
           </div>
           {founderMembers.length > 0 ? (
@@ -619,7 +619,7 @@ export default async function HomePage() {
               padding: 40, background: '#FFFFFF', borderRadius: 24, border: '1px dashed #CBD5E1',
             }}>
               <p style={{ color: '#475569', fontSize: 16 }}>
-                Your name could appear here. Founding Members join us in these early weeks and stay forever recognised.
+                Our first 250 Founding Members will be recognised here as the community grows.
               </p>
             </div>
           )}
@@ -692,7 +692,7 @@ export default async function HomePage() {
                 <StoreBtn store="Google" href="#" />
               </div>
               <p style={{ color: '#64748B', fontSize: 13, marginTop: 20 }}>
-                Coming to the App Store & Google Play in weeks — join the Founding Members list to be first.
+                Coming soon to the App Store and Google Play. Register your interest to hear when FriendPlace launches.
               </p>
             </div>
             <div style={{ textAlign: 'center' }}>
