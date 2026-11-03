@@ -110,6 +110,11 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// Keep sidebar position only during client-side MCGS navigation.
+// A full browser reload or fresh visit starts at the top instead of
+// reviving an old sessionStorage position from hours or days ago.
+let sidebarScrollPosition = 0;
+
 // Flat view retained for the pending-submissions badge lookup below.
 const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
@@ -146,16 +151,11 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
      
   }, []);
 
-  // Restore the sidebar's position when the shell is remounted on navigation.
-  // sessionStorage is per tab, so other MCGS tabs keep their own scroll position.
+  // Preserve scroll while moving between admin pages, but reset on a
+  // fresh page load (when this module is initialised again).
   useEffect(() => {
     if (!ready || !navRef.current) return;
-    try {
-      const saved = sessionStorage.getItem('mcgs-sidebar-scroll');
-      if (saved !== null) navRef.current.scrollTop = Number(saved) || 0;
-    } catch {
-      // Storage may be unavailable in restricted browsers.
-    }
+    navRef.current.scrollTop = sidebarScrollPosition;
   }, [ready]);
 
   // Refresh sidebar badges whenever the route changes so admins see an
@@ -289,7 +289,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         </div>
 
         <nav ref={navRef} onScroll={(event) => {
-          try { sessionStorage.setItem('mcgs-sidebar-scroll', String(event.currentTarget.scrollTop)); } catch {}
+          sidebarScrollPosition = event.currentTarget.scrollTop;
         }} style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
           {NAV_GROUPS.map((group) => (
             <div key={group.label} style={{ marginBottom: 14 }}>
