@@ -380,6 +380,11 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 
       <main className="cms-main-col">
         <AskGeorgeBar />
+        {/* Keep FriendPlace's published mission visible throughout MCGS. */}
+        <div style={{ padding: '9px 28px', background: '#F0FDFA', borderBottom: '1px solid #CCFBF1', textAlign: 'center' }}>
+          <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#0F766E', marginRight: 10 }}>Our mission</span>
+          <span style={{ fontSize: 13, fontWeight: 650, color: '#0A2540', lineHeight: 1.5 }}>A warm, safe community for grown-ups who want to make new friends.</span>
+        </div>
         <div className="cms-main-inner">
           {title && <h1 style={pageTitle}>{title}</h1>}
           {children}
