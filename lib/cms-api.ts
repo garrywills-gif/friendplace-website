@@ -1040,6 +1040,8 @@ export type Campaign = {
   //   true                        -> show pill iff founder_number set
   //   false                       -> hard-suppress even when set
   show_founder_badge?: boolean | null;
+  // Optional announcement-only app store badges + QR codes.
+  include_app_links?: boolean;
   audience_filter: CampaignAudienceFilter;
   status: CampaignStatus;
   stats: CampaignStats;
