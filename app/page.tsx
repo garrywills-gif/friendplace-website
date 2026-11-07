@@ -676,66 +676,38 @@ export default async function HomePage() {
       </section>
 
       {/* ---------- 9. DOWNLOAD ---------- */}
-      <section id="download" style={{ padding: '96px 0', background: '#0A2540', color: '#FFFFFF' }}>
+      <section id="download" style={{ padding: '80px 0', background: '#0A2540', color: '#FFFFFF' }}>
         <div className="container">
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1fr', gap: 48, alignItems: 'center',
-          }} className="download-grid">
-            <div>
-              <SectionEyebrow color="#5EEAD4">Available on iOS & Android</SectionEyebrow>
-              <h2 style={{ color: '#FFFFFF', marginBottom: 16 }}>Download FriendPlace</h2>
-              <p style={{ color: '#CBD5E1', fontSize: 18, lineHeight: 1.6, marginBottom: 32 }}>
-                Free forever for individual members. No ads, no data selling — just a place to belong.
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                <StoreBtn store="Apple" href="#" />
-                <StoreBtn store="Google" href="#" />
-              </div>
-              <p style={{ color: '#64748B', fontSize: 13, marginTop: 20 }}>
-                Coming soon to the App Store and Google Play. Register your interest to hear when FriendPlace launches.
-              </p>
+          <SectionEyebrow color="#5EEAD4">FriendPlace is taking flight</SectionEyebrow>
+          <h2 style={{ color: '#FFFFFF', textAlign: 'center', marginBottom: 12 }}>Download FriendPlace</h2>
+          <p style={{ color: '#CBD5E1', fontSize: 17, lineHeight: 1.6, maxWidth: 680, margin: '0 auto 32px', textAlign: 'center' }}>
+            Free for individual members. Scan with your phone or tap your app store below.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, justifyContent: 'center', alignItems: 'stretch' }}>
+            <div style={{ width: 258, maxWidth: '100%', background: '#FFFFFF', color: '#0A2540', padding: 20, borderRadius: 22, textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>Google Play</div>
+              <a href="https://play.google.com/store/apps/details?id=au.com.friendplace.app" target="_blank" rel="noopener noreferrer" aria-label="Download FriendPlace on Google Play">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dau.com.friendplace.app" alt="QR code to download FriendPlace from Google Play" width={220} height={220} style={{ width: '100%', maxWidth: 220, height: 'auto', display: 'block', margin: '0 auto' }} />
+              </a>
+              <p style={{ color: '#0F766E', fontSize: 13, fontWeight: 800, margin: '12px 0' }}>Available now on Android</p>
+              <StoreBtn store="Google" href="https://play.google.com/store/apps/details?id=au.com.friendplace.app" />
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{
-                display: 'inline-block', background: '#FFFFFF', padding: 24, borderRadius: 24,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-              }}>
-                <div style={{
-                  width: 200, height: 200,
-                  background: 'repeating-linear-gradient(45deg, #0A2540 0 8px, #FFFFFF 8px 16px)',
-                  borderRadius: 12,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {/* This IS the app-icon-showing-on-phone context, so the
-                      squircle-framed full app icon is intentional here.
-                      Preserves the 1:1 aspect ratio. */}
-                  <img
-                    src={brandAssets.appIcon.src}
-                    alt={brandAssets.appIcon.alt}
-                    width={brandAssets.appIcon.width}
-                    height={brandAssets.appIcon.height}
-                    style={{
-                      width: 72, height: 72, // 1:1
-                      borderRadius: 16, background: '#FFFFFF',
-                      padding: 4,
-                    }}
-                  />
-                </div>
-                <p style={{ color: '#0A2540', fontSize: 13, fontWeight: 700, marginTop: 12 }}>
-                  Scan to download
-                </p>
-              </div>
+            <div style={{ width: 258, maxWidth: '100%', background: '#FFFFFF', color: '#0A2540', padding: 20, borderRadius: 22, textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>Apple App Store</div>
+              <a href="/download/ios" aria-label="FriendPlace iPhone download link">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=https%3A%2F%2Fwww.friendplace.com.au%2Fdownload%2Fios" alt="QR code for the FriendPlace iPhone download page" width={220} height={220} style={{ width: '100%', maxWidth: 220, height: 'auto', display: 'block', margin: '0 auto' }} />
+              </a>
+              <p style={{ color: '#64748B', fontSize: 13, fontWeight: 800, margin: '12px 0' }}>Apple listing becoming available</p>
+              <StoreBtn store="Apple" href="/download/ios" />
             </div>
           </div>
+          <p style={{ color: '#CBD5E1', textAlign: 'center', margin: '24px auto 0', fontSize: 13, maxWidth: 600 }}>
+            Registered earlier? Use the same email address when joining in the app to keep your FriendPlace member number.
+          </p>
         </div>
-        <style>{`
-          @media (min-width: 900px) {
-            .download-grid { grid-template-columns: 1.3fr 1fr !important; }
-          }
-        `}</style>
       </section>
 
-      {/* ---------- 10. CLOSING CTA ---------- */}
+            {/* ---------- 10. CLOSING CTA ---------- */}
       <section style={{ padding: '96px 0 32px', background: '#FEFCF8', textAlign: 'center' }}>
         <div className="container">
           {/* Official transparent butterfly — brand presentation context,
