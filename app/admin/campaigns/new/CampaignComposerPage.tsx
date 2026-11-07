@@ -845,9 +845,6 @@ function ComposePanel() {
                   Adds the official Apple App Store and Google Play badges with their QR codes beneath the existing CTA.
                   Off by default. Save the draft to update the email preview.
                 </p>
-                <p style={{ fontSize: 12, color: '#9A3412', margin: '6px 0 0 28px', lineHeight: 1.4 }}>
-                  The email backend must be published before this block can appear in delivered messages.
-                </p>
               </div>
             )}
           </SectionCard>
