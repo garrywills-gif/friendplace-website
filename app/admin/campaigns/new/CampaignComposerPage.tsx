@@ -243,6 +243,8 @@ function ComposePanel() {
   // showFounderBadge is initialised to the announcement default (ON).
   // The template <select> onChange below flips it for outreach.
   const [showFounderBadge, setShowFounderBadge] = useState<boolean>(true);
+  // App Store / Google Play badges and QR codes (announcement emails only).
+  const [includeAppLinks, setIncludeAppLinks] = useState<boolean>(false);
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
@@ -341,6 +343,7 @@ function ComposePanel() {
         } else {
           setShowFounderBadge(TEMPLATE_META[uiT]?.defaultShowBadge ?? true);
         }
+        setIncludeAppLinks(c.include_app_links === true);
         setCtaLabel(c.cta_label || '');
         setCtaUrl(c.cta_url || '');
         setAttachFile(Boolean((c as any).attach_file));
@@ -493,6 +496,7 @@ function ComposePanel() {
         audience_filter: audienceFilter,
         greeting,
         show_founder_badge: showFounderBadge,
+        include_app_links: template === 'announcement' && includeAppLinks,
         attach_file: attachFile,
       };
       let c: Campaign;
@@ -523,7 +527,7 @@ function ComposePanel() {
       setSaving(false);
     }
   }, [campaignId, name, template, subject, preheader, companion, title, bodyMd,
-      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, attachFile]);
+      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, attachFile]);
 
   // CAMPAIGN_INVARIANT: NO_AUTOSAVE
   // Opening or editing a campaign is READ-ONLY until the admin deliberately
@@ -829,6 +833,23 @@ function ComposePanel() {
                 ↺ FriendPlace website
               </button>
             </div>
+            {template === 'announcement' && (
+              <div style={{ marginTop: 20, padding: '14px 16px', background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', color: '#0A2540', fontSize: 14, fontWeight: 750 }}>
+                  <input type="checkbox" checked={includeAppLinks}
+                    onChange={e => setIncludeAppLinks(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: '#0F766E' }} />
+                  Include App Download Links &amp; QR Codes
+                </label>
+                <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0 28px', lineHeight: 1.5 }}>
+                  Adds the official Apple App Store and Google Play badges with their QR codes beneath the existing CTA.
+                  Off by default. Save the draft to update the email preview.
+                </p>
+                <p style={{ fontSize: 12, color: '#9A3412', margin: '6px 0 0 28px', lineHeight: 1.4 }}>
+                  The email backend must be published before this block can appear in delivered messages.
+                </p>
+              </div>
+            )}
           </SectionCard>
         )}
 
