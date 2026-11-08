@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { cmsApi } from '@/lib/cms-api';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { BridgeCategoryTiles } from '@/components/mcgs/BridgeCategoryTiles';
@@ -13,6 +15,16 @@ import { FoundingMembersCard } from '@/components/mcgs/FoundingMembersCard';
 import { brandAssets } from '@/lib/brand-assets';
 
 export default function BridgePage() {
+  const [appMemberCount, setAppMemberCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    cmsApi.listMembers({ limit: 1, skip: 0, include_test: true })
+      .then((result) => { if (active) setAppMemberCount(result.total); })
+      .catch(() => { if (active) setAppMemberCount(null); });
+    return () => { active = false; };
+  }, []);
+
   // Reach up to the AdminShell-mounted Ask George bar. It listens on
   // the global `mcgs:ask-george` custom event so any surface in MCGS
   // can open George without prop-drilling.
@@ -36,7 +48,7 @@ export default function BridgePage() {
             color: '#FFFFFF', textDecoration: 'none', fontWeight: 800,
             fontSize: 14, whiteSpace: 'nowrap', minHeight: 44,
           }}>
-            👤 Members in App →
+            👤 Members in App {appMemberCount === null ? '' : `(${appMemberCount.toLocaleString()})`} →
           </Link>
         </header>
 
