@@ -748,23 +748,21 @@ function SectionEyebrow({ children, color }: { children: React.ReactNode; color?
 
 function StoreBtn({ store, href }: { store: 'Apple' | 'Google'; href: string }) {
   const isApple = store === 'Apple';
+  const badge = isApple
+    ? 'https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg'
+    : 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png';
+
   return (
-    <a href={href} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 12,
-      background: '#FFFFFF', color: '#0A2540',
-      padding: '12px 22px', borderRadius: 16,
-      fontWeight: 700, fontSize: 14, textDecoration: 'none',
-      minWidth: 180,
-    }}>
-      <span style={{ fontSize: 28 }}>{isApple ? '' : '▶'}</span>
-      <div style={{ textAlign: 'left' }}>
-        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600 }}>
-          {isApple ? 'Download on the' : 'Get it on'}
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 900 }}>
-          {isApple ? 'App Store' : 'Google Play'}
-        </div>
-      </div>
+    <a href={href} target="_blank" rel="noopener noreferrer"
+      aria-label={isApple ? 'Download FriendPlace on the App Store' : 'Get FriendPlace on Google Play'}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 60, textDecoration: 'none' }}>
+      <img
+        src={badge}
+        alt={isApple ? 'Download on the App Store' : 'Get it on Google Play'}
+        width={isApple ? 180 : 200}
+        height={60}
+        style={{ display: 'block', width: isApple ? 180 : 200, maxWidth: '100%', height: 60, objectFit: 'contain' }}
+      />
     </a>
   );
 }
