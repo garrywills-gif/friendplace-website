@@ -10,18 +10,18 @@ import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export const metadata: Metadata = {
   title: { absolute: 'Make New Friends as an Adult in Australia | FriendPlace' },
-  description: 'Looking to make new friends near you? FriendPlace is an upcoming Australian friendship app for adults to meet new people, chat and find groups. Register your interest.',
+  description: 'Looking to make new friends near you? FriendPlace is a free Australian friendship app for adults to meet new people, chat and find groups. Download on iPhone or Android.',
   alternates: { canonical: '/' },
   openGraph: {
     title: 'Make New Friends as an Adult in Australia | FriendPlace',
-    description: 'Finding new friends can start with a simple hello. Meet FriendPlace, an upcoming Australian community app for local friendship, conversation and plans.',
+    description: 'Finding new friends can start with a simple hello. Meet FriendPlace, a free Australian community app for local friendship, conversation and plans.',
     url: '/',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Make New Friends as an Adult in Australia | FriendPlace',
-    description: 'An upcoming Australian friendship app for adults. Local people, shared interests and everyday connection. Because you belong too.',
+    description: 'A free Australian friendship app for adults, now on the App Store and Google Play. Because you belong too.',
   },
 };
 
@@ -109,7 +109,7 @@ export default async function HomePage() {
                 <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
                   <GeorgeButterflyMark size={18} />
                 </span>
-                250 Founding Member places filled
+                FriendPlace is now available in Australia
               </div>
               <h1 className="hero-h1" style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
@@ -119,22 +119,12 @@ export default async function HomePage() {
                 Meet local people, join groups and enjoy events.
               </p>
               <p className="hero-long" style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
-                Finding new friends starts with a hello. FriendPlace is an upcoming Australian friendship app helping adults make friends near them, meet new people and enjoy real conversations — with friendship at the heart of it.
+                Finding new friends starts with a hello. FriendPlace is an Australian friendship app helping adults make friends near them, meet new people and enjoy real conversations — with friendship at the heart of it.
               </p>
               <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                               <Link
-                  href="/register-interest"
-                  className="btn btn-primary hero-register-cta"
-                  aria-label="Register now for FriendPlace"
-                >
-                  Register Now →
-                </Link>              
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-  <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4' }}>COMING SOON</span>
-  <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
-    Get the App →
-  </Link>
-</div>
+                <Link href="#download" className="btn btn-primary hero-register-cta" aria-label="Download FriendPlace for iPhone or Android">
+                  Download the App →
+                </Link>
                 <Link href="/how-it-works" className="btn btn-ghost">
                   See how it works
                 </Link>
@@ -554,8 +544,8 @@ export default async function HomePage() {
             You do not need a big social circle to begin.
           </p>
           <p style={{ color: '#475569', fontSize: 18, lineHeight: 1.75 }}>
-            If you want to meet new people in Australia, FriendPlace is coming soon to help you find local connection, from conversation in the FP Café to local groups and events.
-            While we prepare to launch, explore some practical ideas:
+            If you want to meet new people in Australia, FriendPlace is now available to help you find local connection, from conversation in the FP Café to local groups and events.
+            Explore some practical ideas:
           </p>
           <ul style={{ fontSize: 17, lineHeight: 1.8, paddingLeft: 24 }}>
             <li><Link href="/guides/where-can-i-meet-people-near-me" style={{ color: '#0F766E', fontWeight: 700 }}>Where can I meet new people and make friends near me?</Link></li>
@@ -581,14 +571,14 @@ export default async function HomePage() {
                 {founderCount >= founderCap ? `All ${founderCap} Founding Member places are filled` : `${founderCount} of ${founderCap} Founding Member places filled`}
               </p>
             )}
-            <Link href="/register-interest" className="btn btn-primary" style={{
+            <Link href="#download" className="btn btn-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: 10,
               padding: '12px 24px', borderRadius: 999,
               background: '#0A2540', color: '#FFFFFF',
               fontWeight: 800, fontSize: 16,
             }}>
               <GeorgeButterflyMark size={20} />
-              <span>Register your interest</span>
+              <span>Download FriendPlace</span>
             </Link>
           </div>
           {founderMembers.length > 0 ? (
@@ -697,8 +687,8 @@ export default async function HomePage() {
               <a href="/download/ios" aria-label="FriendPlace iPhone download link">
                 <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=https%3A%2F%2Fwww.friendplace.com.au%2Fdownload%2Fios" alt="QR code for the FriendPlace iPhone download page" width={220} height={220} style={{ width: '100%', maxWidth: 220, height: 'auto', display: 'block', margin: '0 auto' }} />
               </a>
-              <p style={{ color: '#64748B', fontSize: 13, fontWeight: 800, margin: '12px 0' }}>Apple listing becoming available</p>
-              <StoreBtn store="Apple" href="/download/ios" />
+              <p style={{ color: '#64748B', fontSize: 13, fontWeight: 800, margin: '12px 0' }}>Available now on iPhone &amp; iPad</p>
+              <StoreBtn store="Apple" href="https://apps.apple.com/au/app/id6796969555" />
             </div>
           </div>
           <p style={{ color: '#CBD5E1', textAlign: 'center', margin: '24px auto 0', fontSize: 13, maxWidth: 600 }}>
