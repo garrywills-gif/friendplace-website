@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { BridgeCategoryTiles } from '@/components/mcgs/BridgeCategoryTiles';
@@ -29,6 +30,14 @@ export default function BridgePage() {
               What needs your attention today.
             </p>
           </div>
+          <Link href="/admin/members" style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            padding: '11px 18px', borderRadius: 12, background: '#0F766E',
+            color: '#FFFFFF', textDecoration: 'none', fontWeight: 800,
+            fontSize: 14, whiteSpace: 'nowrap', minHeight: 44,
+          }}>
+            👤 Members in App →
+          </Link>
         </header>
 
         <div className="cms-two-col">
@@ -104,7 +113,10 @@ export default function BridgePage() {
 }
 
 const container: React.CSSProperties = { maxWidth: 1600, margin: '0 auto' };
-const heroWrap: React.CSSProperties = { marginBottom: 20 };
+const heroWrap: React.CSSProperties = {
+  marginBottom: 20, display: 'flex', alignItems: 'center',
+  justifyContent: 'space-between', flexWrap: 'wrap', gap: 14,
+};
 const mantraCard: React.CSSProperties = {
   background: '#FFFCF7',
   border: '1px solid #99DDE4',
