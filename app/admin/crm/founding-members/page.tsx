@@ -56,7 +56,7 @@ const isFoundingRegistration = (r: CRMFoundingMember) =>
 export default function FoundingMembersCRMPage() {
   const [rows, setRows] = useState<CRMFoundingMember[]>([]);
   const [allRegistrations, setAllRegistrations] = useState<CRMFoundingMember[]>([]);
-  const [membershipFilter, setMembershipFilter] = useState<'all' | 'founding' | 'other'>('all');
+  const [membershipFilter, setMembershipFilter] = useState<'all' | 'founding'>('all');
   const [stats, setStats] = useState<CRMFoundingMembersStats | null>(null);
   const [filter, setFilter] = useState<'all' | CRMFoundingMemberStatus>('all');
   const [q, setQ] = useState('');
@@ -97,10 +97,9 @@ export default function FoundingMembersCRMPage() {
   useEffect(() => { setPage(1); setExpandedId(null); }, [filter, q, membershipFilter]);
 
   const foundingCount = allRegistrations.filter(isFoundingRegistration).length;
-  const otherCount = allRegistrations.length - foundingCount;
   const groupRegistrations = allRegistrations.filter(r =>
     membershipFilter === 'all' ||
-    (membershipFilter === 'founding' ? isFoundingRegistration(r) : !isFoundingRegistration(r)));
+    isFoundingRegistration(r));
   const groupStatusCounts: Record<'all' | CRMFoundingMemberStatus, number> = {
     all: groupRegistrations.length,
     registered: groupRegistrations.filter(r => r.status === 'registered').length,
@@ -111,8 +110,7 @@ export default function FoundingMembersCRMPage() {
   // Keep Founding Members together and first in the All view, preserving the
   // API's existing order within each group.
   const visibleRows = useMemo(() => rows
-    .filter(r => membershipFilter === 'all' ||
-      (membershipFilter === 'founding' ? isFoundingRegistration(r) : !isFoundingRegistration(r)))
+    .filter(r => membershipFilter === 'all' || isFoundingRegistration(r))
     .sort((a, b) => Number(isFoundingRegistration(b)) - Number(isFoundingRegistration(a))),
     [rows, membershipFilter]);
 
@@ -184,9 +182,8 @@ export default function FoundingMembersCRMPage() {
       <div style={{ ...totalHeadline, flexDirection: 'column', alignItems: 'stretch', gap: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 14 }}>
           {([
+            { label: 'All Members', value: stats?.total, key: 'all' },
             { label: 'Founding Members', value: foundingCount, key: 'founding' },
-            { label: 'Other Registrations', value: otherCount, key: 'other' },
-            { label: 'Total Registrations', value: stats?.total, key: 'all' },
           ] as const).map(item => (
             <div key={item.key} style={{ minWidth: 0 }}>
               <div style={totalEyebrow}>{item.label}</div>
@@ -208,9 +205,8 @@ export default function FoundingMembersCRMPage() {
       {/* Membership group filter — independent of invitation status and search. */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 20, marginBottom: 12 }}>
         {([
+          { key: 'all', label: 'All Members', count: stats?.total },
           { key: 'founding', label: 'Founding Members', count: foundingCount },
-          { key: 'other', label: 'Other Registrations', count: otherCount },
-          { key: 'all', label: 'All Registrations', count: stats?.total },
         ] as const).map(group => {
           const active = membershipFilter === group.key;
           return (
