@@ -61,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Members',
     items: [
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
+      { href: '/admin/crm-sync', label: 'CRM Status Sync', icon: '🔄' },
       { href: '/admin/members',              label: 'Members',          icon: '👤' },
       { href: '/admin/member-backups',       label: 'Members Backup',   icon: '🗄️' },
     ],
