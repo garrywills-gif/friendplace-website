@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Founding Members card — Bridge dashboard tile.
+ * CRM card — Bridge dashboard tile.
  *
  * Lives alongside Morning Briefing on The Bridge. Reads
  * /api/cms/crm/founding-members/stats and surfaces the four numbers
@@ -25,7 +25,7 @@ export function FoundingMembersCard() {
         const s = await foundingMembersCrmApi.stats();
         if (!cancelled) setStats(s);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Could not load Founding Members');
+        if (!cancelled) setError(e?.message || 'Could not load CRM');
       }
     };
     void load();
@@ -38,13 +38,13 @@ export function FoundingMembersCard() {
   const latestWhen = latest?.created_at ? relTime(latest.created_at) : '';
 
   return (
-    <a href="/admin/crm/founding-members" style={cardLink} aria-label="Open Founding Members CRM">
+    <a href="/admin/crm/founding-members" style={cardLink} aria-label="Open CRM registrations">
       <div style={header}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🌟</span>
           <div>
-            <div style={eyebrow}>Founding Members</div>
-            <div style={title}>Register-your-interest CRM</div>
+            <div style={eyebrow}>CRM</div>
+            <div style={title}>All registrations</div>
           </div>
         </div>
         <span style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Open →</span>
