@@ -117,21 +117,23 @@ export function FoundingMembersCard() {
       </div>
 
       <div style={statsGrid}>
-        <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <StatTile label="App members" value={appError ? undefined : app?.total} hint="Genuine accounts · no test/demo" primary />
+        <Link href="/admin/members" style={{ ...statLink, gridColumn: '1 / -1' }}>
+          <StatTile label="Total app members" value={appError ? undefined : app?.total} hint="Genuine FriendPlace members · test and demo accounts excluded" primary />
         </Link>
-        <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <Link href="/admin/members" style={statLink}>
           <StatTile label="Joined today" value={appError ? undefined : app?.newToday ?? undefined} hint="Sydney calendar day" />
         </Link>
-        <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <StatTile label="Joined last 7 days" value={appError ? undefined : app?.newWeek ?? undefined} hint="New genuine app accounts" />
+        <Link href="/admin/members" style={statLink}>
+          <StatTile label="Joined in 7 days" value={appError ? undefined : app?.newWeek ?? undefined} hint="New genuine app members" />
         </Link>
       </div>
       <div style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-          <span style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>First milestone: 100 app members</span>
+          <span style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>
+            {app && app.total >= 100 ? '🎉 First milestone achieved — 100 members' : 'First milestone · 100 app members'}
+          </span>
           <span style={{ color: '#0F766E', fontSize: 12, fontWeight: 800 }}>
-            {appError || !app ? '—' : `${Math.min(100, Math.round(app.total / 100 * 100))}%`}
+            {appError || !app ? '—' : `${Math.min(100, Math.round(app.total))} / 100`}
           </span>
         </div>
         <div style={{ background: '#E2E8F0', borderRadius: 99, height: 8, marginTop: 7, overflow: 'hidden' }}>
@@ -176,7 +178,7 @@ function StatTile({ label, value, hint, primary = false }: { label: string; valu
   return (
     <div style={{ ...statTile, ...(primary ? { background: 'linear-gradient(135deg, #0F766E, #14B8A6)', borderColor: '#0F766E' } : {}) }}>
       <div style={{ ...statLabel, ...(primary ? { color: '#CCFBF1' } : {}) }}>{label}</div>
-      <div style={{ ...statNumber, ...(primary ? { color: '#FFFFFF', fontSize: 38 } : {}) }}>{typeof value === 'number' ? value.toLocaleString('en-AU') : '—'}</div>
+      <div style={{ ...statNumber, ...(primary ? { color: '#FFFFFF', fontSize: 48, letterSpacing: '-0.035em' } : {}) }}>{typeof value === 'number' ? value.toLocaleString('en-AU') : '—'}</div>
       <div style={{ ...statHint, ...(primary ? { color: '#F0FDFA' } : {}) }}>{hint}</div>
     </div>
   );
@@ -195,8 +197,8 @@ function relTime(iso: string): string {
 }
 
 const card: React.CSSProperties = {
-  display: 'block', background: '#FFFFFF', border: '1px solid #E2E8F0',
-  borderRadius: 16, padding: 18, boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+  display: 'block', background: '#FFFFFF', border: '1px solid #DCEBE9',
+  borderRadius: 18, padding: 20, boxShadow: '0 3px 12px rgba(15,118,110,0.07)',
   color: '#0F172A', marginBottom: 16,
 };
 const header: React.CSSProperties = {
@@ -214,7 +216,10 @@ const openLink: React.CSSProperties = {
   color: '#0F766E', fontSize: 12, fontWeight: 800, textDecoration: 'none',
 };
 const statsGrid: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8,
+  display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10,
+};
+const statLink: React.CSSProperties = {
+  display: 'block', textDecoration: 'none', color: 'inherit', minWidth: 0,
 };
 const statTile: React.CSSProperties = {
   background: 'linear-gradient(140deg, #CCFBF1 0%, #F0FDFA 100%)',
