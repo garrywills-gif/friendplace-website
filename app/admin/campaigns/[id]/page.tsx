@@ -28,7 +28,7 @@ import {
 } from '@/lib/cms-api';
 
 // ── Filter tabs above the recipient roster ──────────────────────
-type RecipientFilter = 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced';
+type RecipientFilter = 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced' | 'complained';
 
 type OutreachNumberMap = Record<string, number>;
 
@@ -37,26 +37,34 @@ const FILTER_LABEL: Record<RecipientFilter, string> = {
   opened:     'Opened',
   clicked:    'Clicked',
   not_opened: 'Not reached',
-  bounced:    'Bounced / complained',
+  bounced:    'Bounced',
+  complained: 'Complaints',
 };
 
 function currentEventType(r: CampaignRecipient): string {
   return String(r.last_event_type || '').toLowerCase();
 }
 
+function hasComplaint(r: CampaignRecipient): boolean {
+  // Complaint is a permanent audit event even if a later delivery/open
+  // event replaced last_event_type. Do not hide historical complaints.
+  return !!r.complained_at ||
+    currentEventType(r) === 'email.complained' ||
+    String(r.status || '').toLowerCase() === 'complained';
+}
+
 function isCurrentlyBounced(r: CampaignRecipient): boolean {
   const last = currentEventType(r);
-  if (last) return last === 'email.bounced' || last === 'email.complained';
+  if (last) return last === 'email.bounced';
 
   const status = String(r.status || '').toLowerCase();
-  if (status) return status === 'bounced' || status === 'complained';
+  if (status) return status === 'bounced';
 
-  // Legacy rows may not have last_event_type/status populated.
-  return !!r.bounced_at || !!r.complained_at;
+  return !!r.bounced_at;
 }
 
 function isCurrentlyDelivered(r: CampaignRecipient): boolean {
-  if (isCurrentlyBounced(r)) return false;
+  if (isCurrentlyBounced(r) || hasComplaint(r)) return false;
 
   const last = currentEventType(r);
   if (last) {
@@ -79,7 +87,8 @@ function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
     case 'opened':     return opened && !bounced;
     case 'clicked':    return clicked && !bounced;
     case 'not_opened': return delivered && !opened && !bounced;
-    case 'bounced':    return bounced;
+    case 'bounced':    return bounced && !hasComplaint(r);
+    case 'complained': return hasComplaint(r);
   }
 }
 
@@ -273,11 +282,11 @@ export default function CampaignDetailPage() {
 
   const counters = visibleRecipients.reduce(
     (acc, r) => {
-      (['all', 'opened', 'clicked', 'not_opened', 'bounced'] as RecipientFilter[])
+      (['all', 'opened', 'clicked', 'not_opened', 'bounced', 'complained'] as RecipientFilter[])
         .forEach((f) => { if (matchesFilter(r, f)) acc[f] += 1; });
       return acc;
     },
-    { all: 0, opened: 0, clicked: 0, not_opened: 0, bounced: 0 } as Record<RecipientFilter, number>,
+    { all: 0, opened: 0, clicked: 0, not_opened: 0, bounced: 0, complained: 0 } as Record<RecipientFilter, number>,
   );
 
   return (
@@ -396,8 +405,18 @@ export default function CampaignDetailPage() {
           </div>
 
           {/* Filter tabs */}
+          {complained > counters.complained && (
+            <div role="status" style={{
+              background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10,
+              padding: '10px 12px', color: '#92400E', fontSize: 12, marginTop: 8,
+            }}>
+              {complained} spam complaint event{complained === 1 ? '' : 's'} reported, but only {counters.complained}
+              {' '}recipient{counters.complained === 1 ? '' : 's'} identified in this campaign roster.
+              Check the Resend delivery event history; the campaign recipient data may need syncing.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0 10px' }}>
-            {(['all','opened','clicked','not_opened','bounced'] as RecipientFilter[]).map((f) => (
+            {(['all','opened','clicked','not_opened','bounced','complained'] as RecipientFilter[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -730,14 +749,14 @@ function TimelineDot({ type }: { type: string }) {
 
 function RecipientPill({ r }: { r: CampaignRecipient }) {
   // The pill shows the LAST meaningful event, not the send-side status.
-  const last = r.last_event_type || (
+  const last = hasComplaint(r) ? 'email.complained' : (r.last_event_type || (
     r.first_clicked_at ? 'email.clicked' :
     r.first_opened_at ? 'email.opened' :
     r.bounced_at ? 'email.bounced' :
     r.complained_at ? 'email.complained' :
     r.delivered_at ? 'email.delivered' :
     r.status === 'failed' ? 'failed' : 'sent'
-  );
+  ));
   const palette =
     last === 'email.clicked'   ? { bg: '#EDE9FE', fg: '#5B21B6' } :
     last === 'email.opened'    ? { bg: '#DBEAFE', fg: '#1E3A8A' } :
