@@ -49,8 +49,14 @@ const FILTERS: Array<{ key: 'all' | CRMFoundingMemberStatus; label: string; empt
   { key: 'opted_out',  label: 'Opted Out',            emptyLabel: 'No registrations have opted out.' },
 ];
 
+// Founder numbers #0001–#0250 are permanent; later registrations belong to the other group.
+const isFoundingRegistration = (r: CRMFoundingMember) =>
+  typeof r.founder_number === 'number' && r.founder_number >= 1 && r.founder_number <= 250;
+
 export default function FoundingMembersCRMPage() {
   const [rows, setRows] = useState<CRMFoundingMember[]>([]);
+  const [allRegistrations, setAllRegistrations] = useState<CRMFoundingMember[]>([]);
+  const [membershipFilter, setMembershipFilter] = useState<'all' | 'founding'>('all');
   const [stats, setStats] = useState<CRMFoundingMembersStats | null>(null);
   const [filter, setFilter] = useState<'all' | CRMFoundingMemberStatus>('all');
   const [q, setQ] = useState('');
@@ -69,11 +75,16 @@ export default function FoundingMembersCRMPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [listRes, statsRes] = await Promise.all([
-        foundingMembersCrmApi.list({ status: filter === 'all' ? undefined : filter, q: q || undefined, limit: 5000 }),
-        foundingMembersCrmApi.stats(),
+      const listPromise = foundingMembersCrmApi.list({ status: filter === 'all' ? undefined : filter, q: q || undefined, limit: 5000 });
+      // Counters must reflect the entire CRM, not just the selected status/search filter.
+      const allPromise = filter === 'all' && !q
+        ? listPromise
+        : foundingMembersCrmApi.list({ limit: 5000 });
+      const [listRes, statsRes, allRes] = await Promise.all([
+        listPromise, foundingMembersCrmApi.stats(), allPromise,
       ]);
       setRows(listRes.rows || []);
+      setAllRegistrations(allRes.rows || []);
       setStats(statsRes);
     } catch (e: any) {
       showToast(e?.message || 'Failed to load registrations');
@@ -83,13 +94,31 @@ export default function FoundingMembersCRMPage() {
   }, [filter, q]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setPage(1); }, [filter, q]);
+  useEffect(() => { setPage(1); setExpandedId(null); }, [filter, q, membershipFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const foundingCount = allRegistrations.filter(isFoundingRegistration).length;
+  const groupRegistrations = allRegistrations.filter(r =>
+    membershipFilter === 'all' ||
+    isFoundingRegistration(r));
+  const groupStatusCounts: Record<'all' | CRMFoundingMemberStatus, number> = {
+    all: groupRegistrations.length,
+    registered: groupRegistrations.filter(r => r.status === 'registered').length,
+    invited: groupRegistrations.filter(r => r.status === 'invited').length,
+    joined: groupRegistrations.filter(r => r.status === 'joined').length,
+    opted_out: groupRegistrations.filter(r => r.status === 'opted_out').length,
+  };
+  // Keep Founding Members together and first in the All view, preserving the
+  // API's existing order within each group.
+  const visibleRows = useMemo(() => rows
+    .filter(r => membershipFilter === 'all' || isFoundingRegistration(r))
+    .sort((a, b) => Number(isFoundingRegistration(b)) - Number(isFoundingRegistration(a))),
+    [rows, membershipFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const showingFrom = rows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-  const showingTo = Math.min(currentPage * PAGE_SIZE, rows.length);
+  const pageRows = visibleRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const showingFrom = visibleRows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const showingTo = Math.min(currentPage * PAGE_SIZE, visibleRows.length);
 
   // ── Inline update helpers ─────────────────────────────────────
   const applyPatch = async (
@@ -126,6 +155,7 @@ export default function FoundingMembersCRMPage() {
     try {
       const res = await foundingMembersCrmApi.remove(id);
       setRows(cur => cur.filter(r => r.id !== id));
+      setAllRegistrations(cur => cur.filter(r => r.id !== id));
       setExpandedId(cur => (cur === id ? null : cur));
       try { setStats(await foundingMembersCrmApi.stats()); } catch { /* non-fatal */ }
       const label = res.founder_number
@@ -148,15 +178,22 @@ export default function FoundingMembersCRMPage() {
 
   return (
     <AdminShell title="Registrations">
-      {/* Total-headline strip — the number that matters most, always in view. */}
-      <div style={totalHeadline}>
-        <div>
-          <div style={totalEyebrow}>Total Registrations</div>
-          <div style={totalNumber}>
-            {stats ? stats.total : <span style={{ opacity: 0.4 }}>…</span>}
-          </div>
+      {/* Permanent founder and post-founder totals, calculated from actual CRM records. */}
+      <div style={{ ...totalHeadline, flexDirection: 'column', alignItems: 'stretch', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 14 }}>
+          {([
+            { label: 'All Members', value: stats?.total, key: 'all' },
+            { label: 'Founding Members', value: foundingCount, key: 'founding' },
+          ] as const).map(item => (
+            <div key={item.key} style={{ minWidth: 0 }}>
+              <div style={totalEyebrow}>{item.label}</div>
+              <div style={{ ...totalNumber, fontSize: 'clamp(28px, 3vw, 48px)' }}>
+                {stats ? item.value : <span style={{ opacity: 0.4 }}>…</span>}
+              </div>
+            </div>
+          ))}
         </div>
-        <p style={introCopy}>
+        <p style={{ ...introCopy, maxWidth: 'none', margin: 0 }}>
           The first 250 places were reserved for Founding Members. Later registrants have permanent M-numbers.
           This page tracks all registrations, invitations, status and future email campaigns.
         </p>
@@ -165,17 +202,35 @@ export default function FoundingMembersCRMPage() {
       {/* Dashboard cards */}
       <StatsRow stats={stats} loading={loading && !stats} />
 
+      {/* Membership group filter — independent of invitation status and search. */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 20, marginBottom: 12 }}>
+        {([
+          { key: 'all', label: 'All Members', count: stats?.total },
+          { key: 'founding', label: 'Founding Members', count: foundingCount },
+        ] as const).map(group => {
+          const active = membershipFilter === group.key;
+          return (
+            <button key={group.key} type="button"
+              onClick={() => setMembershipFilter(group.key)}
+              aria-pressed={active}
+              style={{
+                ...s.ghostBtn, padding: '9px 16px', fontWeight: 800,
+                borderColor: active ? '#0F766E' : '#CBD5E1',
+                background: active ? '#0F766E' : '#FFFFFF',
+                color: active ? '#FFFFFF' : '#0A2540',
+              }}>
+              {group.label} {stats ? `(${group.count ?? 0})` : ''}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Filter + search bar */}
       <div style={filterBar}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {FILTERS.map(f => {
             const active = filter === f.key;
-            const count = f.key === 'all'
-              ? stats?.total
-              : f.key === 'registered' ? stats?.awaiting_contact
-              : f.key === 'invited'    ? stats?.invited
-              : f.key === 'joined'     ? stats?.joined
-              : stats?.opted_out;
+            const count = stats ? groupStatusCounts[f.key] : undefined;
             return (
               <button
                 key={f.key}
@@ -247,7 +302,7 @@ export default function FoundingMembersCRMPage() {
 
         {loading ? (
           <div style={emptyState}><p style={{ color: '#64748B', margin: 0 }}>Loading…</p></div>
-        ) : rows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <div style={emptyState}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🌱</div>
             <p style={{ color: '#0A2540', fontSize: 16, fontWeight: 700, margin: 0 }}>{emptyMessage}</p>
@@ -263,7 +318,10 @@ export default function FoundingMembersCRMPage() {
               expanded={expandedId === r.id}
               onToggle={() => setExpandedId(cur => (cur === r.id ? null : r.id))}
               onUpdate={applyPatch}
-              onLocalPatch={(id, patch) => setRows(cur => cur.map(x => x.id === id ? { ...x, ...patch } : x))}
+              onLocalPatch={(id, patch) => {
+                setRows(cur => cur.map(x => x.id === id ? { ...x, ...patch } : x));
+                setAllRegistrations(cur => cur.map(x => x.id === id ? { ...x, ...patch } : x));
+              }}
               onDelete={deleteRow}
               onMerged={async () => {
                 setExpandedId(null);
@@ -275,10 +333,10 @@ export default function FoundingMembersCRMPage() {
         )}
       </div>
 
-      {!loading && rows.length > 0 && (
+      {!loading && visibleRows.length > 0 && (
         <div data-testid="fm-pagination" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
           <div data-testid="fm-pagination-summary" style={{ fontSize: 13, color: '#475569' }}>
-            Showing <strong>{showingFrom}–{showingTo}</strong> of <strong>{rows.length.toLocaleString()}</strong> member{rows.length === 1 ? '' : 's'}
+            Showing <strong>{showingFrom}–{showingTo}</strong> of <strong>{visibleRows.length.toLocaleString()}</strong> member{visibleRows.length === 1 ? '' : 's'}
           </div>
           {totalPages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -314,7 +372,7 @@ function StatsRow({ stats, loading }: { stats: CRMFoundingMembersStats | null; l
   const latestWhen = stats?.latest?.created_at ? relTime(stats.latest.created_at) : '';
   return (
     <div style={statsGrid}>
-      <StatCard tone="teal" emoji="🌟" label="Total Registrations" value={stats?.total} loading={loading} />
+      <StatCard tone="teal" emoji="🌟" label="Joined" value={stats?.joined} loading={loading} />
       <StatCard tone="teal" emoji="✨" label="New today"              value={stats?.new_today} loading={loading} />
       <StatCard tone="amber" emoji="📮" label="Awaiting invitation"    value={stats?.awaiting_contact} loading={loading} />
       <StatCard
@@ -1464,7 +1522,7 @@ const introCopy: React.CSSProperties = {
 
 const statsGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
   gap: 14,
   marginBottom: 22,
 };

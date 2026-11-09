@@ -1,177 +1,259 @@
 'use client';
 
 /**
- * Founding Members card — Bridge dashboard tile.
- *
- * Lives alongside Morning Briefing on The Bridge. Reads
- * /api/cms/crm/founding-members/stats and surfaces the four numbers
- * Garry looks at every morning: Total, New today, Awaiting contact,
- * Latest registration. Clicking anywhere on the card opens the
- * full CRM.
+ * Membership Growth card on The Bridge.
+ * Website leads come from the CRM; app membership comes from real app accounts,
+ * not the CRM "Joined" status (which can lag behind the actual app).
  */
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { foundingMembersCrmApi, type CRMFoundingMembersStats } from '@/lib/cms-api';
+import {
+  cmsApi, foundingMembersCrmApi,
+  type CRMFoundingMembersStats, type MemberRow,
+} from '@/lib/cms-api';
+
+type AppSnapshot = {
+  total: number;
+  newToday: number | null;
+  newWeek: number | null;
+  latest: MemberRow | null;
+};
+
+// Fetch complete real-member pages for accurate "today" and "latest" metrics.
+// At large scale we will need a dedicated backend stats endpoint rather than
+// repeatedly downloading member records. Never show guessed partial figures.
+const PAGE_SIZE = 100;
+const MAX_CLIENT_ROWS = 1000;
+
+async function getAppSnapshot(): Promise<AppSnapshot> {
+  const first = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: 0 });
+  const total = first.total;
+  if (total > MAX_CLIENT_ROWS) {
+    return { total, newToday: null, newWeek: null, latest: null };
+  }
+
+  const members = [...first.items];
+  if (total > 0 && members.length === 0) {
+    return { total, newToday: null, newWeek: null, latest: null };
+  }
+  // Advance by the number actually returned; the API may cap page size.
+  while (members.length < total) {
+    const page = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: members.length });
+    if (!page.items.length) return { total, newToday: null, newWeek: null, latest: null };
+    members.push(...page.items);
+  }
+
+  const sydneyDay = (date: Date) => new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+  const today = sydneyDay(new Date());
+  const valid = members.filter(m => m.created_at && !Number.isNaN(Date.parse(m.created_at)));
+  const newToday = valid.filter(m => sydneyDay(new Date(m.created_at!)) === today).length;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newWeek = valid.filter(m => Date.parse(m.created_at!) >= weekAgo).length;
+  const latest = valid.reduce<MemberRow | null>((best, m) =>
+    !best || Date.parse(m.created_at!) > Date.parse(best.created_at!) ? m : best, null);
+
+  return { total, newToday, newWeek, latest };
+}
 
 export function FoundingMembersCard() {
-  const [stats, setStats] = useState<CRMFoundingMembersStats | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [crm, setCrm] = useState<CRMFoundingMembersStats | null>(null);
+  const [app, setApp] = useState<AppSnapshot | null>(null);
+  const [crmError, setCrmError] = useState(false);
+  const [appError, setAppError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const s = await foundingMembersCrmApi.stats();
-        if (!cancelled) setStats(s);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Could not load Founding Members');
+        const [crmResult, appResult] = await Promise.allSettled([
+          foundingMembersCrmApi.stats(),
+          getAppSnapshot(),
+        ]);
+        if (cancelled) return;
+        if (crmResult.status === 'fulfilled') {
+          setCrm(crmResult.value);
+          setCrmError(false);
+        } else {
+          setCrmError(true);
+        }
+        if (appResult.status === 'fulfilled') {
+          setApp(appResult.value);
+          setAppError(false);
+        } else {
+          setAppError(true);
+        }
+      } finally {
+        inFlight = false;
       }
     };
     void load();
-    interval = setInterval(load, 60_000);
-    return () => { cancelled = true; if (interval) clearInterval(interval); };
+    const interval = setInterval(() => { void load(); }, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
-  const latest = stats?.latest;
-  const latestDisplayName = latest?.name || (latest?.email?.split('@')[0]) || '';
+  const latest = app?.latest;
+  const latestName = latest
+    ? (latest.display_name || [latest.first_name, latest.last_name].filter(Boolean).join(' ') || latest.username || 'Member')
+    : null;
   const latestWhen = latest?.created_at ? relTime(latest.created_at) : '';
 
   return (
-    <a href="/admin/crm/founding-members" style={cardLink} aria-label="Open Founding Members CRM">
+    <section style={card} aria-label="FriendPlace membership growth">
       <div style={header}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>🌟</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ fontSize: 21 }}>🦋</span>
           <div>
-            <div style={eyebrow}>Founding Members</div>
-            <div style={title}>Register-your-interest CRM</div>
+            <div style={eyebrow}>FriendPlace App</div>
+            <div style={title}>App Membership Growth</div>
           </div>
         </div>
-        <span style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Open →</span>
+        <Link href="/admin/members" style={openLink}>View app members →</Link>
       </div>
 
-      {error ? (
-        <div style={{ padding: '20px 0', color: '#B91C1C', fontSize: 13 }}>{error}</div>
-      ) : (
-        <>
-          <div style={statsGrid}>
-            <StatTile tone="teal" label="Total" value={stats?.total} />
-            <StatTile tone="teal" label="New today" value={stats?.new_today} accent={(stats?.new_today ?? 0) > 0} />
-            <StatTile tone="amber" label="Awaiting invitation" value={stats?.awaiting_contact} accent={(stats?.awaiting_contact ?? 0) > 0} />
-          </div>
+      <div style={statsGrid}>
+        <Link href="/admin/members" style={{ ...statLink, gridColumn: '1 / -1' }}>
+          <StatTile label="Total app members" value={appError ? undefined : app?.total} hint="Genuine FriendPlace members · test and demo accounts excluded" primary />
+        </Link>
+        <Link href="/admin/members" style={statLink}>
+          <StatTile label="Joined today" value={appError ? undefined : app?.newToday ?? undefined} hint="Sydney calendar day" />
+        </Link>
+        <Link href="/admin/members" style={statLink}>
+          <StatTile label="Joined in 7 days" value={appError ? undefined : app?.newWeek ?? undefined} hint="New genuine app members" />
+        </Link>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>
+            {app && app.total >= 100 ? '🎉 First milestone achieved — 100 members' : 'First milestone · 100 app members'}
+          </span>
+          <span style={{ color: '#0F766E', fontSize: 12, fontWeight: 800 }}>
+            {appError || !app ? '—' : `${Math.min(100, Math.round(app.total))} / 100`}
+          </span>
+        </div>
+        <div style={{ background: '#E2E8F0', borderRadius: 99, height: 8, marginTop: 7, overflow: 'hidden' }}>
+          <div style={{ background: '#0D9488', height: '100%', borderRadius: 99, width: `${app ? Math.min(100, app.total) : 0}%` }} />
+        </div>
+      </div>
 
-          <div style={latestRow}>
-            <div style={{ minWidth: 0 }}>
-              <div style={latestLabel}>Latest registration</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                {latest?.founder_number ? (
-                  <span style={{
-                    fontSize: 11, fontWeight: 900,
-                    padding: '1px 6px', borderRadius: 5,
-                    background: '#F0FDFA', color: '#0F766E',
-                    border: '1px solid #99F6E4',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>#{String(latest.founder_number).padStart(4, '0')}</span>
-                ) : null}
-                <span style={latestName}>
-                  {latestDisplayName || <span style={{ color: '#94A3B8', fontWeight: 500 }}>None yet</span>}
-                </span>
-              </div>
-              {latest?.state_country && <div style={latestMeta}>{latest.state_country}</div>}
-            </div>
-            {latestWhen && <div style={latestTime}>{latestWhen}</div>}
-          </div>
-        </>
+      <div style={latestRow}>
+        <div style={{ minWidth: 0 }}>
+          <div style={latestLabel}>Latest app member</div>
+          {latest && latestName ? (
+            <Link href={`/admin/members/${encodeURIComponent(latest.id)}`} style={{ ...latestNameStyle, textDecoration: 'none' }}>
+              {latestName}
+            </Link>
+          ) : (
+            <div style={latestNameStyle}>{app?.total === 0 ? 'No members yet' : '—'}</div>
+          )}
+        </div>
+        {latestWhen && <div style={latestTime}>{latestWhen}</div>}
+      </div>
+      <div style={crmFooter}>
+        <span>Website interest registrations</span>
+        <Link href="/admin/crm/founding-members" style={{ color: '#0F766E', fontWeight: 800, textDecoration: 'none' }}>
+          {crmError || !crm ? '—' : crm.total.toLocaleString('en-AU')} · View CRM →
+        </Link>
+      </div>
+      {(crmError || appError) && (
+        <p style={{ fontSize: 12, color: '#B45309', margin: '10px 0 0' }}>
+          Some figures could not be refreshed. Try reloading the Bridge.
+        </p>
       )}
-    </a>
+      {app && app.total > MAX_CLIENT_ROWS && (
+        <p style={{ fontSize: 11, color: '#64748B', margin: '10px 0 0' }}>
+          Daily and latest app figures need a server-side statistics endpoint once membership exceeds 1,000.
+        </p>
+      )}
+    </section>
   );
 }
 
-function StatTile({
-  tone, label, value, accent,
-}: { tone: 'teal' | 'amber'; label: string; value: number | undefined; accent?: boolean }) {
-  const palette = tone === 'teal'
-    ? { bg: 'linear-gradient(140deg, #CCFBF1 0%, #F0FDFA 100%)', border: 'rgba(20,184,166,0.28)', accent: '#0F766E' }
-    : { bg: 'linear-gradient(140deg, #FEF3C7 0%, #FEFCE8 100%)', border: 'rgba(217,119,6,0.28)', accent: '#B45309' };
+function StatTile({ label, value, hint, primary = false }: { label: string; value: number | undefined; hint: string; primary?: boolean }) {
   return (
-    <div style={{
-      background: palette.bg,
-      border: `1px solid ${palette.border}`,
-      borderRadius: 12,
-      padding: 12,
-    }}>
-      <div style={{
-        fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase',
-        fontWeight: 800, color: palette.accent,
-      }}>{label}</div>
-      <div style={{
-        fontSize: 26, fontWeight: 900, color: '#0A2540',
-        marginTop: 2, lineHeight: 1.1,
-        opacity: value === undefined ? 0.5 : 1,
-      }}>{value === undefined ? '—' : value}</div>
+    <div style={{ ...statTile, ...(primary ? { background: 'linear-gradient(135deg, #0F766E, #14B8A6)', borderColor: '#0F766E' } : {}) }}>
+      <div style={{ ...statLabel, ...(primary ? { color: '#CCFBF1' } : {}) }}>{label}</div>
+      <div style={{ ...statNumber, ...(primary ? { color: '#FFFFFF', fontSize: 48, letterSpacing: '-0.035em' } : {}) }}>{typeof value === 'number' ? value.toLocaleString('en-AU') : '—'}</div>
+      <div style={{ ...statHint, ...(primary ? { color: '#F0FDFA' } : {}) }}>{hint}</div>
     </div>
   );
 }
 
-function relTime(iso?: string): string {
-  if (!iso) return '';
-  const then = new Date(iso).getTime();
+function relTime(iso: string): string {
+  const then = Date.parse(iso);
   if (Number.isNaN(then)) return '';
   const diff = Math.max(0, Date.now() - then);
-  const s = Math.round(diff / 1000);
-  if (s < 30) return 'just now';
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return '';
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
-const cardLink: React.CSSProperties = {
-  display: 'block',
-  background: '#FFFFFF',
-  border: '1px solid #E2E8F0',
-  borderRadius: 16,
-  padding: 18,
-  boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
-  textDecoration: 'none',
-  color: 'inherit',
-  marginBottom: 16,
-  cursor: 'pointer',
+const card: React.CSSProperties = {
+  display: 'block', background: '#FFFFFF', border: '1px solid #DCEBE9',
+  borderRadius: 18, padding: 20, boxShadow: '0 3px 12px rgba(15,118,110,0.07)',
+  color: '#0F172A', marginBottom: 16,
 };
 const header: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-  gap: 8, marginBottom: 14,
+  flexWrap: 'wrap', gap: 10, marginBottom: 14,
 };
 const eyebrow: React.CSSProperties = {
   fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
   fontWeight: 800, color: '#94A3B8',
 };
 const title: React.CSSProperties = {
-  fontSize: 15, fontWeight: 800, color: '#0F172A', marginTop: 1,
+  fontSize: 17, fontWeight: 800, color: '#0F172A', marginTop: 2,
+};
+const openLink: React.CSSProperties = {
+  color: '#0F766E', fontSize: 12, fontWeight: 800, textDecoration: 'none',
 };
 const statsGrid: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8,
+  display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10,
+};
+const statLink: React.CSSProperties = {
+  display: 'block', textDecoration: 'none', color: 'inherit', minWidth: 0,
+};
+const statTile: React.CSSProperties = {
+  background: 'linear-gradient(140deg, #CCFBF1 0%, #F0FDFA 100%)',
+  border: '1px solid rgba(20,184,166,0.28)',
+  borderRadius: 12, padding: 12, height: '100%', boxSizing: 'border-box',
+};
+const statLabel: React.CSSProperties = {
+  fontSize: 10, letterSpacing: '0.03em', textTransform: 'uppercase',
+  fontWeight: 800, color: '#0F766E', minHeight: 28,
+};
+const statNumber: React.CSSProperties = {
+  fontSize: 29, fontWeight: 900, color: '#0A2540', marginTop: 3, lineHeight: 1.1,
+};
+const statHint: React.CSSProperties = {
+  fontSize: 10, color: '#64748B', marginTop: 6,
 };
 const latestRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-  gap: 12, marginTop: 14, paddingTop: 12,
-  borderTop: '1px dashed #E2E8F0',
+  gap: 12, marginTop: 14, paddingTop: 12, borderTop: '1px dashed #E2E8F0',
 };
 const latestLabel: React.CSSProperties = {
   fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase',
   fontWeight: 800, color: '#94A3B8',
 };
-const latestName: React.CSSProperties = {
-  fontSize: 14, fontWeight: 800, color: '#0A2540', marginTop: 2,
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-};
-const latestMeta: React.CSSProperties = {
-  fontSize: 12, color: '#64748B', marginTop: 2,
+const latestNameStyle: React.CSSProperties = {
+  display: 'inline-block', fontSize: 14, fontWeight: 800, color: '#0A2540',
+  marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const latestTime: React.CSSProperties = {
   fontSize: 11, color: '#64748B', fontWeight: 700, whiteSpace: 'nowrap',
+};
+
+const crmFooter: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap',
+  alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12,
+  borderTop: '1px dashed #E2E8F0', color: '#64748B', fontSize: 12,
 };
