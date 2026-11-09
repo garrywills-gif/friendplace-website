@@ -15,14 +15,25 @@ import { FoundingMembersCard } from '@/components/mcgs/FoundingMembersCard';
 import { brandAssets } from '@/lib/brand-assets';
 
 export default function BridgePage() {
-  const [appMemberCount, setAppMemberCount] = useState<number | null>(null);
+  const [joinedCount, setJoinedCount] = useState<number | null>(null);
+  const [allAccountCount, setAllAccountCount] = useState<number | null>(null);
 
+  // Existing MCGS member endpoint supplies both counts. "Real" excludes
+  // QA/test/demo accounts; total includes them for operational visibility.
   useEffect(() => {
     let active = true;
-    cmsApi.listMembers({ limit: 1, skip: 0, include_test: true })
-      .then((result) => { if (active) setAppMemberCount(result.total); })
-      .catch(() => { if (active) setAppMemberCount(null); });
-    return () => { active = false; };
+    const load = async () => {
+      const [real, all] = await Promise.allSettled([
+        cmsApi.listMembers({ status: 'real', limit: 1, skip: 0 }),
+        cmsApi.listMembers({ limit: 1, skip: 0, include_test: true }),
+      ]);
+      if (!active) return;
+      setJoinedCount(real.status === 'fulfilled' ? real.value.total : null);
+      setAllAccountCount(all.status === 'fulfilled' ? all.value.total : null);
+    };
+    void load();
+    const refresh = setInterval(() => { void load(); }, 60_000);
+    return () => { active = false; clearInterval(refresh); };
   }, []);
 
   // Reach up to the AdminShell-mounted Ask George bar. It listens on
@@ -42,20 +53,41 @@ export default function BridgePage() {
               What needs your attention today.
             </p>
           </div>
-          <Link href="/admin/members" style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            padding: '11px 18px', borderRadius: 12, background: '#0F766E',
-            color: '#FFFFFF', textDecoration: 'none', fontWeight: 800,
-            fontSize: 14, whiteSpace: 'nowrap', minHeight: 44,
-          }}>
-            👤 Members in App {appMemberCount === null ? '' : `(${appMemberCount.toLocaleString()})`} →
-          </Link>
         </header>
 
         <div className="cms-two-col">
           {/* Left / main column */}
           <div className="cms-grid-child">
             <BridgeCategoryTiles />
+
+            <Link href="/admin/members" style={{
+              display: 'block', textDecoration: 'none', color: '#0A2540',
+              background: 'linear-gradient(125deg, #CCFBF1 0%, #F0FDFA 100%)',
+              border: '2px solid #14B8A6', borderRadius: 18,
+              padding: '22px 24px', marginBottom: 16,
+              boxShadow: '0 3px 12px rgba(15,118,110,0.09)',
+            }} aria-label="View members who have joined the FriendPlace app">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.09em', color: '#0F766E' }}>
+                    🦋 Members in the App
+                  </div>
+                  <div style={{ fontSize: 46, lineHeight: 1.15, marginTop: 7, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
+                    {joinedCount === null ? '—' : joinedCount.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#475569', marginTop: 5 }}>
+                    Joined app · excluding test and demo accounts
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
+                    {allAccountCount === null ? 'Total app accounts loading…' : `${allAccountCount.toLocaleString()} total app accounts including test/admin`}
+                  </div>
+                </div>
+                <span style={{ display: 'inline-flex', padding: '11px 16px', borderRadius: 12,
+                  background: '#0F766E', color: '#FFFFFF', fontSize: 14, fontWeight: 800 }}>
+                  View app members →
+                </span>
+              </div>
+            </Link>
 
             <MorningBriefing onAsk={dispatchAsk} />
 
@@ -125,10 +157,7 @@ export default function BridgePage() {
 }
 
 const container: React.CSSProperties = { maxWidth: 1600, margin: '0 auto' };
-const heroWrap: React.CSSProperties = {
-  marginBottom: 20, display: 'flex', alignItems: 'center',
-  justifyContent: 'space-between', flexWrap: 'wrap', gap: 14,
-};
+const heroWrap: React.CSSProperties = { marginBottom: 20 };
 const mantraCard: React.CSSProperties = {
   background: '#FFFCF7',
   border: '1px solid #99DDE4',
