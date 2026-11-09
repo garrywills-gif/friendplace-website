@@ -33,8 +33,12 @@ async function getAppSnapshot(): Promise<AppSnapshot> {
   }
 
   const members = [...first.items];
-  for (let skip = members.length; skip < total; skip += PAGE_SIZE) {
-    const page = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip });
+  if (total > 0 && members.length === 0) {
+    return { total, newToday: null, latest: null };
+  }
+  // Advance by the number actually returned; the API may cap page size.
+  while (members.length < total) {
+    const page = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: members.length });
     if (!page.items.length) return { total, newToday: null, latest: null };
     members.push(...page.items);
   }
