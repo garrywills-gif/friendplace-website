@@ -245,6 +245,8 @@ function ComposePanel() {
   const [showFounderBadge, setShowFounderBadge] = useState<boolean>(true);
   // App Store / Google Play badges and QR codes (both UI variants of the backend announcement template).
   const [includeAppLinks, setIncludeAppLinks] = useState<boolean>(false);
+  // Explicit opt-in: ordinary newsletters must not update invitation status.
+  const [countsAsInvitation, setCountsAsInvitation] = useState<boolean>(false);
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
@@ -344,6 +346,7 @@ function ComposePanel() {
           setShowFounderBadge(TEMPLATE_META[uiT]?.defaultShowBadge ?? true);
         }
         setIncludeAppLinks(c.include_app_links === true);
+        setCountsAsInvitation(c.counts_as_invitation === true);
         setCtaLabel(c.cta_label || '');
         setCtaUrl(c.cta_url || '');
         setAttachFile(Boolean((c as any).attach_file));
@@ -497,6 +500,7 @@ function ComposePanel() {
         greeting,
         show_founder_badge: showFounderBadge,
         include_app_links: (template === 'announcement' || template === 'community_outreach') && includeAppLinks,
+        counts_as_invitation: countsAsInvitation,
         attach_file: attachFile,
       };
       let c: Campaign;
@@ -527,7 +531,7 @@ function ComposePanel() {
       setSaving(false);
     }
   }, [campaignId, name, template, subject, preheader, companion, title, bodyMd,
-      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, attachFile]);
+      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, countsAsInvitation, attachFile]);
 
   // CAMPAIGN_INVARIANT: NO_AUTOSAVE
   // Opening or editing a campaign is READ-ONLY until the admin deliberately
@@ -932,6 +936,20 @@ function ComposePanel() {
               PDF only · maximum 5 MB · sending as an attachment stays OFF until you choose otherwise.
             </div>
           )}
+        </SectionCard>
+
+        <SectionCard title="Invitation tracking">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, fontWeight: 750, color: '#0A2540' }}>
+            <input type="checkbox" checked={countsAsInvitation}
+              onChange={e => setCountsAsInvitation(e.target.checked)}
+              data-testid="campaign-counts-as-invitation"
+              style={{ width: 18, height: 18, accentColor: '#0F766E' }} />
+            Counts as invitation
+          </label>
+          <p style={{ margin: '8px 0 0 28px', color: '#475569', fontSize: 12, lineHeight: 1.5 }}>
+            Off by default. Turn on only for invitation campaigns: successfully sent emails will move Registered recipients to Invited.
+            Joined and Opted Out remain unchanged. This does not retroactively update past campaigns.
+          </p>
         </SectionCard>
 
         <SectionCard title="Audience">
