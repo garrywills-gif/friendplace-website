@@ -1042,6 +1042,8 @@ export type Campaign = {
   show_founder_badge?: boolean | null;
   // Optional announcement-only app store badges + QR codes.
   include_app_links?: boolean;
+  // Opt-in for CRM Registered → Invited tracking on successful campaign sends.
+  counts_as_invitation?: boolean;
   audience_filter: CampaignAudienceFilter;
   status: CampaignStatus;
   stats: CampaignStats;
