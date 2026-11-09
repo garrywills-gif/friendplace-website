@@ -243,7 +243,7 @@ function ComposePanel() {
   // showFounderBadge is initialised to the announcement default (ON).
   // The template <select> onChange below flips it for outreach.
   const [showFounderBadge, setShowFounderBadge] = useState<boolean>(true);
-  // App Store / Google Play badges and QR codes (announcement emails only).
+  // App Store / Google Play badges and QR codes (both UI variants of the backend announcement template).
   const [includeAppLinks, setIncludeAppLinks] = useState<boolean>(false);
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
@@ -496,7 +496,7 @@ function ComposePanel() {
         audience_filter: audienceFilter,
         greeting,
         show_founder_badge: showFounderBadge,
-        include_app_links: template === 'announcement' && includeAppLinks,
+        include_app_links: (template === 'announcement' || template === 'community_outreach') && includeAppLinks,
         attach_file: attachFile,
       };
       let c: Campaign;
@@ -833,7 +833,7 @@ function ComposePanel() {
                 ↺ FriendPlace website
               </button>
             </div>
-            {template === 'announcement' && (
+            {(template === 'announcement' || template === 'community_outreach') && (
               <div style={{ marginTop: 20, padding: '14px 16px', background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', color: '#0A2540', fontSize: 14, fontWeight: 750 }}>
                   <input type="checkbox" checked={includeAppLinks}
