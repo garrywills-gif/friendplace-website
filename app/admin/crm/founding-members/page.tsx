@@ -42,11 +42,11 @@ const STATUS_META: Record<CRMFoundingMemberStatus, { label: string; tone: string
 };
 
 const FILTERS: Array<{ key: 'all' | CRMFoundingMemberStatus; label: string; emptyLabel: string }> = [
-  { key: 'all',        label: 'All',                  emptyLabel: 'No Founding Members yet.' },
-  { key: 'registered', label: 'Awaiting Invitation',  emptyLabel: 'No Founding Members are awaiting invitation. (They\'ve already received the automatic registration email — this list shows who\'s waiting for their personal invitation.)' },
-  { key: 'invited',    label: 'Invited',              emptyLabel: 'No Founding Members have been invited yet.' },
-  { key: 'joined',     label: 'Joined',               emptyLabel: 'No Founding Members have joined FriendPlace yet.' },
-  { key: 'opted_out',  label: 'Opted Out',            emptyLabel: 'No Founding Members have opted out.' },
+  { key: 'all',        label: 'All',                  emptyLabel: 'No registrations yet.' },
+  { key: 'registered', label: 'Awaiting Invitation',  emptyLabel: 'No registrations are awaiting invitation. (They\'ve already received the automatic registration email — this list shows who\'s waiting for their personal invitation.)' },
+  { key: 'invited',    label: 'Invited',              emptyLabel: 'No registrations have been invited yet.' },
+  { key: 'joined',     label: 'Joined',               emptyLabel: 'No registrants have joined FriendPlace yet.' },
+  { key: 'opted_out',  label: 'Opted Out',            emptyLabel: 'No registrations have opted out.' },
 ];
 
 export default function FoundingMembersCRMPage() {
@@ -76,7 +76,7 @@ export default function FoundingMembersCRMPage() {
       setRows(listRes.rows || []);
       setStats(statsRes);
     } catch (e: any) {
-      showToast(e?.message || 'Failed to load Founding Members');
+      showToast(e?.message || 'Failed to load registrations');
     } finally {
       setLoading(false);
     }
@@ -141,24 +141,24 @@ export default function FoundingMembersCRMPage() {
   };
 
   const activeFilterMeta = FILTERS.find(f => f.key === filter);
-  const emptyMessage = activeFilterMeta?.emptyLabel || 'No Founding Members yet.';
+  const emptyMessage = activeFilterMeta?.emptyLabel || 'No registrations yet.';
   const emptySubline = filter === 'all'
     ? 'Once people submit the Register Interest form, they\u2019ll appear here.'
-    : (q ? 'Try clearing the search box to see more results.' : 'Try a different filter to see other Founding Members.');
+    : (q ? 'Try clearing the search box to see more results.' : 'Try a different filter to see other registrations.');
 
   return (
-    <AdminShell title="Founding Members">
+    <AdminShell title="Registrations">
       {/* Total-headline strip — the number that matters most, always in view. */}
       <div style={totalHeadline}>
         <div>
-          <div style={totalEyebrow}>Total Founding Members</div>
+          <div style={totalEyebrow}>Total Registrations</div>
           <div style={totalNumber}>
             {stats ? stats.total : <span style={{ opacity: 0.4 }}>…</span>}
           </div>
         </div>
         <p style={introCopy}>
-          Everyone who registers their interest becomes a Founding Member. This page is the source of
-          truth for managing invitations, notes, status and future email campaigns.
+          The first 250 places were reserved for Founding Members. Later registrants have permanent M-numbers.
+          This page tracks all registrations, invitations, status and future email campaigns.
         </p>
       </div>
 
@@ -314,7 +314,7 @@ function StatsRow({ stats, loading }: { stats: CRMFoundingMembersStats | null; l
   const latestWhen = stats?.latest?.created_at ? relTime(stats.latest.created_at) : '';
   return (
     <div style={statsGrid}>
-      <StatCard tone="teal" emoji="🌟" label="Total Founding Members" value={stats?.total} loading={loading} />
+      <StatCard tone="teal" emoji="🌟" label="Total Registrations" value={stats?.total} loading={loading} />
       <StatCard tone="teal" emoji="✨" label="New today"              value={stats?.new_today} loading={loading} />
       <StatCard tone="amber" emoji="📮" label="Awaiting invitation"    value={stats?.awaiting_contact} loading={loading} />
       <StatCard
