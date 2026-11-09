@@ -16,6 +16,7 @@ import {
 type AppSnapshot = {
   total: number;
   newToday: number | null;
+  newWeek: number | null;
   latest: MemberRow | null;
 };
 
@@ -29,17 +30,17 @@ async function getAppSnapshot(): Promise<AppSnapshot> {
   const first = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: 0 });
   const total = first.total;
   if (total > MAX_CLIENT_ROWS) {
-    return { total, newToday: null, latest: null };
+    return { total, newToday: null, newWeek: null, latest: null };
   }
 
   const members = [...first.items];
   if (total > 0 && members.length === 0) {
-    return { total, newToday: null, latest: null };
+    return { total, newToday: null, newWeek: null, latest: null };
   }
   // Advance by the number actually returned; the API may cap page size.
   while (members.length < total) {
     const page = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: members.length });
-    if (!page.items.length) return { total, newToday: null, latest: null };
+    if (!page.items.length) return { total, newToday: null, newWeek: null, latest: null };
     members.push(...page.items);
   }
 
@@ -49,10 +50,12 @@ async function getAppSnapshot(): Promise<AppSnapshot> {
   const today = sydneyDay(new Date());
   const valid = members.filter(m => m.created_at && !Number.isNaN(Date.parse(m.created_at)));
   const newToday = valid.filter(m => sydneyDay(new Date(m.created_at!)) === today).length;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newWeek = valid.filter(m => Date.parse(m.created_at!) >= weekAgo).length;
   const latest = valid.reduce<MemberRow | null>((best, m) =>
     !best || Date.parse(m.created_at!) > Date.parse(best.created_at!) ? m : best, null);
 
-  return { total, newToday, latest };
+  return { total, newToday, newWeek, latest };
 }
 
 export function FoundingMembersCard() {
@@ -106,23 +109,34 @@ export function FoundingMembersCard() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <span style={{ fontSize: 21 }}>🦋</span>
           <div>
-            <div style={eyebrow}>FriendPlace CRM</div>
-            <div style={title}>Membership Growth</div>
+            <div style={eyebrow}>FriendPlace App</div>
+            <div style={title}>App Membership Growth</div>
           </div>
         </div>
         <Link href="/admin/members" style={openLink}>View app members →</Link>
       </div>
 
       <div style={statsGrid}>
-        <Link href="/admin/crm/founding-members" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <StatTile label="Website registrations" value={crmError ? undefined : crm?.total} hint="CRM · all leads" />
+        <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <StatTile label="App members" value={appError ? undefined : app?.total} hint="Genuine accounts · no test/demo" primary />
         </Link>
         <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <StatTile label="Joined app" value={appError ? undefined : app?.total} hint="Real app accounts" />
+          <StatTile label="Joined today" value={appError ? undefined : app?.newToday ?? undefined} hint="Sydney calendar day" />
         </Link>
         <Link href="/admin/members" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <StatTile label="New app members today" value={appError ? undefined : app?.newToday ?? undefined} hint="Sydney time · excluding test/demo" />
+          <StatTile label="Joined last 7 days" value={appError ? undefined : app?.newWeek ?? undefined} hint="New genuine app accounts" />
         </Link>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>First milestone: 100 app members</span>
+          <span style={{ color: '#0F766E', fontSize: 12, fontWeight: 800 }}>
+            {appError || !app ? '—' : `${Math.min(100, Math.round(app.total / 100 * 100))}%`}
+          </span>
+        </div>
+        <div style={{ background: '#E2E8F0', borderRadius: 99, height: 8, marginTop: 7, overflow: 'hidden' }}>
+          <div style={{ background: '#0D9488', height: '100%', borderRadius: 99, width: `${app ? Math.min(100, app.total) : 0}%` }} />
+        </div>
       </div>
 
       <div style={latestRow}>
@@ -138,6 +152,12 @@ export function FoundingMembersCard() {
         </div>
         {latestWhen && <div style={latestTime}>{latestWhen}</div>}
       </div>
+      <div style={crmFooter}>
+        <span>Website interest registrations</span>
+        <Link href="/admin/crm/founding-members" style={{ color: '#0F766E', fontWeight: 800, textDecoration: 'none' }}>
+          {crmError || !crm ? '—' : crm.total.toLocaleString('en-AU')} · View CRM →
+        </Link>
+      </div>
       {(crmError || appError) && (
         <p style={{ fontSize: 12, color: '#B45309', margin: '10px 0 0' }}>
           Some figures could not be refreshed. Try reloading the Bridge.
@@ -152,12 +172,12 @@ export function FoundingMembersCard() {
   );
 }
 
-function StatTile({ label, value, hint }: { label: string; value: number | undefined; hint: string }) {
+function StatTile({ label, value, hint, primary = false }: { label: string; value: number | undefined; hint: string; primary?: boolean }) {
   return (
-    <div style={statTile}>
-      <div style={statLabel}>{label}</div>
-      <div style={statNumber}>{typeof value === 'number' ? value.toLocaleString('en-AU') : '—'}</div>
-      <div style={statHint}>{hint}</div>
+    <div style={{ ...statTile, ...(primary ? { background: 'linear-gradient(135deg, #0F766E, #14B8A6)', borderColor: '#0F766E' } : {}) }}>
+      <div style={{ ...statLabel, ...(primary ? { color: '#CCFBF1' } : {}) }}>{label}</div>
+      <div style={{ ...statNumber, ...(primary ? { color: '#FFFFFF', fontSize: 38 } : {}) }}>{typeof value === 'number' ? value.toLocaleString('en-AU') : '—'}</div>
+      <div style={{ ...statHint, ...(primary ? { color: '#F0FDFA' } : {}) }}>{hint}</div>
     </div>
   );
 }
@@ -225,4 +245,10 @@ const latestNameStyle: React.CSSProperties = {
 };
 const latestTime: React.CSSProperties = {
   fontSize: 11, color: '#64748B', fontWeight: 700, whiteSpace: 'nowrap',
+};
+
+const crmFooter: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap',
+  alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12,
+  borderTop: '1px dashed #E2E8F0', color: '#64748B', fontSize: 12,
 };
