@@ -98,6 +98,16 @@ export default function FoundingMembersCRMPage() {
 
   const foundingCount = allRegistrations.filter(isFoundingRegistration).length;
   const otherCount = allRegistrations.length - foundingCount;
+  const groupRegistrations = allRegistrations.filter(r =>
+    membershipFilter === 'all' ||
+    (membershipFilter === 'founding' ? isFoundingRegistration(r) : !isFoundingRegistration(r)));
+  const groupStatusCounts: Record<'all' | CRMFoundingMemberStatus, number> = {
+    all: groupRegistrations.length,
+    registered: groupRegistrations.filter(r => r.status === 'registered').length,
+    invited: groupRegistrations.filter(r => r.status === 'invited').length,
+    joined: groupRegistrations.filter(r => r.status === 'joined').length,
+    opted_out: groupRegistrations.filter(r => r.status === 'opted_out').length,
+  };
   // Keep Founding Members together and first in the All view, preserving the
   // API's existing order within each group.
   const visibleRows = useMemo(() => rows
@@ -172,7 +182,7 @@ export default function FoundingMembersCRMPage() {
     <AdminShell title="Registrations">
       {/* Permanent founder and post-founder totals, calculated from actual CRM records. */}
       <div style={{ ...totalHeadline, flexDirection: 'column', alignItems: 'stretch', gap: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 14 }}>
           {([
             { label: 'Founding Members', value: foundingCount, key: 'founding' },
             { label: 'Other Registrations', value: otherCount, key: 'other' },
@@ -224,12 +234,7 @@ export default function FoundingMembersCRMPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {FILTERS.map(f => {
             const active = filter === f.key;
-            const count = f.key === 'all'
-              ? stats?.total
-              : f.key === 'registered' ? stats?.awaiting_contact
-              : f.key === 'invited'    ? stats?.invited
-              : f.key === 'joined'     ? stats?.joined
-              : stats?.opted_out;
+            const count = stats ? groupStatusCounts[f.key] : undefined;
             return (
               <button
                 key={f.key}
