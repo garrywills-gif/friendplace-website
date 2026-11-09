@@ -1106,6 +1106,11 @@ export type CampaignRecipientEvent = {
 };
 
 export const campaignsApi = {
+  // Explicit preview / confirm: no emails sent or member numbers changed.
+  inviteSyncPreview: (id: string) => req<any>('GET', `/cms/campaigns/${encodeURIComponent(id)}/sync-invited`),
+  inviteSyncApply: (id: string) => req<any>('POST', `/cms/campaigns/${encodeURIComponent(id)}/sync-invited`, { confirm: 'INVITE' }),
+  joinedSyncPreview: () => req<any>('GET', '/cms/crm/founding-members/joined-sync'),
+  joinedSyncApply: () => req<any>('POST', '/cms/crm/founding-members/joined-sync', { confirm: 'JOINED' }),
   list: () => req<{ count: number; rows: Campaign[] }>('GET', '/cms/campaigns'),
   get:  (id: string) => req<Campaign & { recipients: CampaignRecipient[] }>('GET', `/cms/campaigns/${id}`),
   timeline: (id: string, recipientId: string) =>
