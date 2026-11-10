@@ -341,6 +341,7 @@ function MomentAdminRow({
 
           {commentsExpanded ? (
             <CommentsDrawer
+              onClose={onToggleComments}
               parentLabel={row.caption}
               loader={async () => {
                 const r = await momentCommentsApi.list(row.id);

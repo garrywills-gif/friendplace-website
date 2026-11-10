@@ -20,13 +20,15 @@ export type CommentsDrawerProps = {
   /** Human-readable label for the parent (e.g. post title) used in
    *  confirm dialogs: "Delete this comment on 'Garden swap'?". */
   parentLabel?: string;
+  /** Optional clear close control for inline hosts such as Moments. */
+  onClose?: () => void;
   /** Fetch the current comment list. Called on mount + after delete. */
   loader: () => Promise<CommentRow[]>;
   /** Remove a single comment by id. Called after confirm. */
   deleter: (commentId: string) => Promise<void>;
 };
 
-export default function CommentsDrawer({ parentLabel, loader, deleter }: CommentsDrawerProps) {
+export default function CommentsDrawer({ parentLabel, loader, deleter, onClose }: CommentsDrawerProps) {
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,16 +71,17 @@ export default function CommentsDrawer({ parentLabel, loader, deleter }: Comment
   };
 
   if (loading) {
-    return <div style={emptyRow}>Loading comments…</div>;
+    return <div style={emptyRow}>Loading comments… {onClose && <button type="button" onClick={onClose} style={closeBtn}>Close comments ×</button>}</div>;
   }
   if (error) {
-    return <div style={{ ...emptyRow, color: '#B91C1C' }}>Could not load comments — {error}</div>;
+    return <div style={{ ...emptyRow, color: '#B91C1C' }}>Could not load comments — {error} {onClose && <button type="button" onClick={onClose} style={closeBtn}>Close comments ×</button>}</div>;
   }
   if (comments.length === 0) {
-    return <div style={emptyRow}>No comments on this post.</div>;
+    return <div style={emptyRow}>No comments on this post. {onClose && <button type="button" onClick={onClose} style={closeBtn}>Close comments ×</button>}</div>;
   }
   return (
-    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+    <div style={{ display: 'grid', gap: 8, marginTop: 12, minWidth: 0 }}>
+      {onClose && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" onClick={onClose} style={closeBtn}>Close comments ×</button></div>}
       {comments.map((c) => (
         <div key={c.id}>
           <div style={{
@@ -92,7 +95,7 @@ export default function CommentsDrawer({ parentLabel, loader, deleter }: Comment
             padding: 10,
             opacity: busyId === c.id ? 0.55 : 1,
           }}>
-            <div style={avatarBubble}>{c.user_avatar || '👤'}</div>
+            <CommentAvatar src={c.user_avatar} fallback="👤" />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#0A2540' }}>
                 {c.user_name || 'Someone'}
@@ -126,7 +129,7 @@ export default function CommentsDrawer({ parentLabel, loader, deleter }: Comment
                   padding: 8,
                   opacity: busyId === r.id ? 0.55 : 1,
                 }}>
-                  <div style={{ ...avatarBubble, width: 28, height: 28, fontSize: 15 }}>{r.user_avatar || '↪'}</div>
+                  <CommentAvatar src={r.user_avatar} fallback="↪" size={28} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#0A2540' }}>
                       {r.user_name || 'Someone'}
@@ -150,6 +153,16 @@ export default function CommentsDrawer({ parentLabel, loader, deleter }: Comment
           ) : null}
         </div>
       ))}
+    </div>
+  );
+}
+
+function CommentAvatar({ src, fallback, size = 32 }: { src?: string | null; fallback: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const valid = typeof src === 'string' && (src.startsWith('https://') || src.startsWith('http://') || src.startsWith('data:image/'));
+  return (
+    <div style={{ ...avatarBubble, width: size, height: size, fontSize: size === 28 ? 15 : 17, overflow: 'hidden', flexShrink: 0 }}>
+      {valid && !failed ? <img src={src} alt="" onError={() => setFailed(true)} style={{ width: size, height: size, objectFit: 'cover', borderRadius: '50%' }} /> : fallback}
     </div>
   );
 }
@@ -194,3 +207,9 @@ const deleteBtn: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+
+const closeBtn: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 8,
+  padding: '6px 12px', color: '#0A2540', cursor: 'pointer',
+  fontSize: 12, fontWeight: 800,
+};
