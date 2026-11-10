@@ -283,7 +283,15 @@ function MomentAdminRow({
           <div style={{
             width: 48, height: 48, borderRadius: 12, background: '#F1F5F9',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-          }}>{row.author_avatar || '👤'}</div>
+          }}>
+            {typeof row.author_avatar === 'string' && (row.author_avatar.startsWith('https://') || row.author_avatar.startsWith('http://') || row.author_avatar.startsWith('data:image/')) ? (
+              <img src={row.author_avatar} alt="" referrerPolicy="no-referrer"
+                style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            ) : (
+              <span aria-hidden="true">👤</span>
+            )}
+          </div>
         )}
 
         <div style={{ minWidth: 0 }}>
