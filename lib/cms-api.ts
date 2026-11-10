@@ -223,6 +223,10 @@ export const cmsApi = {
   auditLogActions: () =>
     req<{ actions: string[] }>('GET', '/cms/admin-log/actions'),
 
+  // Live activity summary: computed by the app backend across all genuine app members.
+  // App heartbeats are tracked server-side; do not estimate presence from paginated member lists.
+  memberActivitySummary: () => req<MemberActivitySummary>('GET', '/cms/members/activity-summary'),
+
   // Member management (Slice 1)
   listMembers: (opts?: { q?: string; status?: string; limit?: number; skip?: number; include_test?: boolean }) => {
     const p = new URLSearchParams();
@@ -397,6 +401,17 @@ export type Lockout = {
   scope: 'email' | 'ip'; key: string;
   locked_until: string; reason?: string;
   created_at?: string; updated_at?: string;
+};
+
+export type MemberActivitySummary = {
+  online_now: number;
+  active_today: number;
+  active_7d: number;
+  total_members: number;
+  online_window_minutes: number;
+  timezone: string;
+  today_starts_at: string;
+  generated_at: string;
 };
 
 export type MemberRow = {
