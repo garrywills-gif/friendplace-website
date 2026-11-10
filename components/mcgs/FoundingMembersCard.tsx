@@ -10,15 +10,13 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
   cmsApi, foundingMembersCrmApi,
-  type CRMFoundingMembersStats, type MemberRow,
+  type CRMFoundingMembersStats, type MemberRow, type MemberActivitySummary,
 } from '@/lib/cms-api';
 
 type AppSnapshot = {
   total: number;
   newToday: number | null;
   newWeek: number | null;
-  activeToday: number | null;
-  recentFiveMinutes: number | null;
   latest: MemberRow | null;
 };
 
@@ -32,17 +30,17 @@ async function getAppSnapshot(): Promise<AppSnapshot> {
   const first = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: 0 });
   const total = first.total;
   if (total > MAX_CLIENT_ROWS) {
-    return { total, newToday: null, newWeek: null, activeToday: null, recentFiveMinutes: null, latest: null };
+    return { total, newToday: null, newWeek: null, latest: null };
   }
 
   const members = [...first.items];
   if (total > 0 && members.length === 0) {
-    return { total, newToday: null, newWeek: null, activeToday: null, recentFiveMinutes: null, latest: null };
+    return { total, newToday: null, newWeek: null, latest: null };
   }
   // Advance by the number actually returned; the API may cap page size.
   while (members.length < total) {
     const page = await cmsApi.listMembers({ status: 'real', limit: PAGE_SIZE, skip: members.length });
-    if (!page.items.length) return { total, newToday: null, newWeek: null, activeToday: null, recentFiveMinutes: null, latest: null };
+    if (!page.items.length) return { total, newToday: null, newWeek: null, latest: null };
     members.push(...page.items);
   }
 
@@ -54,26 +52,19 @@ async function getAppSnapshot(): Promise<AppSnapshot> {
   const newToday = valid.filter(m => sydneyDay(new Date(m.created_at!)) === today).length;
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const newWeek = valid.filter(m => Date.parse(m.created_at!) >= weekAgo).length;
-  // 'last_active' is provided by the app backend. These are activity estimates,
-  // NOT a reliable live-presence signal: no timestamp means unavailable, not zero.
-  const activityTimes = members.map(m => m.last_active ? Date.parse(m.last_active) : NaN)
-    .filter(t => Number.isFinite(t) && t <= Date.now() + 60_000);
-  const activityAvailable = activityTimes.length > 0;
-  const activeToday = activityAvailable
-    ? activityTimes.filter(t => sydneyDay(new Date(t)) === today).length : null;
-  const recentFiveMinutes = activityAvailable
-    ? activityTimes.filter(t => t >= Date.now() - 5 * 60_000).length : null;
   const latest = valid.reduce<MemberRow | null>((best, m) =>
     !best || Date.parse(m.created_at!) > Date.parse(best.created_at!) ? m : best, null);
 
-  return { total, newToday, newWeek, activeToday, recentFiveMinutes, latest };
+  return { total, newToday, newWeek, latest };
 }
 
 export function FoundingMembersCard() {
   const [crm, setCrm] = useState<CRMFoundingMembersStats | null>(null);
   const [app, setApp] = useState<AppSnapshot | null>(null);
+  const [activity, setActivity] = useState<MemberActivitySummary | null>(null);
   const [crmError, setCrmError] = useState(false);
   const [appError, setAppError] = useState(false);
+  const [activityError, setActivityError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,9 +73,10 @@ export function FoundingMembersCard() {
       if (inFlight) return;
       inFlight = true;
       try {
-        const [crmResult, appResult] = await Promise.allSettled([
+        const [crmResult, appResult, activityResult] = await Promise.allSettled([
           foundingMembersCrmApi.stats(),
           getAppSnapshot(),
+          cmsApi.memberActivitySummary(),
         ]);
         if (cancelled) return;
         if (crmResult.status === 'fulfilled') {
@@ -98,6 +90,13 @@ export function FoundingMembersCard() {
           setAppError(false);
         } else {
           setAppError(true);
+        }
+        if (activityResult.status === 'fulfilled') {
+          setActivity(activityResult.value);
+          setActivityError(false);
+        } else {
+          setActivity(null);
+          setActivityError(true);
         }
       } finally {
         inFlight = false;
@@ -132,10 +131,13 @@ export function FoundingMembersCard() {
           <StatTile label="Total app members" value={appError ? undefined : app?.total} hint="Genuine FriendPlace members · test and demo accounts excluded" primary />
         </Link>
         <Link href="/admin/members" style={statLink}>
-          <StatTile label="Active recently" value={appError ? undefined : app?.recentFiveMinutes ?? undefined} hint="Activity within 5 minutes · not live online presence" />
+          <StatTile label="Online now" value={activityError ? undefined : activity?.online_now} hint="App activity in the last 5 minutes · excluding admin and test accounts" />
         </Link>
         <Link href="/admin/members" style={statLink}>
-          <StatTile label="Active today" value={appError ? undefined : app?.activeToday ?? undefined} hint="Unique members active today · Sydney time" />
+          <StatTile label="Active today" value={activityError ? undefined : activity?.active_today} hint="Unique genuine members · Sydney time" />
+        </Link>
+        <Link href="/admin/members" style={statLink}>
+          <StatTile label="Active in 7 days" value={activityError ? undefined : activity?.active_7d} hint="Unique genuine members · last 7 days" />
         </Link>
         <Link href="/admin/members" style={statLink}>
           <StatTile label="Joined today" value={appError ? undefined : app?.newToday ?? undefined} hint="Sydney calendar day" />
@@ -144,7 +146,7 @@ export function FoundingMembersCard() {
           <StatTile label="Joined in 7 days" value={appError ? undefined : app?.newWeek ?? undefined} hint="New genuine app members" />
         </Link>
       </div>
-      <p style={{ fontSize: 11, color: '#64748B', margin: '9px 0 0' }}>Activity estimates use the app’s last-active timestamps and refresh every minute; they are not a live online count. A dash means activity data is unavailable.</p>
+      <p style={{ fontSize: 11, color: '#64748B', margin: '9px 0 0' }}>Online now follows the app’s 5-minute presence rule. Activity counts refresh every minute and exclude demo, test and admin accounts. A dash means activity data is unavailable.</p>
       <div style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
           <span style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>
@@ -178,7 +180,7 @@ export function FoundingMembersCard() {
           {crmError || !crm ? '—' : crm.total.toLocaleString('en-AU')} · View CRM →
         </Link>
       </div>
-      {(crmError || appError) && (
+      {(crmError || appError || activityError) && (
         <p style={{ fontSize: 12, color: '#B45309', margin: '10px 0 0' }}>
           Some figures could not be refreshed. Try reloading the Bridge.
         </p>
