@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@/lib/mcgs-api';
+import { cmsApi } from '@/lib/cms-api';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
@@ -247,6 +248,52 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // George's backend chat can confuse website CRM leads with real app joins.
+  // Answer narrow app-join questions from the SAME authenticated source as The Bridge.
+  // Never infer zero from an incomplete API response and never use website leads.
+  async function answerGenuineAppJoinsToday() {
+    try {
+      const first = await cmsApi.listMembers({ status: 'real', limit: 200, skip: 0 });
+      const total = first.total;
+      if (!Number.isFinite(total) || total < 0 || total > 1000 || (total > 0 && !first.items.length)) {
+        throw new Error('Member list is unavailable or larger than the safe client limit');
+      }
+      const members = [...first.items];
+      while (members.length < total) {
+        const page = await cmsApi.listMembers({ status: 'real', limit: 200, skip: members.length });
+        if (!page.items.length) throw new Error('Incomplete member list');
+        members.push(...page.items);
+      }
+      const day = (iso: string) => new Intl.DateTimeFormat('en-AU', {
+        timeZone: 'Australia/Sydney', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date(iso));
+      const today = day(new Date().toISOString());
+      const count = members.filter(m => m.created_at && !Number.isNaN(Date.parse(m.created_at)) && day(m.created_at) === today).length;
+      const reply = count === 0
+        ? 'No new genuine members have joined the FriendPlace app today yet (Sydney time).'
+        : count === 1
+          ? '1 genuine member has joined the FriendPlace app today (Sydney time).'
+          : `${count} genuine members have joined the FriendPlace app today (Sydney time).`;
+      setTurns(prev => prev.map((t, i) => i === prev.length - 1 && t.role === 'george'
+        ? { ...t, content: reply, streaming: false, failed: false }
+        : t));
+    } catch {
+      setTurns(prev => prev.map((t, i) => i === prev.length - 1 && t.role === 'george'
+        ? { ...t, content: "I can't confirm today's live app sign-ups right now. The Bridge has the latest figures.", streaming: false, failed: false }
+        : t));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function isGenuineAppJoinsTodayQuestion(question: string): boolean {
+    const q = question.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim();
+    const joinTerms = /\\b(join|joined|joining|signups?|signed up|registered|registrations?|new members?)\\b/.test(q);
+    const todayTerms = /\\b(today|so far today|since midnight)\\b/.test(q);
+    const appTerms = /\\b(app|friendplace|members?|people|users?)\\b/.test(q);
+    return joinTerms && todayTerms && appTerms;
+  }
+
   function send(message: string, surfaceContext?: Record<string, unknown> | null) {
     const trimmed = message.trim();
     if (!trimmed || busy) return;
@@ -263,6 +310,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
       { role: 'user', content: trimmed },
       { role: 'george', content: '', streaming: true },
     ]);
+
+    if (isGenuineAppJoinsTodayQuestion(trimmed)) {
+      void answerGenuineAppJoinsToday();
+      return;
+    }
 
     abortRef.current = askGeorge(
       trimmed,
