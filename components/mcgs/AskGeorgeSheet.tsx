@@ -287,11 +287,23 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   }
 
   function isGenuineAppJoinsTodayQuestion(question: string): boolean {
-    const q = question.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim();
-    const joinTerms = /\\b(join|joined|joining|signups?|signed up|registered|registrations?|new members?)\\b/.test(q);
-    const todayTerms = /\\b(today|so far today|since midnight)\\b/.test(q);
-    const appTerms = /\\b(app|friendplace|members?|people|users?)\\b/.test(q);
-    return joinTerms && todayTerms && appTerms;
+    // Recognise both direct questions and corrections after George confuses
+    // website leads with app registrations. Never route unrelated member queries.
+    const q = question.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const asksCount = /\b(how many|count|number|total|any|who|joined|join|joining|signup|signups|signed up|registered|registrations|new members)\b/.test(q);
+    const mentionsToday = /\b(today|since midnight|so far today|this morning)\b/.test(q);
+    const mentionsApp = /\b(app|mobile|friendplace)\b/.test(q);
+    const mentionsWebCorrection = /\b(not website|not web|rather than website|instead of website|not ryi|not register your interest)\b/.test(q);
+    if (asksCount && mentionsToday && (mentionsApp || /\bmembers?\b/.test(q))) return true;
+
+    // Follow-up like "No, app registrations, not website registrations":
+    // only count it as "today" when the immediately preceding user query
+    // was asking about today. Avoid treating every app mention as a count.
+    const correction = /\b(app registrations?|app signups?|app members?|mobile app|people who joined the app)\b/.test(q)
+      && (mentionsWebCorrection || /\b(yes|no|actually|i mean|we re looking at|not the website)\b/.test(q));
+    if (!correction) return false;
+    const previousUserTurn = [...turns].reverse().find(t => t.role === 'user');
+    return !!previousUserTurn && /\b(today|since midnight|so far today|this morning)\b/i.test(previousUserTurn.content);
   }
 
   function send(message: string, surfaceContext?: Record<string, unknown> | null) {
