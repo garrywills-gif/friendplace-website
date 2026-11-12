@@ -20,7 +20,7 @@ import { MemberRowCard } from '@/components/members/MemberRowCard';
 
 import OpenMargaretButton from '@/components/admin/OpenMargaretButton';
 
-type StatusFilter = '' | 'real' | 'test' | 'banned' | 'suspended' | 'restricted' | 'founding' | 'demo' | 'admin';
+type StatusFilter = '' | 'real' | 'test' | 'banned' | 'suspended' | 'restricted' | 'founding' | 'regular' | 'demo' | 'admin';
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; hint: string }[] = [
   { value: '',           label: 'All members',     hint: 'Everyone — real, test and demo accounts (labelled).' },
@@ -29,12 +29,20 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string; hint: string }[] = [
   { value: 'restricted', label: 'Restricted',      hint: 'Currently limited in-app.' },
   { value: 'suspended',  label: 'Suspended',       hint: 'Time-boxed suspension in effect.' },
   { value: 'banned',     label: 'Banned',          hint: 'Permanent — cannot sign in.' },
-  { value: 'founding',   label: 'Founding',        hint: 'Founding members.' },
+  { value: 'founding',   label: 'Founding Members', hint: 'Genuine app accounts with a Founding Member number.' },
+  { value: 'regular',   label: 'Members (M-numbers)', hint: 'Genuine app accounts with a regular M-number.' },
   { value: 'demo',       label: 'Demo accounts',   hint: 'Seed / demo users.' },
   { value: 'admin',      label: 'Admins',          hint: 'Members with admin role.' },
 ];
 
 const PAGE_SIZE = 25;
+const GROUP_BATCH_SIZE = 100;
+
+function isMemberGroup(m: MemberRow, group: 'founding' | 'regular'): boolean {
+  // Use the actual app numbering, not CRM Joined status or the user role.
+  if (group === 'founding') return m.membership_kind === 'founding' || /^#\\d+$/.test(m.membership_number_display || '');
+  return m.membership_kind === 'member' || /^M\\d+$/i.test(m.membership_number_display || '');
+}
 
 export default function MembersPage() {
   const [rows, setRows] = useState<MemberRow[]>([]);
@@ -49,16 +57,38 @@ export default function MembersPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await cmsApi.listMembers({
-        q: q.trim() || undefined,
-        status: status || undefined,
-        // iter264: All + Test views include test accounts; Real excludes them.
-        include_test: status === '' || status === 'test',
-        limit: PAGE_SIZE,
-        skip,
-      });
-      setRows(r.items);
-      setTotal(r.total);
+      if (status === 'founding' || status === 'regular') {
+        // The backend's 'founding' status is a role flag, not a member-number
+        // grouping. Filter *all genuine app accounts* using their assigned
+        // numbers so paging and counts reflect the full dataset.
+        const all: MemberRow[] = [];
+        let next = 0;
+        while (true) {
+          const batch = await cmsApi.listMembers({
+            q: q.trim() || undefined,
+            status: 'real',
+            include_test: false,
+            limit: GROUP_BATCH_SIZE,
+            skip: next,
+          });
+          all.push(...batch.items);
+          next += batch.items.length;
+          if (!batch.items.length || next >= batch.total) break;
+        }
+        const filtered = all.filter(member => isMemberGroup(member, status));
+        setTotal(filtered.length);
+        setRows(filtered.slice(skip, skip + PAGE_SIZE));
+      } else {
+        const r = await cmsApi.listMembers({
+          q: q.trim() || undefined,
+          status: status || undefined,
+          include_test: status === '' || status === 'test',
+          limit: PAGE_SIZE,
+          skip,
+        });
+        setRows(r.items);
+        setTotal(r.total);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load members');
     } finally {
