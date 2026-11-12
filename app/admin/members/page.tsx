@@ -40,8 +40,8 @@ const GROUP_BATCH_SIZE = 100;
 
 function isMemberGroup(m: MemberRow, group: 'founding' | 'regular'): boolean {
   // Use the actual app numbering, not CRM Joined status or the user role.
-  if (group === 'founding') return m.membership_kind === 'founding' || /^#\\d+$/.test(m.membership_number_display || '');
-  return m.membership_kind === 'member' || /^M\\d+$/i.test(m.membership_number_display || '');
+  if (group === 'founding') return m.membership_kind === 'founding' || /^#\d+$/.test(m.membership_number_display || '');
+  return m.membership_kind === 'member' || /^M\d+$/i.test(m.membership_number_display || '');
 }
 
 export default function MembersPage() {
