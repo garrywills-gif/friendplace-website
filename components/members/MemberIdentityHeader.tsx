@@ -1,7 +1,7 @@
 'use client';
 
 import { type MemberRow } from '@/lib/cms-api';
-import { memberDisplayName, statusBadgesFor, formatShortDate } from './MemberRowCard';
+import { memberDisplayName, statusBadgesFor, formatShortDate, MembershipChips } from './MemberRowCard';
 
 /**
  * MemberIdentityHeader — the top-of-profile identity block. Renders
@@ -45,6 +45,10 @@ export function MemberIdentityHeader({ member }: { member: MemberRow }) {
           <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap', fontSize: 12, color: '#64748B' }}>
             {member.created_at && <span>Joined {formatShortDate(member.created_at)}</span>}
             {member.last_active && <span>Last active {formatShortDate(member.last_active)}</span>}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <MembershipChips member={member} />
           </div>
 
           <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
