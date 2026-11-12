@@ -1039,6 +1039,9 @@ export type Campaign = {
   template: 'announcement' | 'invitation' | 'welcome';
   subject?: string;
   preheader?: string;
+  // Optional per-campaign authorised sender and reply-to; empty uses backend default.
+  from_email?: string | null;
+  reply_to?: string | null;
   // iter164o: expanded from {george, georgia} to also accept
   // {team, none} so Community/Outreach campaigns can be signed by
   // The FriendPlace Team, and campaigns whose body already contains
@@ -1123,7 +1126,10 @@ export type CampaignRecipientEvent = {
   };
 };
 
+export type CampaignSender = { address: string; name?: string; label?: string; default?: boolean };
+
 export const campaignsApi = {
+  senders: () => req<any>('GET', '/cms/campaigns/senders'),
   // Explicit preview / confirm: no emails sent or member numbers changed.
   inviteSyncPreview: (id: string) => req<any>('GET', `/cms/campaigns/${encodeURIComponent(id)}/sync-invited`),
   inviteSyncApply: (id: string) => req<any>('POST', `/cms/campaigns/${encodeURIComponent(id)}/sync-invited`, { confirm: 'INVITE' }),
