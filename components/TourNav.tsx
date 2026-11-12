@@ -3,7 +3,7 @@
  *   The three-line TourEnding closing beat ("You're all set." /
  *   "FriendPlace is yours to explore now." / "And remember… if
  *   you ever need me, just tap the butterfly. 🦋") is LOCKED,
- *   as is the "Not opened yet? Let me know when we do →" link.
+ *   The original pre-launch link is replaced for the live-app launch.
  *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
  * ─────────────────────────────────────────────────────────── */
 
@@ -134,13 +134,19 @@ export function TourEnding() {
             Locked with Garry (iter147). */}
         <TourEndingVoice />
 
-        {/* Pre-launch fallback. Quiet, secondary, positioned so it
-            does not compete with the emotional beat above. Once
-            FriendPlace is live this whole block can be deleted
-            without touching George's closing line. */}
-        <Link href="/register-interest" style={endingSecondaryLink}>
-          Not opened yet? Let me know when we do &rarr;
-        </Link>
+        {/* Live app download — George's voice, timing and closing three lines
+            above remain unchanged. The original pre-launch link is retired. */}
+        <p style={{ color: '#0A2540', fontWeight: 700, fontSize: 18, margin: '0 auto 18px' }}>
+          FriendPlace is open. Come on in — we&rsquo;d love to meet you!
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <a href="https://apps.apple.com/au/app/id6796969555" target="_blank" rel="noopener noreferrer" style={endingSecondaryLink}>
+            Download for iPhone ↗
+          </a>
+          <a href="https://play.google.com/store/apps/details?id=au.com.friendplace.app" target="_blank" rel="noopener noreferrer" style={endingSecondaryLink}>
+            Download for Android ↗
+          </a>
+        </div>
       </div>
     </section>
   );
