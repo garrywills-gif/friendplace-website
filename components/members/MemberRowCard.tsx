@@ -38,6 +38,9 @@ export function MemberRowCard({ member }: { member: MemberRow }) {
             </span>
           )}
         </div>
+        <div style={{ ...emailRow, marginTop: 6, gap: 8 }}>
+          <MembershipChips member={member} />
+        </div>
       </div>
 
       <div style={badgesBox}>
@@ -71,6 +74,28 @@ export function formatShortDate(iso?: string): string {
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
   } catch { return iso; }
 }
+
+// Membership number and email verification indicators for list and profile.
+export function MembershipChips({ member }: { member: MemberRow }) {
+  const kind = member.membership_kind || 'pending';
+  const number = member.membership_number_display || 'Pending';
+  const styling = kind === 'founding'
+    ? { background: '#FEF3C7', color: '#92400E', borderColor: '#FCD34D' }
+    : kind === 'member'
+      ? { background: '#F0FDFA', color: '#0F766E', borderColor: '#99F6E4' }
+      : { background: '#F1F5F9', color: '#475569', borderColor: '#CBD5E1' };
+  const label = kind === 'founding' ? `Founding Member ${number}`
+    : kind === 'member' ? `Member ${number}` : 'Member No. Pending';
+  return (
+    <>
+      <span data-testid="member-number-chip" style={{ ...numberChip, ...styling }}>{label}</span>
+      {member.email_verified === true && <span style={{ ...verificationChip, color: '#047857' }}>✓ Email confirmed</span>}
+      {member.email_verified === false && <span style={{ ...verificationChip, color: '#B45309' }}>Email not confirmed</span>}
+    </>
+  );
+}
+const numberChip: React.CSSProperties = { padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 800, border: '1px solid', fontVariantNumeric: 'tabular-nums' };
+const verificationChip: React.CSSProperties = { fontSize: 12, fontWeight: 700 };
 
 type Badge = { label: string; bg: string; fg: string; border: string };
 
