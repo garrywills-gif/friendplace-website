@@ -22,6 +22,7 @@ import { AskGeorgeAboutThis } from '@/components/mcgs/AskGeorgeAboutThis';
 import { ConfirmIdentityAction, type ModAction } from '@/components/admin/ConfirmIdentityAction';
 import { cmsApi, type MemberProfile, type MemberRow, type MemberModerationLogEntry, type MemberReport } from '@/lib/cms-api';
 import { MemberIdentityHeader } from '@/components/members/MemberIdentityHeader';
+import { MemberDetailsPanel } from '@/components/members/MemberDetailsPanel';
 import { ModerationSummaryCard } from '@/components/members/ModerationSummaryCard';
 import { ModerationTimeline } from '@/components/members/ModerationTimeline';
 import { AwardPointsModal, ReverseAwardModal } from '@/components/members/AwardPointsModal';
@@ -255,6 +256,7 @@ export default function MemberProfilePage() {
       {profile && memberRow && (
         <>
           <MemberIdentityHeader member={memberRow} />
+          <MemberDetailsPanel member={profile.user} />
 
           <div style={{ marginTop: 20 }}>
             <ModerationSummaryCard counts={profile.counts} restricted={restricted} banned={banned} suspendedActive={suspendedActive} />
