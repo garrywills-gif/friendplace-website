@@ -47,6 +47,8 @@ export default function CrmSyncPage() {
   const [invitationApplied, setInvitationApplied] = useState<any>(null);
   const [joinedPreview, setJoinedPreview] = useState<any>(null);
   const [joinedApplied, setJoinedApplied] = useState<any>(null);
+  const [numberPreview, setNumberPreview] = useState<any>(null);
+  const [numberApplied, setNumberApplied] = useState<any>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
@@ -155,6 +157,52 @@ export default function CrmSyncPage() {
         {joinedApplied && <div role="status" style={{ marginTop: 12, color: '#047857', fontWeight: 700 }}>
           Done — {joinedApplied.changed_to_joined} marked Joined, {joinedApplied.records_linked} linked to app accounts.
         </div>}
+      </div>
+      <div style={{ ...s.card, marginTop: 20 }}>
+        <h2 style={s.cardTitle}>3 · Give missing member numbers</h2>
+        <p style={s.helper}>
+          Verified app members with no membership number can receive the next available M-number.
+          Existing Founding Member and M-numbers are never changed. Applying also enables automatic
+          recovery checks every 10 minutes.
+        </p>
+        <button type="button" className="cms-btn-ghost" style={s.ghostBtn} disabled={!!busy}
+          onClick={() => run('number-preview', campaignsApi.numberRecoveryPreview, data => {
+            setNumberPreview(data);
+            setNumberApplied(null);
+          })}>
+          {busy === 'number-preview' ? 'Checking…' : 'Preview changes'}
+        </button>
+        {numberPreview && (
+          <div style={{ marginTop: 14, fontSize: 15, color: '#0A2540', lineHeight: 1.7 }}>
+            {numberPreview.founder_places_open && <div>Founding Member places are still open — nothing to do.</div>}
+            <div style={{ fontSize: 17 }}>
+              Will be given a number: <b>{numberPreview.will_assign}</b>
+              {' '}· Automatic recovery is <b>{numberPreview.automatic_recovery_enabled ? 'ON' : 'OFF'}</b>
+            </div>
+            <MemberList rows={(numberPreview.candidates || []).map((candidate: any) => ({
+              first_name: `${candidate.first_name || ''} @${candidate.username || ''}`,
+              number: candidate.proposed_number,
+            }))} />
+            {(numberPreview.skipped || []).length > 0 && (
+              <div style={{ marginTop: 8 }}>Not changed:
+                {numberPreview.skipped.map((item: any, index: number) => (
+                  <div key={index}>· {item.first_name} @{item.username} — {item.reason}</div>
+                ))}
+              </div>
+            )}
+            {!numberApplied && !numberPreview.founder_places_open && (
+              <ConfirmApply word="ASSIGN" label={numberPreview.will_assign > 0 ? 'Assign numbers' : 'Switch on automatic recovery'}
+                busy={!!busy} onApply={() => run('number-apply', campaignsApi.numberRecoveryApply, setNumberApplied)} />
+            )}
+          </div>
+        )}
+        {numberApplied && (
+          <div role="status" style={{ marginTop: 12, color: '#047857', fontWeight: 700 }}>
+            Done — {(numberApplied.assigned || []).length} numbered
+            {(numberApplied.assigned || []).map((item: any) => ` · ${item.first_name} ${item.member_number_display}`).join('')}.
+            Automatic recovery is ON.
+          </div>
+        )}
       </div>
     </AdminShell>
   );

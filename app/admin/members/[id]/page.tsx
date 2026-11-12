@@ -115,6 +115,8 @@ export default function MemberProfilePage() {
       suspended_until: u.suspended_until, restricted_reason: u.restricted_reason,
       flagged_for_review: u.flagged_for_review, profile_hidden: u.profile_hidden,
       is_admin: u.is_admin, is_demo: u.is_demo, is_founding: u.is_founding,
+      membership_kind: u.membership_kind, membership_number_display: u.membership_number_display,
+      email_verified: u.email_verified,
     };
   }, [profile]);
 

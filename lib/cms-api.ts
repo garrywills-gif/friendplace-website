@@ -434,6 +434,9 @@ export type MemberRow = {
   is_demo?: boolean;
   is_test?: boolean;
   is_founding?: boolean;
+  membership_kind?: 'founding' | 'member' | 'pending';
+  membership_number_display?: string;
+  email_verified?: boolean;
 };
 
 export type MemberModerationLogEntry = {
@@ -1126,6 +1129,8 @@ export const campaignsApi = {
   inviteSyncApply: (id: string) => req<any>('POST', `/cms/campaigns/${encodeURIComponent(id)}/sync-invited`, { confirm: 'INVITE' }),
   joinedSyncPreview: () => req<any>('GET', '/cms/crm/founding-members/joined-sync'),
   joinedSyncApply: () => req<any>('POST', '/cms/crm/founding-members/joined-sync', { confirm: 'JOINED' }),
+  numberRecoveryPreview: () => req<any>('GET', '/cms/member-numbers/recovery'),
+  numberRecoveryApply: () => req<any>('POST', '/cms/member-numbers/recovery', { confirm: 'ASSIGN' }),
   list: () => req<{ count: number; rows: Campaign[] }>('GET', '/cms/campaigns'),
   get:  (id: string) => req<Campaign & { recipients: CampaignRecipient[] }>('GET', `/cms/campaigns/${id}`),
   timeline: (id: string, recipientId: string) =>
