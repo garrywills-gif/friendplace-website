@@ -3,14 +3,14 @@
  *   The three-line TourEnding closing beat ("You're all set." /
  *   "FriendPlace is yours to explore now." / "And remember… if
  *   you ever need me, just tap the butterfly. 🦋") is LOCKED,
- *   as is the "Not opened yet? Let me know when we do →" link.
+ *   Store downloads replace the old pre-launch registration link only.
  *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
  * ─────────────────────────────────────────────────────────── */
 
 /**
  * Tour navigation for the FriendPlace public tour.
  *
- * The tour is: /meet → /about → /how-it-works → /features → /register-interest
+ * The tour is: /meet → /about → /how-it-works → /features → app stores
  *
  * TWO patterns live in this file, one for each role:
  *
@@ -75,7 +75,7 @@ export function TourNext({
  * The closing beat of the whole journey. Rendered only at the
  * bottom of the LAST tour page (currently /features). This is the
  * only place George's voice returns during the tour — and it's the
- * only line he says between /meet and /register-interest.
+ * only line he says between /meet and the download invitation.
  *
  * The three-line closing (Garry, iter147, locked):
  *
@@ -90,12 +90,9 @@ export function TourNext({
  * MUST NOT be optimised away, shortened past recognition, or
  * downgraded to a subtitle.
  *
- * For the pre-launch site we still need a quiet path to register
- * interest, so a small secondary link sits below George's closing
- * beat — never above it, never as a primary action, so it doesn't
- * step on the moment. Once we're live, that link naturally becomes
- * a no-op (nothing to register for) and can be removed without
- * disturbing the composition.
+ * At launch, the old register-interest link below George's closing
+ * beat is replaced by direct App Store and Google Play links. They
+ * remain visually secondary to the locked closing lines.
  *
  * Locked with Garry (Aug 2026):
  *   "That final line tells every new member that George never
@@ -134,13 +131,20 @@ export function TourEnding() {
             Locked with Garry (iter147). */}
         <TourEndingVoice />
 
-        {/* Pre-launch fallback. Quiet, secondary, positioned so it
-            does not compete with the emotional beat above. Once
-            FriendPlace is live this whole block can be deleted
-            without touching George's closing line. */}
-        <Link href="/register-interest" style={endingSecondaryLink}>
-          Not opened yet? Let me know when we do &rarr;
-        </Link>
+        {/* Now that FriendPlace is live, the tour ends with a gentle
+            invitation to download. George's locked closing lines,
+            narration and butterfly experience above stay unchanged. */}
+        <p style={{ color: '#334155', fontSize: 16, lineHeight: 1.5, margin: '24px auto 16px' }}>
+          Ready to find your people? Get FriendPlace free on your phone.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}>
+          <a href="https://apps.apple.com/au/app/id6796969555" target="_blank" rel="noopener noreferrer" style={endingSecondaryLink}>
+            Download on the App Store
+          </a>
+          <a href="https://play.google.com/store/apps/details?id=au.com.friendplace.app" target="_blank" rel="noopener noreferrer" style={endingSecondaryLink}>
+            Get it on Google Play
+          </a>
+        </div>
       </div>
     </section>
   );
@@ -221,9 +225,7 @@ const endingReassurance: React.CSSProperties = {
   margin: '0 auto 36px',
 };
 
-// Pre-launch secondary link. Quiet on purpose — never competing
-// with George's closing beat. Once we're live, this whole element
-// can be removed without touching George's lines above.
+// Download links remain secondary to George's closing lines.
 const endingSecondaryLink: React.CSSProperties = {
   display: 'inline-block',
   fontSize: 14,
