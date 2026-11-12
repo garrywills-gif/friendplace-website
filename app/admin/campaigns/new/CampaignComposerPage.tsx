@@ -24,6 +24,7 @@ import {
   segmentsApi,
   type Campaign,
   type CampaignAudienceFilter,
+  type CampaignSender,
   type Segment,
 } from '@/lib/cms-api';
 
@@ -221,6 +222,11 @@ function ComposePanel() {
   // that already contains its own closing isn't followed by a
   // duplicate boilerplate.
   const [companion, setCompanion] = useState<Signer>('george');
+  const [fromEmail, setFromEmail] = useState('');
+  const [replyTo, setReplyTo] = useState('');
+  const [allowedSenders, setAllowedSenders] = useState<CampaignSender[]>([]);
+  const [senderLoading, setSenderLoading] = useState(true);
+  const [senderError, setSenderError] = useState('');
   const [subject, setSubject] = useState('');
   const [preheader, setPreheader] = useState('');
   // iter164o: initial title default is the friendly headline the
@@ -300,6 +306,26 @@ function ComposePanel() {
   const [toast, setToast] = useState<string | null>(null);
   const showToast = (m: string, ms = 2400) => { setToast(m); setTimeout(() => setToast(null), ms); };
 
+  // Load only backend-authorised addresses; do not guess sender eligibility.
+  useEffect(() => {
+    let active = true;
+    campaignsApi.senders().then((response: any) => {
+      if (!active) return;
+      const raw = Array.isArray(response) ? response :
+        (response?.senders || response?.addresses || response?.options || response?.mailboxes || []);
+      const values: CampaignSender[] = Array.isArray(raw) ? raw.map((entry: any) =>
+        typeof entry === 'string' ? { address: entry } : {
+          address: String(entry?.address || entry?.email || entry?.value || ''),
+          name: entry?.name, label: entry?.label, default: !!entry?.default,
+        }).filter((entry: CampaignSender) => entry.address.includes('@')) : [];
+      setAllowedSenders(values);
+      setSenderError(values.length ? '' : 'No authorised sending addresses were returned.');
+    }).catch((error: any) => {
+      if (active) setSenderError(error?.message || 'Could not load authorised sending addresses.');
+    }).finally(() => { if (active) setSenderLoading(false); });
+    return () => { active = false; };
+  }, []);
+
   // Load existing draft if editing.
   useEffect(() => {
     if (!editId) return;
@@ -320,6 +346,8 @@ function ComposePanel() {
         }
         setTemplate(uiT);
         setCompanion(savedSigner);
+        setFromEmail(c.from_email || '');
+        setReplyTo(c.reply_to || '');
         setSubject(c.subject || '');
         setPreheader(c.preheader || '');
         // iter164o: honour the saved title verbatim (empty means the
@@ -485,6 +513,16 @@ function ComposePanel() {
   const saveDraft = useCallback(async (silent = false): Promise<string | null> => {
     setSaving(true);
     try {
+      if (recipientMode !== 'outreach') {
+        if (senderLoading || senderError || !allowedSenders.length) {
+          throw new Error(senderError || 'Sending addresses are still loading; please try again.');
+        }
+        for (const address of [fromEmail, replyTo]) {
+          if (address && !allowedSenders.some(sender => sender.address.toLowerCase() === address.toLowerCase())) {
+            throw new Error('The selected sending address is no longer authorised. Please choose an available address.');
+          }
+        }
+      }
       const serverTemplate = TEMPLATE_META[template]?.serverTemplate || 'announcement';
       const payload: Partial<Campaign> & { attach_file?: boolean } = {
         name: name || 'Untitled campaign',
@@ -492,6 +530,9 @@ function ComposePanel() {
         subject,
         preheader,
         companion,
+        // Empty values preserve the backend's noreply default.
+        from_email: recipientMode === 'outreach' ? undefined : (fromEmail || null),
+        reply_to: recipientMode === 'outreach' ? undefined : (replyTo || null),
         title,
         body_md: bodyMd,
         cta_label: ctaLabel,
@@ -531,7 +572,8 @@ function ComposePanel() {
       setSaving(false);
     }
   }, [campaignId, name, template, subject, preheader, companion, title, bodyMd,
-      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, countsAsInvitation, attachFile]);
+      ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, countsAsInvitation, attachFile,
+      recipientMode, fromEmail, replyTo, allowedSenders, senderLoading, senderError]);
 
   // CAMPAIGN_INVARIANT: NO_AUTOSAVE
   // Opening or editing a campaign is READ-ONLY until the admin deliberately
@@ -730,6 +772,51 @@ function ComposePanel() {
             ))}
           </select>
           <div style={s.helper}>{meta.description}</div>
+        </SectionCard>
+
+        <SectionCard title="Send From & Reply-to">
+          {recipientMode === 'outreach' ? (
+            <p style={s.helper}>Outreach-list campaigns use their existing fixed sender. Sender selection does not apply to these campaigns.</p>
+          ) : (
+            <>
+              <label style={s.label} htmlFor="campaign-from-address">Send From</label>
+              <select id="campaign-from-address" data-testid="campaign-from-address" value={fromEmail}
+                onChange={e => setFromEmail(e.target.value)}
+                disabled={senderLoading || !!senderError}
+                style={{ ...s.input, width: '100%', marginBottom: 12 }}>
+                <option value="">Default — noreply@friendplace.com.au</option>
+                {allowedSenders.map(sender => (
+                  <option key={sender.address} value={sender.address}>
+                    {sender.name || sender.label ? `${sender.label || sender.name} — ` : ''}{sender.address}
+                  </option>
+                ))}
+                {fromEmail && !allowedSenders.some(x => x.address === fromEmail) && (
+                  <option value={fromEmail} disabled>{fromEmail} (no longer authorised)</option>
+                )}
+              </select>
+              <label style={s.label} htmlFor="campaign-reply-to">Reply-to</label>
+              <select id="campaign-reply-to" data-testid="campaign-reply-to" value={replyTo}
+                onChange={e => setReplyTo(e.target.value)}
+                disabled={senderLoading || !!senderError}
+                style={{ ...s.input, width: '100%' }}>
+                <option value="">Default — backend reply-to setting</option>
+                {allowedSenders.map(sender => (
+                  <option key={sender.address} value={sender.address}>
+                    {sender.name || sender.label ? `${sender.label || sender.name} — ` : ''}{sender.address}
+                  </option>
+                ))}
+                {replyTo && !allowedSenders.some(x => x.address === replyTo) && (
+                  <option value={replyTo} disabled>{replyTo} (no longer authorised)</option>
+                )}
+              </select>
+              {senderLoading && <p style={s.helper}>Loading authorised FriendPlace email addresses…</p>}
+              {senderError && <p role="alert" style={{ color: '#B91C1C', fontSize: 13 }}>{senderError} Sending is unavailable until this is resolved.</p>}
+              <p style={{ ...s.helper, marginTop: 8 }}>
+                Select where the campaign comes from and where replies go. Saved with the draft and used for test, scheduled and real sends.
+                Existing campaigns with no selection continue using their original default.
+              </p>
+            </>
+          )}
         </SectionCard>
 
         <SectionCard title="Signed by">
