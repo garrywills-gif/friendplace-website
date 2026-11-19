@@ -179,7 +179,7 @@ export default function FoundingMembersCRMPage() {
   return (
     <AdminShell title="Registrations">
       {/* Permanent founder and post-founder totals, calculated from actual CRM records. */}
-      <div style={{ ...totalHeadline, flexDirection: 'column', alignItems: 'stretch', gap: 18 }}>
+      <div style={{ ...totalHeadline, flexDirection: 'column', alignItems: 'stretch', gap: 10, padding: '16px 22px', marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 14 }}>
           {([
             { label: 'All Members', value: stats?.total, key: 'all' },
@@ -193,7 +193,7 @@ export default function FoundingMembersCRMPage() {
             </div>
           ))}
         </div>
-        <p style={{ ...introCopy, maxWidth: 'none', margin: 0 }}>
+        <p style={{ ...introCopy, flex: 'none', maxWidth: 'none', margin: 0, fontSize: 13, lineHeight: 1.4 }}>
           The first 250 places were reserved for Founding Members. Later registrants have permanent M-numbers.
           This page tracks all registrations, invitations, status and future email campaigns.
         </p>
