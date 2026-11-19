@@ -390,12 +390,12 @@ export default function OutreachPage() {
   };
 
   const createCampaignForGroup = async (g: Group) => {
-    if (view !== 'active' || !g.notContacted || creatingCampaignFor) return;
+    if (view !== 'active' || creatingCampaignFor) return;
     setCreatingCampaignFor(g.slug);
     setError(null);
     try {
       const campaign = await campaignsApi.create({
-        name: `${g.label} — not contacted`,
+        name: `${g.label} — new outreach campaign`,
         template: 'announcement',
         companion: 'team',
         title: 'A note from FriendPlace',
@@ -405,13 +405,39 @@ export default function OutreachPage() {
           audience_kind: 'outreach_contacts',
           outreach: {
             category: g.slug,
-            status: 'not_contacted',
+            status: 'contacted',
           },
         } as any,
       });
       router.push(`/admin/campaigns/new?id=${encodeURIComponent(campaign.id)}`);
     } catch (e: any) {
       setError(e?.message || `Could not create a campaign for ${g.label}.`);
+      setCreatingCampaignFor(null);
+    }
+  };
+
+  // A new outreach draft for a fresh follow-up to previously contacted organisations.
+  // A draft is not a send; the composer must still be reviewed and saved.
+  const createNewOutreachCampaign = async () => {
+    if (creatingCampaignFor) return;
+    setCreatingCampaignFor('__all__');
+    setError(null);
+    try {
+      const campaign = await campaignsApi.create({
+        name: 'Organisation Outreach — new campaign',
+        template: 'announcement',
+        companion: 'team',
+        title: 'An update from FriendPlace',
+        greeting: 'Dear [Contact name],',
+        show_founder_badge: false,
+        audience_filter: {
+          audience_kind: 'outreach_contacts',
+          outreach: { status: 'contacted' },
+        } as any,
+      });
+      router.push(`/admin/campaigns/new?id=${encodeURIComponent(campaign.id)}`);
+    } catch (e: any) {
+      setError(e?.message || 'Could not create the outreach campaign.');
       setCreatingCampaignFor(null);
     }
   };
@@ -449,6 +475,13 @@ export default function OutreachPage() {
               if (files.length) void chooseSpreadsheets(files);
             }}
           />
+          {view === 'active' && (
+            <button type="button" style={adminStyles.ghostBtn}
+              disabled={Boolean(creatingCampaignFor)}
+              onClick={() => void createNewOutreachCampaign()}>
+              {creatingCampaignFor === '__all__' ? 'Creating…' : '+ New Campaign'}
+            </button>
+          )}
           <button type="button" style={adminStyles.ghostBtn} onClick={() => fileRef.current?.click()}>↑ Import spreadsheet</button>
           <Link href="/admin/outreach/new" style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}>+ New organisation</Link>
         </div>
@@ -601,7 +634,7 @@ export default function OutreachPage() {
                 <div style={{ flex: '0.9 1 0', textAlign: 'right' }}><span style={g.contacted ? contactedPill : neutralPill}>{g.contacted}</span></div>
                 <div style={{ flex: '1 1 0', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={g.notContacted ? notContactedPill : neutralPill}>{g.notContacted}</span>
-                  {draft ? (
+                  {draft && (
                     <div style={continueWrap}>
                       <Link
                         href={`/admin/campaigns/new?id=${encodeURIComponent(draft.id)}`}
@@ -613,17 +646,17 @@ export default function OutreachPage() {
                         Draft saved · {formatSaved(draft.updated_at || draft.created_at)}
                       </span>
                     </div>
-                  ) : (
-                    view === 'active' && g.notContacted > 0 && (
-                      <button
-                        type="button"
-                        style={campaignBtn}
-                        disabled={Boolean(creatingCampaignFor)}
-                        onClick={() => void createCampaignForGroup(g)}
-                      >
-                        {creating ? 'Creating…' : 'Create campaign'}
-                      </button>
-                    )
+                  )}
+                  {view === 'active' && (
+                    <button
+                      type="button"
+                      style={campaignBtn}
+                      disabled={Boolean(creatingCampaignFor)}
+                      onClick={() => void createCampaignForGroup(g)}
+                      title={`Create a new draft for previously contacted ${g.label} organisations`}
+                    >
+                      {creating ? 'Creating…' : '+ New campaign'}
+                    </button>
                   )}
                 </div>
                 <div style={{ flex: '1.2 1 0', fontSize: 13, color: '#475569' }}>{lastLabel}</div>
