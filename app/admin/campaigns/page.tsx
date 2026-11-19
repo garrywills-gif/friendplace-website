@@ -288,8 +288,10 @@ export default function CampaignsListPage() {
     if (issue === 'bounced') {
       // Same reconciled list as the Bounced summary card.
       setIssueRows(currentBounceRows);
-      setIssueLoading(!bouncesReady && !bounceLoadError);
-      setIssueError(bounceLoadError);
+      setIssueLoading(false);
+      setIssueError(!bouncesReady && !bounceLoadError
+        ? 'Checking the latest delivery statuses. Please try again shortly.'
+        : bounceLoadError);
       return;
     }
     setIssueLoading(true);
