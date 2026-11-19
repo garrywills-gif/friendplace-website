@@ -32,6 +32,24 @@ type CampaignWithArchive = Campaign & {
 
 type CampaignMetricFilter = 'all' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained';
 
+type CampaignDateFilter = 'all' | 'today' | 'yesterday' | 'custom';
+
+// Use Sydney calendar dates, not the browser's local timezone, for MCGS reporting.
+function sydneyDateKey(value: Date): string {
+  const pieces = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(value);
+  const part = (kind: string) => pieces.find(p => p.type === kind)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function campaignSentDate(campaign: CampaignWithArchive): string | null {
+  if (!campaign.sent_at) return null;
+  const date = new Date(campaign.sent_at);
+  return Number.isNaN(date.getTime()) ? null : sydneyDateKey(date);
+}
+
+
 async function archiveRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -85,6 +103,8 @@ export default function CampaignsListPage() {
   const [archiving, setArchiving] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [metricFilter, setMetricFilter] = useState<CampaignMetricFilter>('all');
+  const [dateFilter, setDateFilter] = useState<CampaignDateFilter>('all');
+  const [customDate, setCustomDate] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +182,22 @@ export default function CampaignsListPage() {
     }
   };
 
-  const metricTotals = allRows.reduce((totals, campaign) => {
+  // Date filtering applies to the actual sent_at timestamp, including archived
+  // campaigns. A date selection never counts drafts or scheduled emails.
+  const todayKey = sydneyDateKey(new Date());
+  const yesterdayKey = (() => {
+    const [year, month, day] = todayKey.split('-').map(Number);
+    return sydneyDateKey(new Date(Date.UTC(year, month - 1, day - 1, 12)));
+  })();
+  const selectedDate = dateFilter === 'today' ? todayKey
+    : dateFilter === 'yesterday' ? yesterdayKey
+    : dateFilter === 'custom' ? customDate
+    : '';
+  const selectedRows = selectedDate
+    ? allRows.filter(c => campaignSentDate(c) === selectedDate)
+    : allRows;
+
+  const metricTotals = selectedRows.reduce((totals, campaign) => {
     const stats = campaign.stats || ({} as Campaign['stats']);
     totals.delivered += stats.delivered || 0;
     totals.opened += stats.unique_opens ?? stats.opened ?? 0;
@@ -172,7 +207,7 @@ export default function CampaignsListPage() {
     return totals;
   }, { delivered: 0, opened: 0, clicked: 0, bounced: 0, complained: 0 });
 
-  const metricSourceRows = metricFilter === 'all' ? rows : allRows;
+  const metricSourceRows = (selectedDate || metricFilter !== 'all') ? selectedRows : rows;
   const filteredRows = metricSourceRows.filter(campaign => {
     if (metricFilter === 'all') return true;
     const stats = campaign.stats || ({} as Campaign['stats']);
@@ -181,6 +216,8 @@ export default function CampaignsListPage() {
     if (metricFilter === 'complained') return (stats.complained || 0) > 0;
     return (stats[metricFilter] || 0) > 0;
   });
+  const hasDateSelection = Boolean(selectedDate);
+  const hasCampaignsInCurrentView = selectedDate ? selectedRows.length > 0 : rows.length > 0;
 
   return (
     <AdminShell title="Campaigns">
@@ -213,11 +250,45 @@ export default function CampaignsListPage() {
         </div>
       )}
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 18, padding: '14px 16px', border: '1px solid #DCE5EE', borderRadius: 14, background: '#FFFFFF' }}>
+        <label htmlFor="campaign-date-filter" style={{ fontWeight: 800, fontSize: 13, color: '#0A2540' }}>Sent date</label>
+        <select
+          id="campaign-date-filter"
+          value={dateFilter}
+          onChange={e => { setDateFilter(e.target.value as CampaignDateFilter); setMetricFilter('all'); }}
+          style={{ border: '1px solid #CBD5E1', borderRadius: 9, padding: '9px 12px', fontSize: 14, background: '#FFFFFF', color: '#0A2540' }}
+        >
+          <option value="all">All dates</option>
+          <option value="today">Today (Sydney)</option>
+          <option value="yesterday">Yesterday (Sydney)</option>
+          <option value="custom">Choose a date</option>
+        </select>
+        {dateFilter === 'custom' && (
+          <input
+            type="date"
+            value={customDate}
+            aria-label="Choose campaign sent date"
+            onChange={e => { setCustomDate(e.target.value); setMetricFilter('all'); }}
+            style={{ border: '1px solid #CBD5E1', borderRadius: 9, padding: '8px 12px', fontSize: 14, color: '#0A2540', background: '#FFFFFF' }}
+          />
+        )}
+        {selectedDate && (
+          <span style={{ fontSize: 13, color: '#475569' }}>
+            {selectedRows.length} campaign{selectedRows.length === 1 ? '' : 's'} sent on {new Date(`${selectedDate}T12:00:00+11:00`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' })}
+          </span>
+        )}
+        {dateFilter !== 'all' && (
+          <button type="button" onClick={() => { setDateFilter('all'); setCustomDate(''); setMetricFilter('all'); }} style={{ ...s.ghostBtn, fontSize: 12, padding: '7px 11px' }}>
+            Clear filter
+          </button>
+        )}
+      </div>
+
       {!loading && !err && allRows.length > 0 && (
         <div style={metricGrid} aria-label="Campaign totals">
           <MetricCard
             label="Total campaigns"
-            value={allRows.length}
+            value={selectedRows.length}
             active={metricFilter === 'all'}
             onClick={() => setMetricFilter('all')}
           />
@@ -260,14 +331,16 @@ export default function CampaignsListPage() {
         <div style={emptyState}>Loading…</div>
       ) : err ? (
         <div style={{ ...emptyState, color: '#B91C1C' }}>{err}</div>
-      ) : rows.length === 0 ? (
+      ) : !hasCampaignsInCurrentView ? (
         <div style={emptyState}>
           <div style={{ fontSize: 48 }}>{showArchived ? '🗄️' : '📮'}</div>
           <p style={{ fontWeight: 700, fontSize: 16, marginTop: 12, marginBottom: 6, color: '#0A2540' }}>
-            {showArchived ? 'No archived campaigns.' : 'No campaigns yet.'}
+            {hasDateSelection ? 'No campaigns sent on this date.' : showArchived ? 'No archived campaigns.' : 'No campaigns yet.'}
           </p>
           <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
-            {showArchived
+            {hasDateSelection
+              ? 'Select a different date or clear the date filter.'
+              : showArchived
               ? 'Archived sent campaigns will appear here and can be restored at any time.'
               : 'Your first campaign starts with the button above.'}
           </p>
@@ -279,7 +352,7 @@ export default function CampaignsListPage() {
             No campaigns in this group.
           </p>
           <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
-            Choose another total above to change the campaign group.
+            Choose another total above or a different sent date to change the results.
           </p>
         </div>
       ) : (
@@ -307,7 +380,7 @@ export default function CampaignsListPage() {
                   <div style={{ flex: '2 1 0', minWidth: 0 }}>
                     <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>
                       {c.name}
-                      {c.is_archived && metricFilter !== 'all' && (
+                      {c.is_archived && (metricFilter !== 'all' || hasDateSelection) && (
                         <span style={archivedPill}>Archived</span>
                       )}
                     </div>
@@ -365,7 +438,7 @@ export default function CampaignsListPage() {
                 </Link>
 
                 <div style={{ flex: '0 0 150px', textAlign: 'right' }}>
-                  {(showArchived || (metricFilter !== 'all' && c.is_archived)) ? (
+                  {(c.is_archived && (showArchived || metricFilter !== 'all' || hasDateSelection)) ? (
                     <button
                       type="button"
                       disabled={restoringId === c.id}
