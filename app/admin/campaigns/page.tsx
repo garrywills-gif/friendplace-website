@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { API_BASE } from '@/lib/api-base';
 import { getToken, clearAuth } from '@/lib/cms-auth';
-import { campaignsApi, type Campaign, type CampaignStatus } from '@/lib/cms-api';
+import { campaignsApi, type Campaign, type CampaignRecipient, type CampaignStatus } from '@/lib/cms-api';
 
 const STATUS_META: Record<CampaignStatus, { label: string; bg: string; fg: string }> = {
   draft:     { label: 'Draft',     bg: '#F1F5F9', fg: '#475569' },
@@ -33,6 +33,17 @@ type CampaignWithArchive = Campaign & {
 type CampaignMetricFilter = 'all' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained';
 
 type CampaignDateFilter = 'all' | 'today' | 'yesterday' | 'custom';
+type DeliveryIssue = 'bounced' | 'complained';
+type DeliveryIssueRow = { campaign: CampaignWithArchive; recipient: CampaignRecipient };
+
+function isIssueRecipient(recipient: CampaignRecipient, issue: DeliveryIssue): boolean {
+  const last = String(recipient.last_event_type || '').toLowerCase();
+  if (issue === 'complained') {
+    return Boolean(recipient.complained_at) || last === 'email.complained' || recipient.status === 'complained';
+  }
+  return Boolean(recipient.bounced_at) || last === 'email.bounced' || recipient.status === 'bounced';
+}
+
 
 // Use Sydney calendar dates, not the browser's local timezone, for MCGS reporting.
 function sydneyDateKey(value: Date): string {
@@ -105,6 +116,10 @@ export default function CampaignsListPage() {
   const [metricFilter, setMetricFilter] = useState<CampaignMetricFilter>('all');
   const [dateFilter, setDateFilter] = useState<CampaignDateFilter>('all');
   const [customDate, setCustomDate] = useState('');
+  const [issuePanel, setIssuePanel] = useState<DeliveryIssue | null>(null);
+  const [issueRows, setIssueRows] = useState<DeliveryIssueRow[]>([]);
+  const [issueLoading, setIssueLoading] = useState(false);
+  const [issueError, setIssueError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -219,6 +234,36 @@ export default function CampaignsListPage() {
   const hasDateSelection = Boolean(selectedDate);
   const hasCampaignsInCurrentView = selectedDate ? selectedRows.length > 0 : rows.length > 0;
 
+  const openIssuePanel = async (issue: DeliveryIssue) => {
+    setIssuePanel(issue);
+    setIssueRows([]);
+    setIssueError('');
+    setIssueLoading(true);
+    // Only load campaigns that report an issue, never all unrelated recipients.
+    const relevant = selectedRows.filter(c => (c.stats?.[issue] || 0) > 0);
+    try {
+      const found: DeliveryIssueRow[] = [];
+      let failures = 0;
+      // Small batches keep the admin API responsive, including for all-time history.
+      for (let i = 0; i < relevant.length; i += 4) {
+        const results = await Promise.allSettled(relevant.slice(i, i + 4).map(c => campaignsApi.get(c.id)));
+        results.forEach((result, offset) => {
+          if (result.status !== 'fulfilled') { failures += 1; return; }
+          const campaign = relevant[i + offset];
+          for (const recipient of result.value.recipients || []) {
+            if (isIssueRecipient(recipient, issue)) found.push({ campaign, recipient });
+          }
+        });
+      }
+      setIssueRows(found);
+      if (failures) setIssueError(`Could not load ${failures} campaign record(s). The list may be incomplete.`);
+    } catch {
+      setIssueError('Could not load the recipient records. Please try again.');
+    } finally {
+      setIssueLoading(false);
+    }
+  };
+
   return (
     <AdminShell title="Campaigns">
       <div style={headerRow}>
@@ -315,14 +360,14 @@ export default function CampaignsListPage() {
             value={metricTotals.bounced}
             active={metricFilter === 'bounced'}
             alert={metricTotals.bounced > 0}
-            onClick={() => setMetricFilter('bounced')}
+            onClick={() => void openIssuePanel('bounced')}
           />
           <MetricCard
             label="Complaints"
             value={metricTotals.complained}
             active={metricFilter === 'complained'}
             alert={metricTotals.complained > 0}
-            onClick={() => setMetricFilter('complained')}
+            onClick={() => void openIssuePanel('complained')}
           />
         </div>
       )}
@@ -480,6 +525,72 @@ export default function CampaignsListPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {issuePanel && (
+        <div style={modalBackdrop} role="presentation" onMouseDown={() => !issueLoading && setIssuePanel(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="campaign-issue-title"
+            style={{ ...modalCard, maxWidth: 850, maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <h2 id="campaign-issue-title" style={{ fontSize: 19, color: '#0A2540', margin: 0 }}>
+                {issuePanel === 'bounced' ? 'Bounced email recipients' : 'Spam complaint recipients'}
+              </h2>
+              <button type="button" style={s.ghostBtn} onClick={() => setIssuePanel(null)}>Close</button>
+            </div>
+            <p style={{ fontSize: 13, color: '#64748B', margin: '10px 0 14px' }}>
+              {selectedDate ? `Campaigns sent on ${selectedDate} (Sydney time)` : 'All sent campaigns'}
+              {' · '}Read-only delivery history. These addresses must not be automatically resent.
+            </p>
+            {issueError && <p role="alert" style={{ color: '#B91C1C', margin: '6px 0' }}>{issueError}</p>}
+            <div style={{ overflowY: 'auto', flex: '1 1 auto', minHeight: 90 }}>
+              {issueLoading ? (
+                <p style={{ color: '#475569' }}>Loading recipient records…</p>
+              ) : issueRows.length === 0 ? (
+                <p style={{ color: '#64748B' }}>No matching recipient records were found. Historical totals may include events no longer reflected in the latest recipient status.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ color: '#475569', borderBottom: '1px solid #CBD5E1' }}>
+                      <th style={{ padding: 10 }}>Email address</th>
+                      <th style={{ padding: 10 }}>Campaign</th>
+                      <th style={{ padding: 10 }}>Recorded</th>
+                      <th style={{ padding: 10 }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issueRows.map(({ campaign, recipient }) => (
+                      <tr key={`${campaign.id}-${recipient.id}`} style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: 10, overflowWrap: 'anywhere' }}>{recipient.email}</td>
+                        <td style={{ padding: 10 }}>{campaign.name}</td>
+                        <td style={{ padding: 10, whiteSpace: 'nowrap' }}>
+                          {(() => {
+                            const raw = issuePanel === 'complained' ? recipient.complained_at : recipient.bounced_at;
+                            if (!raw) return '—';
+                            const date = new Date(raw);
+                            return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-AU', { timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric' });
+                          })()}
+                        </td>
+                        <td style={{ padding: 10 }}>
+                          <Link href={`/admin/campaigns/${encodeURIComponent(campaign.id)}`} style={{ color: '#0F766E', fontWeight: 800 }}>View history →</Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {!issueLoading && issueRows.length > 0 && (
+              <p style={{ fontSize: 12, color: '#64748B', margin: '12px 0 0' }}>
+                Showing {issueRows.length} matching recipient record{issueRows.length === 1 ? '' : 's'}. A single address may appear in multiple campaigns.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
