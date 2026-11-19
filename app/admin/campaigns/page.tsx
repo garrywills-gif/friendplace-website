@@ -41,7 +41,11 @@ function isIssueRecipient(recipient: CampaignRecipient, issue: DeliveryIssue): b
   if (issue === 'complained') {
     return Boolean(recipient.complained_at) || last === 'email.complained' || recipient.status === 'complained';
   }
-  return Boolean(recipient.bounced_at) || last === 'email.bounced' || recipient.status === 'bounced';
+  // The most recent event is authoritative: a later successful delivery,
+  // open or click clears a transient bounce from the *current* bounce list.
+  if (last) return last === 'email.bounced';
+  if (recipient.status) return recipient.status === 'bounced';
+  return Boolean(recipient.bounced_at);
 }
 
 
@@ -120,6 +124,9 @@ export default function CampaignsListPage() {
   const [issueRows, setIssueRows] = useState<DeliveryIssueRow[]>([]);
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueError, setIssueError] = useState('');
+  const [currentBounceRows, setCurrentBounceRows] = useState<DeliveryIssueRow[]>([]);
+  const [bouncesReady, setBouncesReady] = useState(false);
+  const [bounceLoadError, setBounceLoadError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -212,16 +219,55 @@ export default function CampaignsListPage() {
     ? allRows.filter(c => campaignSentDate(c) === selectedDate)
     : allRows;
 
+  // Campaign rollup stats can contain a historical temporary bounce.
+  // Reconcile those campaigns against the same latest-event logic as the
+  // individual campaign page, so a recovered recipient is no longer counted.
+  useEffect(() => {
+    let cancelled = false;
+    setBouncesReady(false);
+    setBounceLoadError('');
+    const reconcile = async () => {
+      const candidateCampaigns = selectedRows.filter(c => (c.stats?.bounced || 0) > 0);
+      const found: DeliveryIssueRow[] = [];
+      let failures = 0;
+      for (let i = 0; i < candidateCampaigns.length; i += 4) {
+        const group = candidateCampaigns.slice(i, i + 4);
+        const results = await Promise.allSettled(group.map(c => campaignsApi.get(c.id)));
+        if (cancelled) return;
+        results.forEach((result, index) => {
+          if (result.status !== 'fulfilled') {
+            failures += 1;
+            return;
+          }
+          for (const recipient of result.value.recipients || []) {
+            if (isIssueRecipient(recipient, 'bounced') && !isIssueRecipient(recipient, 'complained')) {
+              found.push({ campaign: group[index], recipient });
+            }
+          }
+        });
+      }
+      if (cancelled) return;
+      setCurrentBounceRows(found);
+      setBouncesReady(failures === 0);
+      setBounceLoadError(failures ? `Could not reconcile ${failures} campaign(s). Please refresh to check the current bounce count.` : '');
+    };
+    void reconcile();
+    return () => { cancelled = true; };
+  }, [allRows, selectedDate]);
+
   const metricTotals = selectedRows.reduce((totals, campaign) => {
     const stats = campaign.stats || ({} as Campaign['stats']);
     totals.delivered += stats.delivered || 0;
     totals.opened += stats.unique_opens ?? stats.opened ?? 0;
     totals.clicked += stats.unique_clicks ?? stats.clicked ?? 0;
-    totals.bounced += stats.bounced || 0;
     totals.complained += stats.complained || 0;
     return totals;
   }, { delivered: 0, opened: 0, clicked: 0, bounced: 0, complained: 0 });
 
+  // A count is shown only when all relevant recipient statuses were fetched.
+  metricTotals.bounced = currentBounceRows.length;
+
+  const currentBouncedCampaignIds = new Set(currentBounceRows.map(r => r.campaign.id));
   const metricSourceRows = (selectedDate || metricFilter !== 'all') ? selectedRows : rows;
   const filteredRows = metricSourceRows.filter(campaign => {
     if (metricFilter === 'all') return true;
@@ -229,6 +275,7 @@ export default function CampaignsListPage() {
     if (metricFilter === 'opened') return (stats.unique_opens ?? stats.opened ?? 0) > 0;
     if (metricFilter === 'clicked') return (stats.unique_clicks ?? stats.clicked ?? 0) > 0;
     if (metricFilter === 'complained') return (stats.complained || 0) > 0;
+    if (metricFilter === 'bounced') return currentBouncedCampaignIds.has(campaign.id);
     return (stats[metricFilter] || 0) > 0;
   });
   const hasDateSelection = Boolean(selectedDate);
@@ -238,6 +285,15 @@ export default function CampaignsListPage() {
     setIssuePanel(issue);
     setIssueRows([]);
     setIssueError('');
+    if (issue === 'bounced') {
+      // Same reconciled list as the Bounced summary card.
+      setIssueRows(currentBounceRows);
+      setIssueLoading(false);
+      setIssueError(!bouncesReady && !bounceLoadError
+        ? 'Checking the latest delivery statuses. Please try again shortly.'
+        : bounceLoadError);
+      return;
+    }
     setIssueLoading(true);
     // Only load campaigns that report an issue, never all unrelated recipients.
     const relevant = selectedRows.filter(c => (c.stats?.[issue] || 0) > 0);
@@ -357,9 +413,9 @@ export default function CampaignsListPage() {
           />
           <MetricCard
             label="Bounced"
-            value={metricTotals.bounced}
+            value={bouncesReady ? metricTotals.bounced : '…'}
             active={metricFilter === 'bounced'}
-            alert={metricTotals.bounced > 0}
+            alert={bouncesReady && metricTotals.bounced > 0}
             onClick={() => void openIssuePanel('bounced')}
           />
           <MetricCard
@@ -370,6 +426,10 @@ export default function CampaignsListPage() {
             onClick={() => void openIssuePanel('complained')}
           />
         </div>
+      )}
+
+      {bounceLoadError && !loading && (
+        <p role="status" style={{ color: '#B91C1C', margin: '0 0 12px', fontSize: 13 }}>{bounceLoadError}</p>
       )}
 
       {loading ? (
@@ -679,7 +739,7 @@ function MetricCard({
   onClick,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   active: boolean;
   alert?: boolean;
   onClick: () => void;
