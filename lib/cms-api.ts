@@ -85,6 +85,7 @@ export const cmsApi = {
   me: () => req<{ id: string; email: string; display_name?: string; last_login_at?: string }>('GET', '/cms/auth/me'),
   openMargaretCode: () => req<{ code: string; expires_in: number }>('POST', '/cms/app-handoff/margaret'),
   memberBackups: () => req<any>('GET', '/cms/member-backups'),
+  serverHealth: () => req<any>('GET', '/cms/server-health'),
   memberBackupNow: () => req<any>('POST', '/cms/member-backups/run'),
   updateMe: (display_name: string) =>
     req<{
