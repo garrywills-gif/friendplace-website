@@ -43,8 +43,8 @@ const button: React.CSSProperties = {
   textDecoration: 'none', fontSize: 14,
 };
 
-export default function SupportTicketPage({ params }: { params: Promise<{ id: string }> }) {
-  const [id, setId] = useState('');
+export default function SupportTicketPage({ params }: { params: { id: string } }) {
+  const id = params.id;
   const [caseData, setCaseData] = useState<DetailedCase | null>(null);
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [mailError, setMailError] = useState<string | null>(null);
@@ -54,14 +54,6 @@ export default function SupportTicketPage({ params }: { params: Promise<{ id: st
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    params.then(p => { if (active) setId(p.id); }).catch(() => {
-      if (active) { setError('Invalid ticket link.'); setLoading(false); }
-    });
-    return () => { active = false; };
-  }, [params]);
 
   const reload = useCallback(async () => {
     if (!id) return;
