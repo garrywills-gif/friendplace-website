@@ -75,7 +75,7 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
   const deepLink = case_.case_key.startsWith('event_submission:')
     ? `/admin/event-submissions`
     : case_.case_key.startsWith('support_ticket:')
-      ? `/admin/support` // placeholder — no page yet, still readable
+      ? `/admin/inbox` // working support-mail inbox until ticket migration ships
       : undefined;
 
   return (
