@@ -75,7 +75,7 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
   const deepLink = case_.case_key.startsWith('event_submission:')
     ? `/admin/event-submissions`
     : case_.case_key.startsWith('support_ticket:')
-      ? `/admin/inbox` // working support-mail inbox until ticket migration ships
+      ? `/admin/support/ticket/${encodeURIComponent(case_.id)}` // open the exact Bridge support case
       : undefined;
 
   return (
