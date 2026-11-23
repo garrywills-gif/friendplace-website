@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RichTextEditor } from '@/components/admin/RichTextEditor';
 import { getToken, clearAuth } from '@/lib/cms-auth';
 import { API_BASE } from '@/lib/api-base';
+import { inboxApi } from '@/lib/inbox-api';
 
 type Kind = 'user' | 'founder';
 type Sender = { address: string; name: string; label: string; default: boolean };
@@ -86,6 +87,31 @@ function mdToHtml(md: string): string {
   }).join('');
 }
 
+
+function customLetter(name: string, richBody: string, signer: string) {
+  // The existing member-email backend has a fixed salutation. Custom greetings
+  // use the already-supported Inbox compose endpoint for both preview and send.
+  const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const signers: Record<string, string> = {
+    team: 'The FriendPlace Team', george: 'George', georgia: 'Georgia', garry: 'Garry',
+  };
+  const greeting = 'Dear ' + name.trim() + ',';
+  const signature = signers[signer]
+    ? '<p style="margin-top:30px;">Kind regards,<br><strong>' + esc(signers[signer]) + '</strong></p>'
+    : '';
+  const html = '<!doctype html><html><body style="margin:0;background:#0D2045;color:#fff;font-family:Arial,sans-serif;">' +
+    '<div style="max-width:700px;margin:0 auto;padding:44px 32px;">' +
+    '<div style="text-align:center;margin-bottom:40px;">' +
+    '<img src="https://www.friendplace.com.au/brand-assets/butterfly.png" alt="FriendPlace" width="76" style="display:block;margin:0 auto 12px;width:76px;height:auto;">' +
+    '<div style="font-size:28px;font-weight:bold;">Friend<span style="color:#2DD4BF">Place</span></div>' +
+    '<div style="font-size:12px;letter-spacing:2px;margin-top:8px;">BECAUSE YOU BELONG TOO. 🦋</div></div>' +
+    '<div style="font-size:17px;line-height:1.7;color:#fff;">' +
+    '<p>' + esc(greeting) + '</p>' + richBody + signature + '</div></div></body></html>';
+  return { html, text: greeting + '\n\n' + htmlToMd(richBody) +
+    (signers[signer] ? '\n\nKind regards,\n' + signers[signer] : '') };
+}
+
 const SIGNOFFS = [
   { value: 'team', label: 'The FriendPlace Team' },
   { value: 'george', label: 'George' },
@@ -116,6 +142,7 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
   const [category, setCategory] = useState('general');
   const [signer, setSigner] = useState('team');
   const [subject, setSubject] = useState('');
+  const [greetingOverride, setGreetingOverride] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
   const [token, setToken] = useState(newToken());
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -155,7 +182,10 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
 
   const doPreview = async () => {
     setBusy(true); setMsg(null);
-    try { setPreviewHtml((await call('POST', `/member-email/${kind}/${memberId}/preview`, payload())).html); }
+    try {
+      if (greetingOverride.trim()) setPreviewHtml(customLetter(greetingOverride, bodyHtml, signer).html);
+      else setPreviewHtml((await call('POST', `/member-email/${kind}/${memberId}/preview`, payload())).html);
+    }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
 
@@ -164,6 +194,27 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
     if (!subject.trim() || !body.trim()) { setMsg('Please add a subject and a message.'); return; }
     setBusy(true); setMsg(null);
     try {
+      if (greetingOverride.trim()) {
+        if (!memberEmail || !fromEmail) throw new Error('Member email or sending mailbox is missing.');
+        if (category === 'formal_warning') throw new Error('Formal warnings must use Member Email History.');
+        const letter = customLetter(greetingOverride, bodyHtml, signer);
+        const ok = window.confirm(
+          'Send this email?\\n\\nFrom: ' + fromEmail +
+          '\\nTo: ' + memberEmail + '\\nGreeting: Dear ' + greetingOverride.trim() +
+          ',\\nSubject: ' + subject +
+          '\\n\\nA copy will be in Inbox → Sent, not Member Email History.'
+        );
+        if (!ok) return;
+        await inboxApi.compose({
+          to_email: memberEmail.trim(), from_mailbox: fromEmail,
+          subject: subject.trim(), body_html: letter.html, body_text: letter.text,
+        });
+        setMsg('✓ Email sent to ' + memberEmail + ' with greeting Dear ' + greetingOverride.trim() +
+          '. View the copy under Inbox → Sent.');
+        setSubject(''); setBodyHtml(''); setGreetingOverride(''); setPreviewHtml(null);
+        setCategory('general'); setSigner('team'); setHistory(null);
+        return;
+      }
       const p = await call('POST', `/member-email/${kind}/${memberId}/preview`, payload());
       let confirmDup = false;
       if (p.duplicate_recent) {
@@ -228,6 +279,11 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
               </select>
             </div>
           </div>
+          <label style={label}>Address recipient as (optional)</label>
+          <input data-testid="member-email-greeting-name" value={greetingOverride} onChange={e => { setGreetingOverride(e.target.value); setPreviewHtml(null); }} maxLength={80} style={input} placeholder="e.g. Patti — blank uses saved member name" />
+          {greetingOverride.trim() && <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 4 }}>
+            The email will start “Dear {greetingOverride.trim()},”. Custom greetings are sent through Inbox and recorded under Inbox → Sent.
+          </div>}
           <label style={label}>Subject</label>
           <input data-testid="member-email-subject" value={subject} onChange={e => setSubject(e.target.value)} maxLength={300} style={input} />
           <label style={label}>Message</label>
