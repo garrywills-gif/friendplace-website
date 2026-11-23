@@ -1,26 +1,14 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { ComingSoon } from '@/components/admin/ComingSoon';
-
+/**
+ * The Support & Feedback migration is not live yet.
+ * Avoid leaving admins on a Coming Soon screen when they open a
+ * support-ticket signal from the Bridge. The existing Inbox contains
+ * the support notification emails and supports replying to members.
+ *
+ * Once the dedicated support-ticket screen ships, replace this
+ * compatibility redirect with the completed screen.
+ */
 export default function SupportPage() {
-  return (
-    <ComingSoon
-      slice={3}
-      title="Support & Feedback"
-      description="One inbox for support tickets, contact-form submissions and interest registrations. George can draft replies you review, edit and send in one keystroke."
-      parity={[
-        'Support ticket inbox with status filters and assignee hint',
-        'Resolve ticket with reason (auto-closes linked MCGS signal)',
-        'Contact-form submissions with the same triage workflow',
-        'Interest registrations list with status update',
-      ]}
-      improvements={[
-        'Contact-form submissions can be converted to tickets in one click',
-        'George drafts a suggested reply for every open ticket — you approve or edit',
-        'SLA hints on each row (age, priority)',
-        'Ask George: summarise this ticket, look up sender history, draft a reply in my voice',
-      ]}
-      audit="/app/memory/MCGS_MIGRATION_AUDIT.md#domain-3--feedback--support"
-    />
-  );
+  redirect('/admin/inbox');
 }
