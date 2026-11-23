@@ -25,6 +25,37 @@ function ticketReference(c: DetailedCase): string | null {
   return refs.length === 1 ? refs[0] : null;
 }
 
+
+// Sender details must come from the support-ticket record itself,
+// never from fuzzy searches, message text, or a similar name.
+// Neo can populate a "sender" / "reporter" object on the case or signal.
+type SenderDetails = {
+  name?: string; email?: string; memberNumber?: string;
+  userId?: string; verified?: boolean;
+};
+function senderDetails(record: DetailedCase): SenderDetails | null {
+  const sources: any[] = [record, ...(record.signals || [])];
+  for (const source of sources) {
+    const sender = source?.sender || source?.reporter || source?.submitter || source?.ticket?.sender ||
+      source?.ticket?.reporter || source?.metadata?.sender || source?.metadata?.reporter;
+    if (!sender || typeof sender !== 'object') continue;
+    const name = [sender.display_name || sender.name, sender.first_name].find(
+      v => typeof v === 'string' && v.trim()
+    ) || ([sender.first_name, sender.last_name].filter(Boolean).join(' ').trim());
+    const email = typeof sender.email === 'string' ? sender.email : undefined;
+    const memberNumber = sender.membership_number_display || sender.member_number_display ||
+      sender.founder_number_display || (typeof sender.founder_number === 'number' ?
+        '#' + String(sender.founder_number).padStart(4, '0') : undefined);
+    const userId = typeof (sender.user_id || sender.id) === 'string' ?
+      (sender.user_id || sender.id) : undefined;
+    if (name || email || memberNumber || userId) {
+      return { name: name || undefined, email, memberNumber,
+        userId, verified: sender.email_verified === true || sender.identity_verified === true };
+    }
+  }
+  return null;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -86,6 +117,7 @@ export default function SupportTicketPage({ params }: { params: { id: string } }
   useEffect(() => { void reload(); }, [reload]);
 
   const ref = useMemo(() => caseData ? ticketReference(caseData) : null, [caseData]);
+  const sender = useMemo(() => caseData ? senderDetails(caseData) : null, [caseData]);
   const matchingEmails = useMemo(() => {
     if (!ref) return [];
     return messages.filter(m => ticketRefs(m.subject || '').includes(ref));
@@ -144,6 +176,25 @@ export default function SupportTicketPage({ params }: { params: { id: string } }
                 {caseData.priority} · {caseData.status.replaceAll('_', ' ')} · Received {formatDate(caseData.first_signal_at)}
               </div>
             </header>
+
+            <section style={panel}>
+              <h3 style={{ marginTop: 0, color: '#0A2540' }}>Who sent this ticket?</h3>
+              {sender ? (
+                <div style={{ lineHeight: 1.9, fontSize: 14 }}>
+                  <div><strong>Name:</strong> {sender.name || 'Not supplied'}</div>
+                  <div><strong>Email:</strong> {sender.email || 'Not supplied'}</div>
+                  <div><strong>Member number:</strong> {sender.memberNumber || 'Not supplied'}</div>
+                  <div><strong>Account verification:</strong> {sender.verified ? 'Verified' : 'Not confirmed by ticket record'}</div>
+                  {sender.userId && <div><strong>Account ID:</strong> {sender.userId}</div>}
+                </div>
+              ) : (
+                <p role="status" style={{ color: '#92400E', marginBottom: 0 }}>
+                  Sender details are not included in the Bridge response yet.
+                  Do not assume the identity from the subject or message.
+                  Neo needs to attach the verified support-ticket sender record.
+                </p>
+              )}
+            </section>
 
             <section style={panel}>
               <h3 style={{ marginTop: 0, color: '#0A2540' }}>Member's message and ticket history</h3>
