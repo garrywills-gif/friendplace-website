@@ -22,19 +22,23 @@ import { campaignRetryTransientApi } from '@/lib/campaign-retry-transient-api';
 import {
   campaignsApi,
   outreachApi,
+  foundingMembersCrmApi,
+  type CRMFoundingMember,
   type Campaign,
   type CampaignRecipient,
   type CampaignRecipientEvent,
 } from '@/lib/cms-api';
 
 // ── Filter tabs above the recipient roster ──────────────────────
-type RecipientFilter = 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced' | 'complained';
+type MembershipFilter = 'all' | 'joined' | 'not_joined' | 'unknown' | 'opted_out';
+type RecipientFilter = 'engaged' | 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced' | 'complained';
 
 type OutreachNumberMap = Record<string, number>;
 
 const FILTER_LABEL: Record<RecipientFilter, string> = {
   all:        'All',
-  opened:     'Opened',
+  engaged:    'Opened or clicked',
+  opened:     'Opened without clicking',
   clicked:    'Clicked',
   not_opened: 'Not reached',
   bounced:    'Bounced',
@@ -84,9 +88,10 @@ function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
   const delivered = isCurrentlyDelivered(r);
   switch (f) {
     case 'all':        return true;
-    case 'opened':     return opened && !bounced;
-    case 'clicked':    return clicked && !bounced;
-    case 'not_opened': return delivered && !opened && !bounced;
+    case 'engaged':    return (opened || clicked) && !bounced && !hasComplaint(r);
+    case 'opened':     return opened && !clicked && !bounced && !hasComplaint(r);
+    case 'clicked':    return clicked && !bounced && !hasComplaint(r);
+    case 'not_opened': return delivered && !opened && !clicked && !bounced;
     case 'bounced':    return bounced && !hasComplaint(r);
     case 'complained': return hasComplaint(r);
   }
@@ -107,6 +112,9 @@ export default function CampaignDetailPage() {
   const [campaign, setCampaign] = useState<(Campaign & { recipients: CampaignRecipient[] }) | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<RecipientFilter>('all');
+  const [membershipFilter, setMembershipFilter] = useState<MembershipFilter>('all');
+  const [members, setMembers] = useState<CRMFoundingMember[] | null>(null);
+  const [membershipError, setMembershipError] = useState(false);
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
   const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
   const [activeOutreachIds, setActiveOutreachIds] = useState<Set<string> | null>(null);
@@ -196,9 +204,45 @@ export default function CampaignDetailPage() {
     });
   }, [campaign, activeOutreachIds]);
 
-  const filteredRecipients = useMemo(() => {
-    return visibleRecipients.filter((r) => matchesFilter(r, filter));
-  }, [visibleRecipients, filter]);
+  const outreachCampaign = ['outreach', 'outreach_contacts'].includes(String((campaign as any)?.audience_filter?.audience_kind || ''));
+  useEffect(() => {
+    if (!campaign?.id || outreachCampaign) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await foundingMembersCrmApi.list({ limit: 2000 });
+        if (!cancelled) { setMembers(result.rows); setMembershipError(false); }
+      } catch {
+        if (!cancelled) { setMembers(null); setMembershipError(true); setMembershipFilter('all'); }
+      }
+    };
+    void load();
+    const timer = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [campaign?.id, outreachCampaign]);
+
+  const membershipByRecipient = useMemo(() => {
+    const byId = new Map((members || []).map(m => [m.id, m]));
+    const byEmail = new Map<string, CRMFoundingMember[]>();
+    for (const m of members || []) {
+      const email = m.email?.trim().toLowerCase();
+      if (email) byEmail.set(email, [...(byEmail.get(email) || []), m]);
+    }
+    return new Map(visibleRecipients.map(r => {
+      const matches = byEmail.get(r.email.trim().toLowerCase()) || [];
+      const direct = byId.get(r.founder_id);
+      const m = direct || (matches.length === 1 ? matches[0] : undefined);
+      const status: MembershipFilter = m?.status === 'joined' ? 'joined' :
+        m?.status === 'opted_out' ? 'opted_out' :
+        (m?.status === 'invited' || m?.status === 'registered') ? 'not_joined' : 'unknown';
+      return [r.id, status] as const;
+    }));
+  }, [members, visibleRecipients]);
+
+  const engagementRecipients = useMemo(() => visibleRecipients.filter(r => matchesFilter(r, filter)), [visibleRecipients, filter]);
+  const filteredRecipients = useMemo(() => engagementRecipients.filter(r =>
+    outreachCampaign || membershipFilter === 'all' || membershipByRecipient.get(r.id) === membershipFilter
+  ), [engagementRecipients, membershipFilter, membershipByRecipient, outreachCampaign]);
 
   if (err) return (
     <AdminShell title="Campaign"><p style={{ color: '#B91C1C' }}>{err}</p></AdminShell>
@@ -282,11 +326,11 @@ export default function CampaignDetailPage() {
 
   const counters = visibleRecipients.reduce(
     (acc, r) => {
-      (['all', 'opened', 'clicked', 'not_opened', 'bounced', 'complained'] as RecipientFilter[])
+      (['all', 'engaged', 'opened', 'clicked', 'not_opened', 'bounced', 'complained'] as RecipientFilter[])
         .forEach((f) => { if (matchesFilter(r, f)) acc[f] += 1; });
       return acc;
     },
-    { all: 0, opened: 0, clicked: 0, not_opened: 0, bounced: 0, complained: 0 } as Record<RecipientFilter, number>,
+    { all: 0, engaged: 0, opened: 0, clicked: 0, not_opened: 0, bounced: 0, complained: 0 } as Record<RecipientFilter, number>,
   );
 
   return (
@@ -416,7 +460,7 @@ export default function CampaignDetailPage() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0 10px' }}>
-            {(['all','opened','clicked','not_opened','bounced','complained'] as RecipientFilter[]).map((f) => (
+            {(['all','engaged','opened','clicked','not_opened','bounced','complained'] as RecipientFilter[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -433,6 +477,25 @@ export default function CampaignDetailPage() {
             ))}
           </div>
 
+          {!isOutreachCampaign && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 800, color: '#334155' }}>Current membership status</label>
+              {members === null ? <div style={s.helper}>{membershipError ? 'Membership status unavailable — cannot filter reliably.' : 'Loading membership status…'}</div> : (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {(['all', 'joined', 'not_joined', 'opted_out', 'unknown'] as MembershipFilter[]).map(f => (
+                    <button type="button" key={f} onClick={() => setMembershipFilter(f)} style={{
+                      cursor: 'pointer', border: '1px solid #CBD5E1', borderRadius: 999, padding: '5px 10px', fontSize: 12, fontWeight: 800,
+                      background: membershipFilter === f ? '#0F766E' : '#FFFFFF', color: membershipFilter === f ? '#FFFFFF' : '#0A2540',
+                    }}>
+                      {({ all: 'All members', joined: 'Joined', not_joined: 'Not joined', opted_out: 'Opted out', unknown: 'Unknown' })[f]} ({engagementRecipients.filter(r => f === 'all' || membershipByRecipient.get(r.id) === f).length})
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={s.helper}>Current CRM status, not proof that this campaign caused a registration. Unmatched records are kept separate.</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginTop: 6 }}>{filteredRecipients.length} recipients shown</div>
+            </div>
+          )}
           <div style={{ border: '1px solid #E2E8F0', borderRadius: 16, overflow: 'hidden', background: '#FFFFFF' }}>
             {filteredRecipients.length === 0 ? (
               <div style={{ padding: 24, color: '#64748B', textAlign: 'center' }}>
@@ -467,6 +530,11 @@ export default function CampaignDetailPage() {
                       </div>
                       <div style={{ fontSize: 12, color: '#64748B' }}>{r.email}</div>
                     </div>
+                    {!isOutreachCampaign && members !== null && (
+                      <span style={{ fontSize: 11, fontWeight: 800, color: membershipByRecipient.get(r.id) === 'joined' ? '#166534' : '#475569' }}>
+                        {membershipByRecipient.get(r.id) === 'joined' ? 'Joined' : membershipByRecipient.get(r.id) === 'not_joined' ? 'Not joined' : membershipByRecipient.get(r.id) === 'opted_out' ? 'Opted out' : 'Unknown'}
+                      </span>
+                    )}
                     <RecipientPill r={r} />
                   </button>
                 );
