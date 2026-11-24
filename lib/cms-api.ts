@@ -1003,7 +1003,9 @@ export const emailPreviewsApi = {
 // ─── Campaigns (Phase 2A) ─────────────────────────────────────────
 export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
 
+export type CampaignSelection = { selected_count: number; not_eligible_count: number; not_eligible: Array<{ id: string; first_name?: string; email: string; status?: string; reason: string }> };
 export type CampaignAudienceFilter = {
+  member_ids?: string[];
   statuses?: Array<'registered' | 'invited' | 'joined' | 'opted_out'>;
   tags_any?: string[];
   tags_all?: string[];
@@ -1148,8 +1150,10 @@ export const campaignsApi = {
   update: (id: string, patch: Partial<Campaign>) =>
     req<Campaign>('PATCH', `/cms/campaigns/${id}`, patch),
   remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/campaigns/${id}`),
+  followUp: (id: string, body: { member_ids: string[]; statuses: Array<'registered' | 'invited' | 'joined'>; copy_content: boolean; source_filters: { engagement: string; status: string } }) =>
+    req<Campaign & { selected_member_count: number; rejected_member_ids: string[] }>('POST', `/cms/campaigns/${encodeURIComponent(id)}/follow-up`, body),
   previewAudience: (id: string) =>
-    req<{ count: number; excluded_count?: number; excluded_do_not_email?: Array<{ email: string; organisation_name?: string; reason: string; suppressed_at?: string | null }>; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
+    req<{ selection?: CampaignSelection; count: number; excluded_count?: number; excluded_do_not_email?: Array<{ email: string; organisation_name?: string; reason: string; suppressed_at?: string | null }>; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
       'POST', `/cms/campaigns/${id}/preview-audience`,
     ),
   renderPreview: (id: string) =>
