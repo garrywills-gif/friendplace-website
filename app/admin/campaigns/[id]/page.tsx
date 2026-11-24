@@ -16,7 +16,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { campaignRetryTransientApi } from '@/lib/campaign-retry-transient-api';
 import {
@@ -106,6 +106,9 @@ function recipientReference(r: CampaignRecipient, outreachNumbers: OutreachNumbe
 
 // ── The page ───────────────────────────────────────────────────
 export default function CampaignDetailPage() {
+  const router = useRouter();
+  const [creatingFollowUp, setCreatingFollowUp] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
   const params = useParams<{ id: string }>();
   const id = params?.id as string;
 
@@ -268,6 +271,16 @@ export default function CampaignDetailPage() {
   const isDraft = campaign.status === 'draft';
   const audienceKind = String((campaign as any).audience_filter?.audience_kind || '');
   const isOutreachCampaign = audienceKind === 'outreach' || audienceKind === 'outreach_contacts';
+  const selectedIds = [...new Set(filteredRecipients.filter(r => !hasComplaint(r) && !isCurrentlyBounced(r) && membershipByRecipient.get(r.id) !== 'unknown' && membershipByRecipient.get(r.id) !== 'opted_out').map(r => r.founder_id).filter(Boolean))];
+  const createFollowUp = async () => {
+    if (creatingFollowUp || !selectedIds.length || !members) return;
+    setCreatingFollowUp(true); setFollowUpError(null);
+    try {
+      const statuses: Array<'registered' | 'invited' | 'joined'> = membershipFilter === 'not_joined' ? ['registered', 'invited'] : membershipFilter === 'joined' ? ['joined'] : [];
+      const draft = await campaignsApi.followUp(id, { member_ids: selectedIds, statuses, copy_content: true, source_filters: { engagement: filter, status: membershipFilter } });
+      router.push(`/admin/campaigns/new?id=${encodeURIComponent(draft.id)}&rejected=${draft.rejected_member_ids?.length || 0}`);
+    } catch (e: any) { setFollowUpError(e?.message || 'Could not create follow-up draft'); setCreatingFollowUp(false); }
+  };
 
   // Count of recipients CURRENTLY eligible for retry — computed live
   // from the recipient rows, never from the (possibly stale) aggregate.
@@ -494,6 +507,13 @@ export default function CampaignDetailPage() {
               )}
               <div style={s.helper}>Current CRM status, not proof that this campaign caused a registration. Unmatched records are kept separate.</div>
               <div style={{ fontSize: 12, fontWeight: 700, marginTop: 6 }}>{filteredRecipients.length} recipients shown</div>
+              {!isDraft && members !== null && (
+                <div style={{ marginTop: 10 }}>
+                  <button type="button" style={s.primaryBtn} disabled={!selectedIds.length || creatingFollowUp} onClick={() => void createFollowUp()}>{creatingFollowUp ? 'Creating draft…' : `Create follow-up campaign (${selectedIds.length})`}</button>
+                  <div style={s.helper}>Creates a draft only. Bounced, complained, opted-out and unmatched records are excluded; eligibility is checked again before sending.</div>
+                  {followUpError && <div role="alert" style={{ color: '#B91C1C' }}>{followUpError}</div>}
+                </div>
+              )}
             </div>
           )}
           <div style={{ border: '1px solid #E2E8F0', borderRadius: 16, overflow: 'hidden', background: '#FFFFFF' }}>

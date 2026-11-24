@@ -24,6 +24,7 @@ import {
   segmentsApi,
   type Campaign,
   type CampaignAudienceFilter,
+  type CampaignSelection,
   type CampaignSender,
   type Segment,
 } from '@/lib/cms-api';
@@ -214,6 +215,9 @@ function ComposePanel() {
   const searchParams = useSearchParams();
   const editId = searchParams?.get('id') || null;
 
+  const [draftLoaded, setDraftLoaded] = useState(!editId);
+  const [lockedAudience, setLockedAudience] = useState<CampaignAudienceFilter | null>(null);
+  const [selection, setSelection] = useState<CampaignSelection | null>(null);
   const [name, setName] = useState('');
   const [template, setTemplate] = useState<Template>('announcement');
   // iter164o: signer expanded from {george, georgia} to
@@ -260,7 +264,7 @@ function ComposePanel() {
   const [tagInput, setTagInput] = useState('');
   // CRM Phase 2C \u2014 recipient mode toggle. `segment` uses a saved
   // segment; `custom` falls back to the classic statuses + tags builder.
-  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom' | 'outreach' | 'manual' | 'individual'>(
+  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom' | 'outreach' | 'manual' | 'individual' | 'selected'>(
     (searchParams?.get('segment_id') ? 'segment' : 'custom'),
   );
   const [segmentId, setSegmentId] = useState<string>(searchParams?.get('segment_id') || '');
@@ -402,7 +406,10 @@ function ComposePanel() {
         //   3. default -> 'custom'
         const af: any = c.audience_filter || {};
         const kind: string | undefined = af.audience_kind;
-        if (kind === 'outreach_contacts') {
+        if (kind === 'selected_members') {
+          setLockedAudience({ audience_kind: 'selected_members', member_ids: Array.isArray(af.member_ids) ? af.member_ids : [], statuses: af.statuses || [], exclude_reserved: true, exclude_opted_out: true });
+          setRecipientMode('selected');
+        } else if (kind === 'outreach_contacts') {
           setRecipientMode('outreach');
           setOutreachCategory(af.outreach?.category || '');
           setOutreachStatus(af.outreach?.status || '');
@@ -431,6 +438,7 @@ function ComposePanel() {
           // showing the Custom filter panel.
           setRecipientMode('custom');
         }
+        setDraftLoaded(true);
       } catch (e: any) {
         showToast(e?.message || 'Could not load campaign');
       }
@@ -440,6 +448,7 @@ function ComposePanel() {
   // Build the current audience payload in memory. This is used only when an
   // admin deliberately saves/sends/schedules; it must never trigger a save.
   const audienceFilter: CampaignAudienceFilter = useMemo(() => {
+    if (lockedAudience) return lockedAudience;
     if (recipientMode === 'outreach') {
       return {
         audience_kind: 'outreach_contacts',
@@ -474,7 +483,7 @@ function ComposePanel() {
           exclude_reserved: true,
           exclude_opted_out: true,
         };
-  }, [recipientMode, segmentId, statuses, tagsAny,
+  }, [lockedAudience, recipientMode, segmentId, statuses, tagsAny,
       outreachCategory, outreachStatus, manualList, individualEmail, individualName]);
 
   // Load saved segments once for the picker.
@@ -511,6 +520,7 @@ function ComposePanel() {
 
   // Explicit persistence path. Called only from Save Draft, Send, or Schedule.
   const saveDraft = useCallback(async (silent = false): Promise<string | null> => {
+    if (!draftLoaded) { showToast('Draft is not loaded yet.'); return null; }
     setSaving(true);
     try {
       if (recipientMode !== 'outreach') {
@@ -559,6 +569,7 @@ function ComposePanel() {
       try {
         const a = await campaignsApi.previewAudience(c.id);
         setAudienceCount(a.count);
+        setSelection(a.selection || null);
         setExcludedCount(a.excluded_count || 0);
         const r = await campaignsApi.renderPreview(c.id);
         setPreviewHtml(r.html || '');
@@ -571,7 +582,7 @@ function ComposePanel() {
     } finally {
       setSaving(false);
     }
-  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd,
+  }, [draftLoaded, campaignId, name, template, subject, preheader, companion, title, bodyMd,
       ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, includeAppLinks, countsAsInvitation, attachFile,
       recipientMode, fromEmail, replyTo, allowedSenders, senderLoading, senderError]);
 
@@ -593,6 +604,7 @@ function ComposePanel() {
       try {
         const a = await campaignsApi.previewAudience(campaignId);
         setAudienceCount(a.count);
+        setSelection(a.selection || null);
         setExcludedCount(a.excluded_count || 0);
         const r = await campaignsApi.renderPreview(campaignId);
         setPreviewHtml(r.html || '');
@@ -1042,7 +1054,14 @@ function ComposePanel() {
         <SectionCard title="Audience">
           {/* CRM Phase 2C — Recipient mode toggle */}
           <label style={s.label}>Recipient</label>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+          {lockedAudience ? (
+            <div style={{ padding: 12, border: '1px solid #99F6E4', borderRadius: 10 }}>
+              <strong>🔒 Selected recipients ({lockedAudience.member_ids?.length || 0})</strong>
+              <div style={s.helper}>Locked to the original selection. Membership filter: {lockedAudience.statuses?.join(', ') || 'Any eligible status'}. Eligibility is checked again at send time.</div>
+              {Number(searchParams?.get('rejected') || 0) > 0 && <div style={s.helper}>{Number(searchParams?.get('rejected'))} selected records were not included when creating the draft.</div>}
+              {selection && <div style={{ marginTop: 8 }}>{selection.not_eligible_count} no longer eligible{selection.not_eligible.length > 0 && <details><summary>View exclusions</summary>{selection.not_eligible.map(m => <div key={m.id}>{m.first_name || m.email} — {m.reason.replace(/_/g, ' ')}</div>)}</details>}</div>}
+            </div>
+          ) : <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
             {([
               { key: 'segment',    label: 'Saved segment',      hint: 'Pick a group you have already defined' },
               { key: 'custom',     label: 'Custom filter',      hint: 'Filter Founding Members by status + tags' },
@@ -1066,7 +1085,7 @@ function ComposePanel() {
                 </button>
               );
             })}
-          </div>
+          </div>}
 
           {/* iter160a — Outreach contacts mode */}
           {recipientMode === 'outreach' && (
@@ -1284,10 +1303,10 @@ function ComposePanel() {
         <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           {(() => {
             const missingSegment = recipientMode === 'segment' && !segmentId;
-            const cannotSend = !campaignId || !audienceCount || audienceCount === 0 || missingSegment;
+            const cannotSend = !draftLoaded || !campaignId || !audienceCount || audienceCount === 0 || missingSegment;
             return (
               <>
-                <button type="button" onClick={() => void saveDraft()} disabled={saving}
+                <button type="button" onClick={() => void saveDraft()} disabled={saving || !draftLoaded}
                   style={{ ...s.ghostBtn, opacity: saving ? 0.6 : 1 }}>
                   {saving ? 'Saving…' : 'Save draft'}
                 </button>
@@ -1412,7 +1431,7 @@ function ConfirmModal({
   sending, onCancel, onConfirm,
 }: {
   name: string; templateLabel: string; companion: string; audienceCount: number;
-  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual' | 'selected';
   segment: { id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null } | null;
   statuses: string[]; tagsAny: string[];
   outreachCategory: string; outreachStatus: string;
@@ -1453,6 +1472,7 @@ function ConfirmModal({
 
         <div style={rowLabel}>Audience</div>
         <div style={rowValue}>
+          {recipientMode === 'selected' && <div>🔒 Locked selected recipients only. Eligibility checked again before sending.</div>}
           {recipientMode === 'segment' && (
             segment ? (
               <div>
@@ -1573,7 +1593,7 @@ function ScheduleModal({
   name, audienceCount, recipientMode, sending, onCancel, onConfirm,
 }: {
   name: string; audienceCount: number;
-  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual' | 'selected';
   sending: boolean;
   onCancel: () => void;
   onConfirm: (localValue: string) => void;
