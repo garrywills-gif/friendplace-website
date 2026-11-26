@@ -99,15 +99,7 @@ function brandComposeHtml(html: string, includeFooter: boolean) {
 }
 
 function syncSidebarUnreadBadge(count: number) {
-  // AdminShell owns the sidebar state, but reading a message happens inside this
-  // child page. Update the visible badge immediately for a responsive click,
-  // while the normal polling/route refresh remains the source of truth.
-  const inboxLink = document.querySelector<HTMLAnchorElement>('a[href="/admin/inbox"]');
-  const badge = inboxLink?.querySelector<HTMLElement>('span[aria-label$=" pending"]');
-  if (!badge) return;
-  badge.textContent = count > 99 ? '99+' : String(Math.max(0, count));
-  badge.style.display = count > 0 ? 'inline-flex' : 'none';
-  badge.setAttribute('aria-label', `${Math.max(0, count)} pending`);
+  window.dispatchEvent(new CustomEvent('friendplace:inbox-unread-count', { detail: count }));
 }
 
 function InboxPanel() {
@@ -148,8 +140,12 @@ function InboxPanel() {
   const [newAddr, setNewAddr] = useState('');
   const [newLabel, setNewLabel] = useState('');
 
+  const silentRefreshRunning = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
+    if (silent && silentRefreshRunning.current) return;
+    if (silent) { silentRefreshRunning.current = true; setRefreshing(true); }
     if (!silent) setLoading(true);
     try {
       // Sent view: list our outbound replies (no unread chips needed).
@@ -182,6 +178,7 @@ function InboxPanel() {
       }
 
       setRows(r.rows);
+      syncSidebarUnreadBadge((unreadR.rows || []).length);
       setMailboxes(r.mailboxes.map((mb) => ({
         ...mb,
         unread: unreadByMailbox.get(mb.address) || 0,
@@ -192,6 +189,7 @@ function InboxPanel() {
       // state, but a real error still needs to be visible to the admin.
       setError(e?.message || 'Failed to load inbox.');
     } finally {
+      if (silent) { silentRefreshRunning.current = false; setRefreshing(false); }
       if (!silent) setLoading(false);
     }
   }, [mailbox, view, archived, unreadOnly]);
@@ -199,19 +197,13 @@ function InboxPanel() {
   useEffect(() => { void load(); }, [load]);
 
   // Keep the inbox live without requiring a browser refresh. Poll quietly while
-  // visible, and refresh immediately when the admin returns to the tab/window.
+  // visible, once every hour. Manual refresh is available above the list.
   useEffect(() => {
     const refreshIfVisible = () => {
       if (document.visibilityState === 'visible') void load({ silent: true });
     };
-    const timer = window.setInterval(refreshIfVisible, 10000);
-    window.addEventListener('focus', refreshIfVisible);
-    document.addEventListener('visibilitychange', refreshIfVisible);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refreshIfVisible);
-      document.removeEventListener('visibilitychange', refreshIfVisible);
-    };
+    const timer = window.setInterval(refreshIfVisible, 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   const totalUnread = useMemo(
@@ -456,6 +448,7 @@ function InboxPanel() {
             count={mb.unread || 0}
             title={mb.address} />
         ))}
+        <button type="button" disabled={loading || refreshing} onClick={() => void load({ silent: true })} style={manageBtn}>{refreshing ? 'Refreshing…' : '↻ Refresh'}</button>
         <button type="button" onClick={() => setManageOpen((v) => !v)} style={manageBtn}>
           ⚙︎ Manage
         </button>
