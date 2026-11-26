@@ -148,41 +148,16 @@ function InboxPanel() {
     if (silent) { silentRefreshRunning.current = true; setRefreshing(true); }
     if (!silent) setLoading(true);
     try {
-      // Sent view: list our outbound replies (no unread chips needed).
-      if (view === 'sent') {
-        const r = await inboxApi.listSent({ mailbox: mailbox || undefined, limit: 300 });
-        setRows(r.rows);
-        setError(null);
-        return;
-      }
-      // Fetch the current view and a tiny unread-only view in parallel.
-      // The second response lets Mission Control calculate reliable per-mailbox
-      // unread badges even if the backend mailbox metadata is stale.
-      const [r, unreadR] = await Promise.all([
-        inboxApi.list({
-          mailbox: mailbox || undefined,
-          archived,
-          read: unreadOnly ? false : undefined,
-          limit: 300,
-        }),
-        inboxApi.list({
-          archived: false,
-          read: false,
-          limit: 300,
-        }),
+      // Fetch lightweight list rows and authoritative unread conversation counts.
+      const [r, summary] = await Promise.all([
+        view === 'sent'
+          ? inboxApi.listSent({ mailbox: mailbox || undefined, limit: 300 })
+          : inboxApi.list({ mailbox: mailbox || undefined, archived, read: unreadOnly ? false : undefined, limit: 300 }),
+        inboxApi.unreadSummary(),
       ]);
-
-      const unreadByMailbox = new Map<string, number>();
-      for (const message of unreadR.rows || []) {
-        unreadByMailbox.set(message.mailbox, (unreadByMailbox.get(message.mailbox) || 0) + 1);
-      }
-
       setRows(r.rows);
-      syncSidebarUnreadBadge((unreadR.rows || []).length);
-      setMailboxes(r.mailboxes.map((mb) => ({
-        ...mb,
-        unread: unreadByMailbox.get(mb.address) || 0,
-      })));
+      setMailboxes(summary.mailboxes);
+      syncSidebarUnreadBadge(summary.count);
       setError(null);
     } catch (e: any) {
       // Background polling should not replace a working inbox with a loading
@@ -396,10 +371,17 @@ function InboxPanel() {
     finally { setBusy(null); }
   };
 
-  const openSent = (m: InboxMessage) => {
+  const openSent = async (m: InboxMessage) => {
     setNotice(null); setPreview(null); setReplyText(''); setReplyHtml(''); setAttachments([]);
     if (replyEditorRef.current) replyEditorRef.current.innerHTML = '';
-    setSelected(m); setThread([]);
+    setSelected(null); setThread([]);
+    try {
+      const r = await inboxApi.get(m.id);
+      setSelected(r.message);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || 'Could not open sent email.');
+    }
   };
 
   const applyReplyFormat = (command: 'bold' | 'italic' | 'underline' | 'insertUnorderedList') => {
