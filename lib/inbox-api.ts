@@ -30,6 +30,8 @@ export type InboxMessage = {
   sent_by?: string | null;
 };
 
+export type UnreadSummary = { count: number; mailboxes: Mailbox[] };
+
 export type InboxListResponse = {
   count: number;
   rows: InboxMessage[];
@@ -180,21 +182,15 @@ export const inboxApi = {
     const qs = new URLSearchParams();
     if (opts?.mailbox) qs.set('mailbox', opts.mailbox);
     qs.set('limit', String(opts?.limit ?? 200));
+    qs.set('include_body', 'false');
     const r = await req<{ count: number; rows: InboxMessage[] }>('GET', `/cms/email/sent?${qs.toString()}`);
     return { ...r, rows: (r.rows || []).map(canonicalMessage) };
   },
   deleteMessage: (id: string) =>
     req<{ ok: true; deleted: string }>('DELETE', `/cms/email/messages/${encodeURIComponent(id)}`),
+  unreadSummary: () => req<UnreadSummary>('GET', '/cms/email/unread-summary'),
   unreadCount: async () => {
-    const r = await req<InboxListResponse>(
-      'GET',
-      `/cms/email/messages?${listQuery({ archived: false, read: false, limit: 300 })}`,
-    );
-    const managed = new Set(r.mailboxes.map((mb) => canonicalMailboxAddress(mb.address)));
-    const count = (r.rows || [])
-      .map(canonicalMessage)
-      .filter((m) => managed.has(m.mailbox))
-      .length;
-    return { count };
+    const r = await req<UnreadSummary>('GET', '/cms/email/unread-summary');
+    return { count: r.count };
   },
 };

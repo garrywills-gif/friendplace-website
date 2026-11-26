@@ -135,6 +135,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [unreadReplies, setUnreadReplies] = useState<number>(0);
   const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
   const [unreadInbox, setUnreadInbox] = useState<number>(0);
+  const [inboxRefreshing, setInboxRefreshing] = useState(false);
+  const inboxRefreshRef = useRef<(() => void) | null>(null);
   const [pendingGroups, setPendingGroups] = useState<number>(0);
 
   useEffect(() => {
@@ -185,12 +187,6 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         // Silent fail — enquiries badge stays at last known value.
       }
       try {
-        const res = await inboxApi.unreadCount();
-        if (!cancelled) setUnreadInbox(res.count ?? 0);
-      } catch {
-        // Silent fail — inbox badge stays at last known value.
-      }
-      try {
         const res = await pendingGroupsApi.list();
         if (!cancelled) setPendingGroups(res.count ?? 0);
       } catch {
@@ -202,31 +198,40 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 
   // Inbox messages can arrive while the admin stays on the same page. Keep the
   // navigator Inbox badge live just like the Inbox page itself: refresh every
-  // 10 seconds while visible and immediately when the tab/window regains focus.
+  // 60 minutes while visible, or on manual request.
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
 
+    let running = false;
     const refreshInboxBadge = async () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || running) return;
+      running = true;
+      setInboxRefreshing(true);
       try {
         const res = await inboxApi.unreadCount();
         if (!cancelled) setUnreadInbox(res.count ?? 0);
       } catch {
-        // Silent fail — preserve the last known Inbox badge value.
+        // Preserve the last known Inbox badge value.
+      } finally {
+        running = false;
+        if (!cancelled) setInboxRefreshing(false);
       }
     };
-
+    const syncCount = (event: Event) => {
+      const count = (event as CustomEvent<number>).detail;
+      if (Number.isFinite(count)) setUnreadInbox(Math.max(0, count));
+    };
+    inboxRefreshRef.current = () => void refreshInboxBadge();
     void refreshInboxBadge();
-    const timer = window.setInterval(refreshInboxBadge, 10000);
-    window.addEventListener('focus', refreshInboxBadge);
-    document.addEventListener('visibilitychange', refreshInboxBadge);
+    const timer = window.setInterval(refreshInboxBadge, 60 * 60 * 1000);
+    window.addEventListener('friendplace:inbox-unread-count', syncCount);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      window.removeEventListener('focus', refreshInboxBadge);
-      document.removeEventListener('visibilitychange', refreshInboxBadge);
+      inboxRefreshRef.current = null;
+      window.removeEventListener('friendplace:inbox-unread-count', syncCount);
     };
   }, [ready]);
 
@@ -353,6 +358,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           ))}
         </nav>
 
+        <button type="button" disabled={inboxRefreshing} onClick={() => inboxRefreshRef.current?.()} style={{ ...footerBtn, margin: '0 20px 12px', cursor: inboxRefreshing ? 'wait' : 'pointer' }} title="Refresh unread email count; automatic refresh every 60 minutes">{inboxRefreshing ? 'Checking email…' : '↻ Refresh email count'}</button>
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
           <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 15, marginBottom: 12, wordBreak: 'break-word' }}>
