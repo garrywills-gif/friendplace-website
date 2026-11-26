@@ -24,6 +24,8 @@ type Msg = {
   id: string; created_at: string; from_email?: string; recipient: string; subject: string; category: string;
   body_md: string; sent_by_email?: string; status: string; error?: string | null;
   events?: { type: string; at: string; detail?: string }[];
+  source?: 'member_email' | 'inbox' | 'campaign'; direction?: 'inbound' | 'outbound';
+  mailbox?: string; html?: string; text?: string; campaign_name?: string;
 };
 
 async function call(method: string, path: string, body?: any) {
@@ -202,7 +204,7 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
           'Send this email?\\n\\nFrom: ' + fromEmail +
           '\\nTo: ' + memberEmail + '\\nGreeting: Dear ' + greetingOverride.trim() +
           ',\\nSubject: ' + subject +
-          '\\n\\nA copy will be in Inbox → Sent, not Member Email History.'
+          '\\n\\nA copy will be in Inbox → Sent and Member Email History.'
         );
         if (!ok) return;
         await inboxApi.compose({
@@ -210,7 +212,7 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
           subject: subject.trim(), body_html: letter.html, body_text: letter.text,
         });
         setMsg('✓ Email sent to ' + memberEmail + ' with greeting Dear ' + greetingOverride.trim() +
-          '. View the copy under Inbox → Sent.');
+          '. View the copy under Inbox → Sent or Member Email History.');
         setSubject(''); setBodyHtml(''); setGreetingOverride(''); setPreviewHtml(null);
         setCategory('general'); setSigner('team'); setHistory(null);
         return;
@@ -240,8 +242,8 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
     <div style={box} data-testid={`member-email-panel-${memberId}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12, fontWeight: 900, color: '#0A2540', marginRight: 'auto' }}>Member communications</div>
-        <button data-testid={`member-email-send-${memberId}`} style={btn(mode === 'compose')} onClick={() => { setMsg(null); setMode(mode === 'compose' ? 'none' : 'compose'); }}>✉️ Send Email</button>
-        <button data-testid={`member-email-history-${memberId}`} style={btn(mode === 'history')} onClick={() => { setMsg(null); setMode(mode === 'history' ? 'none' : 'history'); }}>🕘 Email History</button>
+        <button type="button" data-testid={`member-email-send-${memberId}`} style={btn(mode === 'compose')} onClick={() => { setMsg(null); setMode(mode === 'compose' ? 'none' : 'compose'); }}>✉️ Send Email</button>
+        <button type="button" data-testid={`member-email-history-${memberId}`} style={btn(mode === 'history')} onClick={() => { setMsg(null); setMode(mode === 'history' ? 'none' : 'history'); }}>🕘 Email History</button>
       </div>
 
       {msg && <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 700, color: msg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{msg}</div>}
@@ -282,7 +284,7 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
           <label style={label}>Address recipient as (optional)</label>
           <input data-testid="member-email-greeting-name" value={greetingOverride} onChange={e => { setGreetingOverride(e.target.value); setPreviewHtml(null); }} maxLength={80} style={input} placeholder="e.g. Patti — blank uses saved member name" />
           {greetingOverride.trim() && <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 4 }}>
-            The email will start “Dear {greetingOverride.trim()},”. Custom greetings are sent through Inbox and recorded under Inbox → Sent.
+            The email will start “Dear {greetingOverride.trim()},”. Custom greetings are sent through Inbox and recorded in Sent and Member Email History.
           </div>}
           <label style={label}>Subject</label>
           <input data-testid="member-email-subject" value={subject} onChange={e => setSubject(e.target.value)} maxLength={300} style={input} />
@@ -312,21 +314,28 @@ export function MemberEmailPanel({ kind, memberId, memberEmail }: { kind: Kind; 
       {mode === 'history' && (
         <div style={{ marginTop: 10 }}>
           {!history ? <div style={{ fontSize: 12.5, color: '#64748B' }}>Loading…</div> : history.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: '#64748B' }}>No emails have been sent to this member from MCGS.</div>
+            <div style={{ fontSize: 12.5, color: '#64748B' }}>No emails to or from this member yet.</div>
           ) : history.map(h => (
-            <div key={h.id} style={{ borderTop: '1px solid #F1F5F9', padding: '8px 0' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer' }} onClick={() => setOpenId(openId === h.id ? null : h.id)}>
+            <div key={`${h.source || 'm'}-${h.id}`} style={{ borderTop: '1px solid #F1F5F9', padding: '8px 0' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer' }} onClick={() => setOpenId(openId === `${h.source || 'm'}-${h.id}` ? null : `${h.source || 'm'}-${h.id}`)}>
+                <span style={{ fontSize: 11, fontWeight: 900, borderRadius: 6, padding: '1px 6px', color: h.direction === 'inbound' ? '#1D4ED8' : '#0F766E', background: h.direction === 'inbound' ? '#DBEAFE' : '#CCFBF1' }}>
+                  {h.direction === 'inbound' ? '⬅ Received' : h.source === 'campaign' ? '📣 Campaign' : '➡ Sent'}
+                </span>
                 {h.category === 'formal_warning' && <span style={{ fontSize: 11, fontWeight: 900, color: '#92400E', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '1px 6px' }}>⚠️ FORMAL WARNING</span>}
                 <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 13 }}>{h.subject}</span>
                 <span style={{ fontSize: 11.5, color: STATUS_COLOR[h.status] || '#64748B', fontWeight: 800, textTransform: 'capitalize' }}>{h.status}</span>
                 <span style={{ fontSize: 11.5, color: '#64748B', marginLeft: 'auto' }}>{fmt(h.created_at)}</span>
               </div>
               <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>
-                {catLabel[h.category] || h.category} · From {h.from_email || '—'} → {h.recipient} · by {h.sent_by_email || '—'}
+                Mailbox {h.mailbox || h.from_email || '—'} · {h.direction === 'inbound' ? `From ${h.from_email || '—'}` : `To ${h.recipient}`}
+                {h.source === 'campaign' && h.campaign_name ? ` · Campaign: ${h.campaign_name}` : ''}
+                {(!h.source || h.source === 'member_email') ? ` · ${catLabel[h.category] || h.category} · by ${h.sent_by_email || '—'}` : ''}
               </div>
-              {openId === h.id && (
+              {openId === `${h.source || 'm'}-${h.id}` && (
                 <div style={{ marginTop: 6, fontSize: 12.5, color: '#334155', whiteSpace: 'pre-wrap', background: '#F8FAFC', borderRadius: 8, padding: 10 }}>
-                  {h.body_md}
+                  {h.html ? (
+                    <iframe title={h.subject} srcDoc={'<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src data:; base-uri &apos;none&apos;; form-action &apos;none&apos;">' + h.html} sandbox="" referrerPolicy="no-referrer" style={{ width: '100%', height: 420, border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff' }} />
+                  ) : <div style={{ whiteSpace: 'pre-wrap' }}>{h.text || h.body_md}</div>}
                   {h.error && <div style={{ color: '#B91C1C', marginTop: 6 }}>Error: {h.error}</div>}
                   {(h.events || []).length > 0 && (
                     <div style={{ marginTop: 6, color: '#64748B' }}>
