@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, Fragment, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi, repliesApi, pendingGroupsApi } from '@/lib/cms-api';
 import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
@@ -319,8 +319,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                             ? pendingGroups
                             : 0;
                 return (
+                  <Fragment key={item.href}>
                   <Link
-                    key={item.href}
                     href={item.href}
                     target={item.external ? '_blank' : undefined}
                     rel={item.external ? 'noopener noreferrer' : undefined}
@@ -352,13 +352,20 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                       </span>
                     )}
                   </Link>
+                  {item.badgeKey === 'inbox' && (
+                    <button type="button" disabled={inboxRefreshing} onClick={() => inboxRefreshRef.current?.()}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: 'calc(100% - 40px)', margin: '2px 20px 6px', padding: '7px 10px', minHeight: 32, flexShrink: 0, boxSizing: 'border-box', border: '1px solid rgba(94,234,212,0.35)', borderRadius: 7, background: 'transparent', color: '#5EEAD4', fontSize: 12, fontWeight: 700, textAlign: 'left', cursor: inboxRefreshing ? 'wait' : 'pointer' }}
+                      title="Refresh unread email count; automatic refresh every 60 minutes">
+                      <span aria-hidden>↻</span>{inboxRefreshing ? 'Checking email…' : 'Refresh email count'}
+                    </button>
+                  )}
+                  </Fragment>
                 );
               })}
             </div>
           ))}
         </nav>
 
-        <button type="button" disabled={inboxRefreshing} onClick={() => inboxRefreshRef.current?.()} style={{ ...footerBtn, margin: '0 20px 12px', cursor: inboxRefreshing ? 'wait' : 'pointer' }} title="Refresh unread email count; automatic refresh every 60 minutes">{inboxRefreshing ? 'Checking email…' : '↻ Refresh email count'}</button>
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
           <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 15, marginBottom: 12, wordBreak: 'break-word' }}>
